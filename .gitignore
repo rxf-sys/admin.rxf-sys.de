@@ -1,0 +1,29 @@
+# --- Secrets ---
+.env
+.env.local
+*.pem
+*.key
+
+# --- Backend (Python) ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Frontend (Node) ---
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
