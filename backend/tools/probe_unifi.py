@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """UniFi Integration API probe.
 
-Dumps the raw responses for a battery of candidate endpoints so we can see
-exactly which paths the controller exposes and what shape the bodies have.
-Reads UNIFI_HOST / UNIFI_PORT / UNIFI_API_KEY from environment (or from the
-.env file next to docker-compose.yml).
+Hits each documented endpoint of the official UniFi Network Integration API
+(developer.ui.com, v10.x) and dumps the raw responses so we can see what
+shapes the controller actually returns. Useful when adapting the live client
+to a different firmware revision.
 
-Run from the LXC:
+Reads UNIFI_HOST / UNIFI_PORT / UNIFI_API_KEY / UNIFI_SITE / UNIFI_VERIFY_TLS
+from environment, falling back to .env files in standard locations.
 
-    cd /opt/rxf-admin/backend
-    python -m tools.probe_unifi
+Run from the LXC::
 
-(or from the host if you have python+httpx)::
+    cd /opt/rxf-admin
+    docker compose exec backend python -m tools.probe_unifi
 
-    UNIFI_HOST=192.168.2.1 UNIFI_API_KEY=xxxx python tools/probe_unifi.py
+Or directly on a machine with httpx::
+
+    UNIFI_HOST=192.168.2.1 UNIFI_API_KEY=xxx python tools/probe_unifi.py
 """
 
 from __future__ import annotations
@@ -25,7 +28,6 @@ from pathlib import Path
 
 import httpx
 
-# Try to load .env files in known locations so the script "just works".
 _SEARCH_PATHS = [
     Path.cwd() / ".env",
     Path.cwd().parent / "infrastructure" / ".env",
@@ -53,36 +55,9 @@ if not KEY:
     print("ERROR: UNIFI_API_KEY is empty. Set it in env or .env first.", file=sys.stderr)
     sys.exit(2)
 
-BASE = f"https://{HOST}:{PORT}"
-# Per developer.ui.com docs the header name is "X-API-Key" (mixed case).
-# HTTP headers are technically case-insensitive but some implementations
-# are picky, so match the documented spelling.
-HEADERS = {
-    "X-API-Key": KEY,
-    "Accept": "application/json",
-}
-
-# Ordered list of candidate base paths to probe.
-ROOTS = [
-    "/proxy/network/integration/v1",   # most likely on current firmware
-    "/proxy/network/integrations/v1",  # earlier preview path (plural)
-    "/proxy/network/v2/api/site",      # newer experimental
-    "/v1",                              # cloud-style fallback
-]
-
-# Endpoint suffixes to try once we have a working root.
-PROBES = [
-    "/sites",
-    "/sites/{site}",
-    "/sites/{site}/clients",
-    "/sites/{site}/devices",
-    "/sites/{site}/networks",
-    "/sites/{site}/site-overview",
-    "/sites/{site}/internet",
-    "/sites/{site}/wan",
-    "/sites/{site}/health",
-    "/sites/{site}/stats",
-]
+# Per developer.ui.com (Local connection type, Network v10.1.84):
+BASE = f"https://{HOST}:{PORT}/proxy/network/integration/v1"
+HEADERS = {"X-API-Key": KEY, "Accept": "application/json"}
 
 SEPARATOR = "─" * 78
 
@@ -100,59 +75,62 @@ def hit(client: httpx.Client, url: str) -> tuple[int, str, str]:
 
 def main() -> int:
     print(f"Probing UniFi at {BASE}")
-    print(f"Auth header: X-API-KEY (length {len(KEY)})")
+    print(f"Auth header: X-API-Key (length {len(KEY)})")
     print(f"Configured site: {SITE!r}")
     print(SEPARATOR)
 
     with httpx.Client(verify=VERIFY) as client:
-        # Step 1: find a root that responds 2xx for /sites.
-        chosen_root: str | None = None
-        for root in ROOTS:
-            url = f"{BASE}{root}/sites"
-            status, ct, body = hit(client, url)
-            print(f"GET  {url}")
-            print(f"  -> status={status}  content-type={ct}")
-            print(f"  body: {body[:400]}")
-            print()
-            if status == 200 and "json" in (ct or ""):
-                chosen_root = root
-                break
+        # /info — should return controller version + features
+        url = f"{BASE}/info"
+        status, ct, body = hit(client, url)
+        print("GET  /info")
+        print(f"  -> status={status}  content-type={ct}")
+        print(f"  body: {body[:400]}")
+        print()
 
-        if not chosen_root:
+        # /sites — must work; we extract a siteId from this
+        url = f"{BASE}/sites"
+        status, ct, body = hit(client, url)
+        print("GET  /sites")
+        print(f"  -> status={status}  content-type={ct}")
+        print(f"  body: {body[:600]}")
+        print()
+
+        if status != 200 or "json" not in (ct or ""):
             print(SEPARATOR)
-            print("No integration API root responded with JSON 200.")
+            print("Cannot continue: /sites did not return JSON 200.")
             print("Possible reasons:")
-            print("  - API key not yet activated (re-create in UniFi UI)")
-            print("  - Firmware too old; integration API requires Network 8.x+")
-            print("  - LXC cannot reach the controller (try: curl -k https://%s:%d/)" % (HOST, PORT))
+            print("  - API key invalid or not yet activated")
+            print("  - Firmware too old (Integration API needs Network 8.x+)")
+            print("  - LXC cannot reach the controller — try:")
+            print(f"      curl -k https://{HOST}:{PORT}/")
             return 1
 
-        print(SEPARATOR)
-        print(f"Using root: {chosen_root}")
-        print(SEPARATOR)
-
-        # Step 2: extract a site id from /sites response.
-        url = f"{BASE}{chosen_root}/sites"
-        status, ct, body = hit(client, url)
-        site_id = SITE
         try:
             parsed = json.loads(body if not body.endswith("truncated") else body.split("\n")[0])
             sites_list = parsed.get("data", parsed) if isinstance(parsed, dict) else parsed
+            site_id = SITE
             if isinstance(sites_list, list) and sites_list:
                 first = sites_list[0]
-                site_id = first.get("id") or first.get("siteId") or first.get("name") or SITE
+                site_id = first.get("id") or first.get("name") or SITE
                 print(f"First site object keys: {list(first.keys())}")
                 print(f"Using siteId: {site_id!r}")
         except (json.JSONDecodeError, ValueError, AttributeError):
+            site_id = SITE
             print(f"Could not parse /sites JSON; falling back to UNIFI_SITE={SITE!r}")
         print(SEPARATOR)
 
-        # Step 3: probe each endpoint and dump.
-        for suffix in PROBES:
-            path = suffix.replace("{site}", str(site_id))
-            url = f"{BASE}{chosen_root}{path}"
+        # Documented endpoints we want to inspect
+        for path in [
+            f"/sites/{site_id}",
+            f"/sites/{site_id}/networks",
+            f"/sites/{site_id}/clients",
+            f"/sites/{site_id}/devices",
+            f"/sites/{site_id}/wlans",  # WiFi Broadcasts
+        ]:
+            url = f"{BASE}{path}"
             status, ct, body = hit(client, url)
-            print(f"GET  {chosen_root}{path}")
+            print(f"GET  {path}")
             print(f"  -> status={status}  content-type={ct}")
             print(f"  body: {body[:600]}")
             print()
