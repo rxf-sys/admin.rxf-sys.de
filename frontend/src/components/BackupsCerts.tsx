@@ -81,51 +81,63 @@ export function BackupsCerts({ backups, certs }: Props) {
               </span>
             </h3>
           </div>
-          <table className="cert-table">
-            <thead>
-              <tr>
-                <th>Domain</th>
-                <th>Issuer</th>
-                <th style={{ textAlign: 'right' }}>Days left</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(certs?.certs ?? []).map((c) => (
-                <tr key={`${c.domain}-${c.issuer}`}>
-                  <td className="mono" style={{ fontSize: 13 }}>
-                    {c.domain}
-                  </td>
-                  <td className="dim" style={{ fontSize: 12 }}>
-                    {c.issuer}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <span className="mono" style={{ color: certColor(c.days_left), fontWeight: 600 }}>
-                      {c.days_left}d
-                    </span>
-                  </td>
+          {certs && certs.certs.length === 0 ? (
+            <div className="dimmer mono" style={{ fontSize: 11, padding: 12 }}>
+              Keine Zertifikate gefunden — Cloudflare-Zone-ID & API-Token prüfen
+            </div>
+          ) : (
+            <table className="cert-table">
+              <thead>
+                <tr>
+                  <th>Domain</th>
+                  <th>Issuer</th>
+                  <th style={{ textAlign: 'right' }}>Days left</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(certs?.certs ?? []).map((c) => (
+                  <tr key={`${c.domain}-${c.issuer}`}>
+                    <td className="mono" style={{ fontSize: 13 }}>
+                      {c.domain}
+                    </td>
+                    <td className="dim" style={{ fontSize: 12 }}>
+                      {c.issuer}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span className="mono" style={{ color: certColor(c.days_left), fontWeight: 600 }}>
+                        {c.days_left}d
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
-          {certs?.dns && certs.dns.length > 0 && (
+          {certs && (
             <div style={{ padding: '12px 18px 18px', borderTop: '1px solid var(--border)' }}>
               <div className="dimmer" style={{ fontSize: 11, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 DNS · CNAME → cfargotunnel.com
               </div>
-              <div className="job-list">
-                {certs.dns.map((d) => (
-                  <div key={d.name} className="job-row" style={{ padding: '6px 0' }}>
-                    <Dot status={d.ok ? 'ok' : 'err'} />
-                    <span className="mono" style={{ fontSize: 12, flex: 1 }}>
-                      {d.name}
-                    </span>
-                    <span className="mono dimmer" style={{ fontSize: 11 }}>
-                      {d.type}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {certs.dns.length === 0 ? (
+                <div className="dimmer mono" style={{ fontSize: 11 }}>
+                  Keine DNS-Records — Tunnel-ID konfigurieren
+                </div>
+              ) : (
+                <div className="job-list">
+                  {certs.dns.map((d) => (
+                    <div key={d.name} className="job-row" style={{ padding: '6px 0' }}>
+                      <Dot status={d.ok ? 'ok' : 'err'} />
+                      <span className="mono" style={{ fontSize: 12, flex: 1 }}>
+                        {d.name}
+                      </span>
+                      <span className="mono dimmer" style={{ fontSize: 11 }}>
+                        {d.type}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

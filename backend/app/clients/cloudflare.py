@@ -20,13 +20,40 @@ def _auth(settings: Settings) -> dict[str, str]:
     return {"Authorization": f"Bearer {settings.cf_api_token}"}
 
 
+_RETRY_STATUSES = {429, 500, 502, 503, 504}
+
+
 async def _get(client: httpx.AsyncClient, settings: Settings, path: str) -> dict | list:
-    r = await client.get(f"{CF_API}{path}", headers=_auth(settings))
-    r.raise_for_status()
-    body = r.json()
-    if not body.get("success", False):
-        raise httpx.HTTPError(f"CF API error: {body.get('errors')}")
-    return body.get("result", {})
+    """GET with exponential backoff on 429/5xx (max 3 attempts: 0.5s, 1s)."""
+    import asyncio
+
+    delay = 0.5
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            r = await client.get(f"{CF_API}{path}", headers=_auth(settings))
+        except httpx.HTTPError as e:
+            last_exc = e
+            if attempt == 2:
+                raise
+            await asyncio.sleep(delay)
+            delay *= 2
+            continue
+        if r.status_code in _RETRY_STATUSES and attempt < 2:
+            log.info("cloudflare.retry", path=path, status=r.status_code, attempt=attempt + 1)
+            retry_after = r.headers.get("Retry-After")
+            wait = float(retry_after) if retry_after and retry_after.isdigit() else delay
+            await asyncio.sleep(min(wait, 5.0))
+            delay *= 2
+            continue
+        r.raise_for_status()
+        body = r.json()
+        if not body.get("success", False):
+            raise httpx.HTTPError(f"CF API error: {body.get('errors')}")
+        return body.get("result", {})
+    if last_exc:
+        raise last_exc
+    raise httpx.HTTPError(f"CF API exhausted retries for {path}")
 
 
 async def fetch_tunnel_status(settings: Settings) -> TunnelStatus:

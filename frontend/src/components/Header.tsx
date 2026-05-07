@@ -66,7 +66,10 @@ export function Header(p: HeaderProps) {
 
       <div className="hdr-right">
         <div className="hdr-meta">
-          <span className="dimmer" style={{ fontSize: 11 }}>
+          <span className="dimmer" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {p.refreshing && (
+              <span className="poll-pulse" aria-label="Daten werden aktualisiert" />
+            )}
             Last refresh
           </span>
           <span className="mono" style={{ fontSize: 12, color: 'var(--text-2)' }}>

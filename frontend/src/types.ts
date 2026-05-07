@@ -128,3 +128,12 @@ export interface Identity {
   sub: string | null;
   aud: string | null;
 }
+
+export interface GuestTask {
+  upid: string | null;
+  type: string | null;
+  user: string | null;
+  status: string;
+  starttime: number;
+  endtime: number | null;
+}

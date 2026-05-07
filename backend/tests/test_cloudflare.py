@@ -59,6 +59,34 @@ async def test_tunnel_status_healthy(settings):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_tunnel_status_retries_on_rate_limit(settings, monkeypatch):
+    # Make backoff sleeps no-ops so the test stays fast.
+    import asyncio as _asyncio
+
+    async def _fake_sleep(_s: float) -> None:
+        return None
+
+    monkeypatch.setattr(_asyncio, "sleep", _fake_sleep)
+
+    tunnel_url = f"{CF}/accounts/{settings.cf_account_id}/cfd_tunnel/{settings.cf_tunnel_id}"
+    route = respx.get(tunnel_url).mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "0"}),
+            httpx.Response(200, json={"success": True, "result": {"status": "healthy"}}),
+        ]
+    )
+    respx.get(f"{tunnel_url}/connections").respond(
+        200, json={"success": True, "result": []}
+    )
+
+    t = await cloudflare.fetch_tunnel_status(settings)
+
+    assert route.call_count == 2
+    assert t.status == "healthy"
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_certs_dedupes_and_sorts(settings):
     soon = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat().replace("+00:00", "Z")
     later = (datetime.now(timezone.utc) + timedelta(days=80)).isoformat().replace("+00:00", "Z")

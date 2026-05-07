@@ -119,6 +119,55 @@ async def test_fetch_guests_maps_lxc_and_qemu(settings):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_fetch_guest_tasks(settings):
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/tasks?vmid=101&limit=5").respond(
+        200,
+        json={
+            "data": [
+                {
+                    "upid": "UPID:test:1",
+                    "type": "vzreboot",
+                    "user": "root@pam",
+                    "status": "OK",
+                    "starttime": 1700000000,
+                    "endtime": 1700000010,
+                },
+                {
+                    "upid": "UPID:test:2",
+                    "type": "vzstart",
+                    "user": "root@pam",
+                    "status": "OK",
+                    "starttime": 1700000050,
+                    "endtime": 0,
+                },
+            ]
+        },
+    )
+
+    tasks = await proxmox.fetch_guest_tasks(settings, 101, limit=5)
+
+    assert len(tasks) == 2
+    assert tasks[0]["upid"] == "UPID:test:1"
+    assert tasks[0]["status"] == "OK"
+    assert tasks[1]["endtime"] is None  # 0 is normalized
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_guest_tasks_returns_empty_on_error(settings):
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/tasks?vmid=101&limit=10").mock(
+        side_effect=httpx.ConnectError("nope")
+    )
+
+    tasks = await proxmox.fetch_guest_tasks(settings, 101)
+
+    assert tasks == []
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_restart_guest_lxc(settings):
     base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
     route = respx.post(

@@ -1,6 +1,7 @@
 import type {
   BackupSummary,
   CertsSnapshot,
+  GuestTask,
   Identity,
   NetworkSnapshot,
   ServiceStatus,
@@ -47,6 +48,8 @@ export const api = {
   certs: (signal?: AbortSignal) => get<CertsSnapshot>('/api/certs', signal),
   restartGuest: (vmid: number, type: 'lxc' | 'qemu') =>
     post<{ ok: boolean }>(`/api/system/guests/${vmid}/restart?type=${type}`),
+  guestTasks: (vmid: number, signal?: AbortSignal) =>
+    get<{ tasks: GuestTask[] }>(`/api/system/guests/${vmid}/tasks?limit=8`, signal),
 };
 
 export { ApiError };
