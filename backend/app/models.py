@@ -94,6 +94,8 @@ class BackupSummary(BaseModel):
     last_success_iso: str | None = None
     success_today: int = 0
     total_today: int = 0
+    reachable: bool = True
+    error: str | None = None
 
 
 # ---------- Network / UniFi ----------

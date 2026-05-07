@@ -6,6 +6,7 @@ interface Props {
   services: ServiceStatus[];
   onSelect: (id: string) => void;
   showSpark: boolean;
+  loading?: boolean;
 }
 
 const HISTORY_LEN = 60;
@@ -21,7 +22,7 @@ function pushHistory(id: string, ms: number): number[] {
   return next;
 }
 
-export function ServiceGrid({ services, onSelect, showSpark }: Props) {
+export function ServiceGrid({ services, onSelect, showSpark, loading }: Props) {
   const lastIds = useRef<string>('');
   const sig = services.map((s) => `${s.id}:${s.ms}`).join('|');
 
@@ -31,10 +32,12 @@ export function ServiceGrid({ services, onSelect, showSpark }: Props) {
     services.forEach((s) => pushHistory(s.id, s.ms));
   }, [sig, services]);
 
+  const isInitialLoad = loading && services.length === 0;
+
   return (
-    <section className="dash-section">
+    <section className="dash-section" aria-labelledby="services-heading">
       <div className="section-head">
-        <h2>
+        <h2 id="services-heading">
           Services <span className="dim">· {services.length}</span>
         </h2>
         <div className="section-tools">
@@ -43,10 +46,18 @@ export function ServiceGrid({ services, onSelect, showSpark }: Props) {
           </span>
         </div>
       </div>
-      <div className="svc-grid">
-        {services.map((s) => (
-          <ServiceTile key={s.id} svc={s} onClick={() => onSelect(s.id)} showSpark={showSpark} />
-        ))}
+      <div className="svc-grid" aria-busy={isInitialLoad ? 'true' : undefined}>
+        {isInitialLoad
+          ? Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="svc-tile skeleton-tile" aria-hidden="true">
+                <div className="skeleton skeleton-h" />
+                <div className="skeleton skeleton-line" />
+                <div className="skeleton skeleton-line" />
+              </div>
+            ))
+          : services.map((s) => (
+              <ServiceTile key={s.id} svc={s} onClick={() => onSelect(s.id)} showSpark={showSpark} />
+            ))}
       </div>
     </section>
   );
@@ -62,10 +73,17 @@ export function ServiceTile({ svc, onClick, showSpark }: TileProps) {
   const sparkColor =
     svc.status === 'warn' ? 'var(--warn)' : svc.status === 'err' ? 'var(--err)' : 'var(--accent)';
   const data = history[svc.id] ?? [svc.ms];
+  const statusWord =
+    svc.status === 'ok' ? 'erreichbar' : svc.status === 'warn' ? 'eingeschränkt' : svc.status === 'err' ? 'nicht erreichbar' : 'inaktiv';
   return (
-    <button className={`svc-tile status-${svc.status}`} onClick={onClick} type="button">
+    <button
+      className={`svc-tile status-${svc.status}`}
+      onClick={onClick}
+      type="button"
+      aria-label={`${svc.name}, ${statusWord}, ${Math.round(svc.ms)} Millisekunden`}
+    >
       <div className="svc-head">
-        <span className="svc-icon">{ICONS[svc.icon] ?? ICONS.cloud}</span>
+        <span className="svc-icon" aria-hidden="true">{ICONS[svc.icon] ?? ICONS.cloud}</span>
         <div className="svc-name">
           <span className="svc-title">{svc.name}</span>
           <span className="svc-sub mono">{svc.sub}</span>

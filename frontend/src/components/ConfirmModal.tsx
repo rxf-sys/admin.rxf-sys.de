@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { Guest } from '../types';
 
 interface Props {
@@ -8,11 +9,31 @@ interface Props {
 }
 
 export function ConfirmModal({ open, guest, onConfirm, onCancel }: Props) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    cancelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onCancel]);
+
   if (!open || !guest) return null;
   return (
     <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Container neu starten?</h3>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id="confirm-title" style={{ margin: 0, fontSize: 16 }}>
+          Container neu starten?
+        </h3>
         <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
           <p style={{ margin: '0 0 8px' }}>
             <strong>{guest.name}</strong> ({guest.type} {guest.id}) wird neu gestartet.
@@ -22,7 +43,7 @@ export function ConfirmModal({ open, guest, onConfirm, onCancel }: Props) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button className="btn" onClick={onCancel} type="button">
+          <button ref={cancelRef} className="btn" onClick={onCancel} type="button">
             Abbrechen
           </button>
           <button className="btn danger" onClick={onConfirm} type="button">
