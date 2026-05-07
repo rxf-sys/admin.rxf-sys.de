@@ -11,6 +11,7 @@ interface HeaderProps {
   email: string | null;
   accent: 'peach' | 'indigo' | 'cyan' | 'green';
   onAccent: (a: 'peach' | 'indigo' | 'cyan' | 'green') => void;
+  onOpenPalette: () => void;
 }
 
 export function Header(p: HeaderProps) {
@@ -76,6 +77,17 @@ export function Header(p: HeaderProps) {
             {fmtClock(p.lastRefresh)}
           </span>
         </div>
+        <button
+          className="btn cmdk-trigger"
+          onClick={p.onOpenPalette}
+          title="Befehlspalette öffnen"
+          aria-label="Befehlspalette öffnen"
+          type="button"
+        >
+          {ICONS.search}
+          <span className="cmdk-trigger-label">Suche</span>
+          <kbd>⌘K</kbd>
+        </button>
         <button
           className={`btn icon ${p.refreshing ? 'spin' : ''}`}
           onClick={p.onRefresh}

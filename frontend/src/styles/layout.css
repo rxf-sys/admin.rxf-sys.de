@@ -258,6 +258,135 @@
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 200; }
 .modal { background: var(--bg-1); border: 1px solid var(--border-2); border-radius: 10px; padding: 22px; width: 380px; display: flex; flex-direction: column; gap: 14px; }
 
+/* COMMAND PALETTE */
+.cmdk-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 28px; padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 12px;
+}
+.cmdk-trigger:hover { background: var(--surface-3); color: var(--text-2); }
+.cmdk-trigger svg { width: 13px; height: 13px; }
+.cmdk-trigger kbd {
+  font-family: var(--font-mono);
+  font-size: 10px; padding: 1px 5px;
+  background: var(--surface-4); border: 1px solid var(--border-2);
+  border-radius: 3px; color: var(--text-3);
+}
+@media (max-width: 900px) {
+  .cmdk-trigger-label { display: none; }
+}
+
+.cmdk-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex; justify-content: center;
+  padding-top: 12vh;
+  z-index: 250;
+  animation: cmdkBackdropIn 140ms ease-out;
+}
+.cmdk {
+  width: min(620px, 92vw);
+  max-height: 70vh;
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: cmdkIn 140ms ease-out;
+}
+.cmdk-input-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cmdk-search-icon { color: var(--text-3); display: inline-flex; }
+.cmdk-search-icon svg { width: 16px; height: 16px; }
+.cmdk-input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--text-1);
+  font-size: 14px;
+  font-family: var(--font-sans);
+}
+.cmdk-input::placeholder { color: var(--text-4); }
+.cmdk-kbd {
+  font-family: var(--font-mono);
+  font-size: 10px; padding: 2px 6px;
+  background: var(--surface-3); border: 1px solid var(--border);
+  border-radius: 3px; color: var(--text-3);
+}
+.cmdk-empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--text-4);
+  font-size: 13px;
+}
+.cmdk-list {
+  list-style: none; margin: 0; padding: 6px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+.cmdk-list ul { list-style: none; margin: 0; padding: 0; }
+.cmdk-group { padding: 4px 0; }
+.cmdk-group-label {
+  padding: 6px 16px 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-4);
+  font-weight: 600;
+}
+.cmdk-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.cmdk-row.active {
+  background: var(--surface-3);
+  border-left-color: var(--accent);
+}
+.cmdk-mark {
+  width: 8px; height: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-4);
+  font-size: 11px;
+}
+.cmdk-title { color: var(--text-1); font-weight: 500; }
+.cmdk-hint { margin-left: auto; color: var(--text-4); font-size: 11px; font-family: var(--font-mono); }
+.cmdk-foot {
+  display: flex; gap: 14px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-4);
+  background: var(--surface-2);
+}
+.cmdk-foot kbd {
+  font-family: var(--font-mono);
+  font-size: 10px; padding: 1px 5px; margin-right: 4px;
+  background: var(--surface-4); border: 1px solid var(--border-2);
+  border-radius: 3px; color: var(--text-3);
+}
+@keyframes cmdkBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes cmdkIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmdk-backdrop, .cmdk { animation: none; }
+}
+
 /* TOASTS */
 .toast-stack { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 150; pointer-events: none; }
 .toast {
