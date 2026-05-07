@@ -1,18 +1,21 @@
-"""UniFi Network client.
+"""UniFi Network Integration API client.
 
-Supports two auth modes:
+Endpoints follow the official spec at developer.ui.com (UniFi Network 10.x):
 
-1. **Integration API** (preferred, UniFi OS 4.x+) — static API key in the
-   ``X-API-KEY`` header. Endpoints live under ``/proxy/network/integration/v1``.
-   Different firmware revisions expose slightly different paths, so we probe a
-   small set and use the first that responds 2xx.
+    Base:    /proxy/network/integration/v1
+    Header:  X-API-Key: <key>
 
-2. **Legacy cookie auth** — POST username/password to ``/api/auth/login``,
-   then call the v1 ``/proxy/network/api/s/<site>/...`` endpoints. Used only
-   when no API key is configured.
+    GET /sites
+    GET /sites/{siteId}
+    GET /sites/{siteId}/networks
+    GET /sites/{siteId}/clients
+    GET /sites/{siteId}/devices
+    GET /info     (controller version + features)
 
-If everything fails the snapshot returns ``reachable=False`` with an ``error``
-string so the UI can tell the user *what* broke instead of just blanking out.
+Legacy username/password cookie auth is kept as a fallback for installations
+on Network < 8.x where the integration API is not available. If everything
+fails the snapshot returns ``reachable=False`` with an ``error`` string so the
+UI can show the user *what* broke instead of a blank card.
 """
 
 from __future__ import annotations
@@ -27,6 +30,10 @@ from ..config import Settings
 from ..models import NetworkSegment, NetworkSnapshot
 
 log = structlog.get_logger("unifi")
+
+# Per developer.ui.com docs (Local connection type, v10.1.84):
+#   GET https://<host>/proxy/network/integration/v1/sites/{siteId}/networks/{networkId}
+INTEGRATION_BASE = "/proxy/network/integration/v1"
 
 _LOGIN_LOCK = asyncio.Lock()
 
@@ -45,147 +52,175 @@ def _base(settings: Settings) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Integration API (preferred)
+# Integration API
 # ---------------------------------------------------------------------------
 
-# Different firmware versions have shipped slightly different roots; probe in
-# order until one responds with a sites list.
-_INTEGRATION_ROOTS = [
-    "/proxy/network/integration/v1",
-    "/proxy/network/v2/api/site",
-    "/proxy/network/api/integrations/v1",
-]
+
+def _integration_headers(settings: Settings) -> dict[str, str]:
+    return {
+        "X-API-Key": settings.unifi_api_key,
+        "Accept": "application/json",
+    }
+
+
+async def _int_get(
+    client: httpx.AsyncClient, settings: Settings, path: str
+) -> dict | list | None:
+    """GET helper for the integration API. Returns parsed JSON or None."""
+    url = f"{_base(settings)}{INTEGRATION_BASE}{path}"
+    try:
+        r = await client.get(url, headers=_integration_headers(settings))
+    except httpx.HTTPError as e:
+        log.info("unifi.int_request_error", path=path, error=str(e))
+        return None
+    if r.status_code != 200:
+        log.info("unifi.int_status_not_ok", path=path, status=r.status_code)
+        return None
+    try:
+        return r.json()
+    except ValueError:
+        log.info("unifi.int_non_json", path=path)
+        return None
+
+
+def _unwrap(body: dict | list | None) -> list:
+    """The Integration API returns either ``{"data": [...]}`` or a bare array
+    depending on endpoint. Normalise to a list."""
+    if body is None:
+        return []
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict):
+        data = body.get("data")
+        if isinstance(data, list):
+            return data
+        # Some endpoints (e.g. /info) return a bare object, not a list.
+        return [body]
+    return []
 
 
 async def _try_integration(
     client: httpx.AsyncClient, settings: Settings
 ) -> NetworkSnapshot | None:
-    """Returns a populated snapshot or None if integration API isn't available."""
+    """Returns a populated snapshot or None if the integration API isn't usable."""
     if not settings.unifi_api_key:
         return None
 
-    headers = {"X-API-KEY": settings.unifi_api_key, "Accept": "application/json"}
-
-    sites = None
-    chosen_root: str | None = None
-    last_err: str = "no integration root responded"
-    for root in _INTEGRATION_ROOTS:
-        try:
-            r = await client.get(f"{_base(settings)}{root}/sites", headers=headers)
-        except httpx.HTTPError as e:
-            last_err = f"{type(e).__name__}: {e}"
-            continue
-        if r.status_code == 200:
-            chosen_root = root
-            try:
-                body = r.json()
-            except ValueError:
-                last_err = "sites endpoint returned non-JSON"
-                continue
-            sites = body.get("data", body) if isinstance(body, dict) else body
-            break
-        last_err = f"sites HTTP {r.status_code}"
-
-    if not chosen_root or not sites:
-        log.info("unifi.integration_unavailable", error=last_err)
+    sites_body = await _int_get(client, settings, "/sites")
+    if sites_body is None:
+        log.info("unifi.integration_unavailable", path="/sites")
         return None
 
-    site_obj = None
-    for s in sites if isinstance(sites, list) else []:
-        if s.get("name") == settings.unifi_site or s.get("internalReference") == settings.unifi_site:
+    sites = _unwrap(sites_body)
+    if not sites:
+        return NetworkSnapshot(
+            reachable=False,
+            error="UniFi: keine Sites zurückgeliefert",
+            auth_mode="api-key",
+        )
+
+    # Pick the requested site by name (also accept matching id), else first.
+    site_obj: dict | None = None
+    target = settings.unifi_site
+    for s in sites:
+        if not isinstance(s, dict):
+            continue
+        if s.get("name") == target or s.get("id") == target:
             site_obj = s
             break
-    if site_obj is None and isinstance(sites, list) and sites:
-        site_obj = sites[0]
+    if site_obj is None:
+        site_obj = next((s for s in sites if isinstance(s, dict)), None)
     if site_obj is None:
         return NetworkSnapshot(
             reachable=False, error="UniFi: keine Site gefunden", auth_mode="api-key"
         )
-    site_id = site_obj.get("id") or site_obj.get("siteId") or site_obj.get("name")
 
-    async def _get(path: str) -> dict | list | None:
-        try:
-            r = await client.get(f"{_base(settings)}{chosen_root}{path}", headers=headers)
-            if r.status_code == 200:
-                return r.json()
-            log.info("unifi.integration_endpoint_status", path=path, status=r.status_code)
-        except httpx.HTTPError as e:
-            log.info("unifi.integration_endpoint_error", path=path, error=str(e))
-        return None
+    site_id = site_obj.get("id") or site_obj.get("name") or target
+    site_name = site_obj.get("name") or "?"
 
-    overview = await _get(f"/sites/{site_id}/site-overview") or {}
-    if isinstance(overview, dict):
-        overview = overview.get("data", overview)
-    clients = await _get(f"/sites/{site_id}/clients") or {}
-
-    clients_list = (
-        clients.get("data", clients) if isinstance(clients, dict) else clients
+    # Pull networks, clients, devices in parallel — all best-effort.
+    nets_task = _int_get(client, settings, f"/sites/{site_id}/networks")
+    clients_task = _int_get(client, settings, f"/sites/{site_id}/clients")
+    devices_task = _int_get(client, settings, f"/sites/{site_id}/devices")
+    nets_body, clients_body, devices_body = await asyncio.gather(
+        nets_task, clients_task, devices_task
     )
-    if not isinstance(clients_list, list):
-        clients_list = []
 
+    nets = _unwrap(nets_body)
+    clients_raw = _unwrap(clients_body)
+    devices = _unwrap(devices_body)
+
+    # Count clients per vlanId (documented field name).
     by_vlan: dict[int | None, int] = {}
-    for c in clients_list:
-        vlan = c.get("vlan") if isinstance(c, dict) else None
+    for c in clients_raw:
+        if not isinstance(c, dict):
+            continue
+        vlan = c.get("vlanId")
         try:
             vlan_int = int(vlan) if vlan is not None else None
         except (TypeError, ValueError):
             vlan_int = None
         by_vlan[vlan_int] = by_vlan.get(vlan_int, 0) + 1
 
-    nets_list = []
-    if isinstance(overview, dict):
-        nets_list = overview.get("networks", []) or []
-    if not nets_list:
-        nets = await _get(f"/sites/{site_id}/networks") or {}
-        nets_list = nets.get("data", nets) if isinstance(nets, dict) else nets
-        if not isinstance(nets_list, list):
-            nets_list = []
-
     networks: list[NetworkSegment] = []
-    for n in nets_list:
+    for n in nets:
         if not isinstance(n, dict):
             continue
-        vlan = n.get("vlan") or n.get("vlanId") or n.get("vlan_id")
+        vlan = n.get("vlanId")
         try:
             vlan_int = int(vlan) if vlan is not None else None
         except (TypeError, ValueError):
             vlan_int = None
         networks.append(
             NetworkSegment(
-                name=n.get("name") or n.get("displayName", "?"),
+                name=n.get("name") or "?",
                 vlan=vlan_int,
                 clients=by_vlan.get(vlan_int, 0),
             )
         )
 
+    # WAN info: best-effort lookup on the gateway device (UCG-Ultra etc.).
+    # The integration API exposes per-device info; field names vary slightly
+    # by firmware, so we sniff the common shapes.
     wan_ip = None
     isp = None
     down_mbit = up_mbit = 0.0
     link_down = link_up = None
-    if isinstance(overview, dict):
-        wan = overview.get("wan") or overview.get("internet") or {}
-        if isinstance(wan, dict):
-            wan_ip = wan.get("ip") or wan.get("publicIp")
-            isp = wan.get("ispName") or wan.get("isp")
-            tp = wan.get("throughput") or {}
-            if tp.get("downloadKbps"):
-                down_mbit = float(tp["downloadKbps"]) / 1000.0
-            elif wan.get("rxRateBps"):
-                down_mbit = float(wan["rxRateBps"]) * 8 / 1_000_000
-            if tp.get("uploadKbps"):
-                up_mbit = float(tp["uploadKbps"]) / 1000.0
-            elif wan.get("txRateBps"):
-                up_mbit = float(wan["txRateBps"]) * 8 / 1_000_000
-            link_down = float(wan.get("downlinkSpeedMbps") or 0) or None
-            link_up = float(wan.get("uplinkSpeedMbps") or 0) or None
+    for d in devices:
+        if not isinstance(d, dict):
+            continue
+        # Heuristic: only the gateway will have WAN/uplink info.
+        role = (d.get("role") or d.get("type") or "").lower()
+        if role and role not in ("gateway", "udm", "ucg", "router"):
+            continue
+        wan = d.get("wan") or d.get("uplink") or d.get("internet") or {}
+        if not isinstance(wan, dict):
+            continue
+        wan_ip = wan_ip or wan.get("ip") or wan.get("publicIp")
+        isp = isp or wan.get("ispName") or wan.get("isp")
+        if isinstance(wan.get("rxRateBps"), (int, float)):
+            down_mbit = float(wan["rxRateBps"]) * 8 / 1_000_000
+        elif isinstance(wan.get("downloadKbps"), (int, float)):
+            down_mbit = float(wan["downloadKbps"]) / 1000.0
+        if isinstance(wan.get("txRateBps"), (int, float)):
+            up_mbit = float(wan["txRateBps"]) * 8 / 1_000_000
+        elif isinstance(wan.get("uploadKbps"), (int, float)):
+            up_mbit = float(wan["uploadKbps"]) / 1000.0
+        if isinstance(wan.get("downlinkSpeedMbps"), (int, float)):
+            link_down = float(wan["downlinkSpeedMbps"])
+        if isinstance(wan.get("uplinkSpeedMbps"), (int, float)):
+            link_up = float(wan["uplinkSpeedMbps"])
+        if wan_ip:  # first matching device with WAN info wins
+            break
 
     log.info(
         "unifi.integration_ok",
-        root=chosen_root,
-        site=site_obj.get("name"),
-        clients=len(clients_list),
+        site=site_name,
+        site_id=site_id,
         networks=len(networks),
+        clients=len(clients_raw),
+        devices=len(devices),
+        wan_ip=wan_ip is not None,
     )
     return NetworkSnapshot(
         wan_ip=wan_ip,
@@ -195,7 +230,7 @@ async def _try_integration(
         throughput_down_mbit=round(down_mbit, 2),
         throughput_up_mbit=round(up_mbit, 2),
         networks=networks,
-        clients_total=len(clients_list),
+        clients_total=len(clients_raw),
         reachable=True,
         error=None,
         auth_mode="api-key",
@@ -203,7 +238,7 @@ async def _try_integration(
 
 
 # ---------------------------------------------------------------------------
-# Legacy cookie auth (fallback)
+# Legacy cookie auth (fallback for Network < 8.x)
 # ---------------------------------------------------------------------------
 
 
