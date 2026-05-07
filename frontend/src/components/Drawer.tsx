@@ -203,33 +203,9 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
                 </div>
               ) : (
                 <div className="event-list">
-                  {tasks.map((t) => {
-                    const ok = t.status === 'OK' || t.status === 'stopped';
-                    const running = !t.endtime;
-                    const dotStatus = running ? 'warn' : ok ? 'ok' : 'err';
-                    return (
-                      <div key={t.upid ?? `${t.starttime}-${t.type}`} className="event-row">
-                        <Dot status={dotStatus} />
-                        <span className="mono" style={{ fontSize: 12, fontWeight: 500 }}>
-                          {t.type ?? '—'}
-                        </span>
-                        <span className="dim mono" style={{ fontSize: 11 }}>
-                          {t.user ?? '—'}
-                        </span>
-                        <span
-                          className="mono dim"
-                          style={{ fontSize: 11, marginLeft: 'auto' }}
-                          title={t.upid ?? ''}
-                        >
-                          {fmtTimeAgo(
-                            t.starttime
-                              ? new Date(t.starttime * 1000).toISOString()
-                              : null,
-                          )}
-                        </span>
-                      </div>
-                    );
-                  })}
+                  {tasks.map((t) => (
+                    <TaskRow key={t.upid ?? `${t.starttime}-${t.type}`} task={t} />
+                  ))}
                 </div>
               )}
             </div>
@@ -250,5 +226,71 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
         </div>
       </aside>
     </>
+  );
+}
+
+function TaskRow({ task }: { task: GuestTask }) {
+  const [expanded, setExpanded] = useState(false);
+  const [lines, setLines] = useState<{ n: number; t: string }[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const ok = task.status === 'OK' || task.status === 'stopped';
+  const running = !task.endtime;
+  const dotStatus: 'ok' | 'warn' | 'err' = running ? 'warn' : ok ? 'ok' : 'err';
+
+  useEffect(() => {
+    if (!expanded || !task.upid || lines !== null) return;
+    setLoading(true);
+    setError(false);
+    const ctrl = new AbortController();
+    api
+      .taskLog(task.upid, ctrl.signal)
+      .then((r) => setLines(r.lines))
+      .catch(() => {
+        if (!ctrl.signal.aborted) setError(true);
+      })
+      .finally(() => setLoading(false));
+    return () => ctrl.abort();
+  }, [expanded, task.upid, lines]);
+
+  return (
+    <div className="task-row">
+      <button
+        className="task-row-head"
+        onClick={() => task.upid && setExpanded((x) => !x)}
+        disabled={!task.upid}
+        type="button"
+        aria-expanded={expanded}
+      >
+        <Dot status={dotStatus} />
+        <span className="mono" style={{ fontSize: 12, fontWeight: 500 }}>
+          {task.type ?? '—'}
+        </span>
+        <span className="dim mono" style={{ fontSize: 11 }}>
+          {task.user ?? '—'}
+        </span>
+        <span
+          className="mono dim"
+          style={{ fontSize: 11, marginLeft: 'auto' }}
+          title={task.upid ?? ''}
+        >
+          {fmtTimeAgo(task.starttime ? new Date(task.starttime * 1000).toISOString() : null)}
+        </span>
+        <span className="task-chevron" aria-hidden="true">
+          {expanded ? '▾' : '▸'}
+        </span>
+      </button>
+      {expanded && (
+        <pre className="task-log">
+          {loading && <span className="dimmer">Lade Log…</span>}
+          {error && <span style={{ color: 'var(--err)' }}>Log konnte nicht geladen werden.</span>}
+          {lines && lines.length === 0 && !loading && !error && (
+            <span className="dimmer">Keine Log-Zeilen.</span>
+          )}
+          {lines && lines.map((l) => `${l.t}\n`).join('')}
+        </pre>
+      )}
+    </div>
   );
 }

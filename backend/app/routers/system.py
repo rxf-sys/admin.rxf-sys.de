@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import time
 
-import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ..audit import record as audit_record
 from ..auth import verify_cf_access
 from ..cache import cache
 from ..clients import proxmox
@@ -13,7 +13,6 @@ from ..config import Settings, get_settings
 from ..models import SystemSnapshot
 
 router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(verify_cf_access)])
-audit_log = structlog.get_logger("audit")
 
 
 @router.get("", response_model=SystemSnapshot)
@@ -40,7 +39,7 @@ async def restart(
     if type not in ("lxc", "qemu", "ct", "vm"):
         raise HTTPException(status_code=400, detail="type must be lxc|qemu|ct|vm")
     actor = claims.get("email") or claims.get("sub") or "unknown"
-    audit_log.info(
+    audit_record(
         "guest.restart",
         actor=actor,
         vmid=vmid,
@@ -48,7 +47,7 @@ async def restart(
         client_ip=request.client.host if request.client else None,
     )
     ok = await proxmox.restart_guest(settings, vmid, type)
-    audit_log.info(
+    audit_record(
         "guest.restart.result", actor=actor, vmid=vmid, guest_type=type, success=ok
     )
     cache.invalidate("system")
@@ -64,3 +63,14 @@ async def guest_tasks(
     """Recent Proxmox tasks for a specific guest (UPID, status, time)."""
     tasks = await proxmox.fetch_guest_tasks(settings, vmid, limit=min(max(limit, 1), 50))
     return {"tasks": tasks}
+
+
+@router.get("/tasks/{upid}/log")
+async def task_log(
+    upid: str,
+    settings: Settings = Depends(get_settings),
+    limit: int = 200,
+) -> dict:
+    """Log lines for a single Proxmox task UPID."""
+    lines = await proxmox.fetch_task_log(settings, upid, limit=min(max(limit, 1), 1000))
+    return {"lines": lines}

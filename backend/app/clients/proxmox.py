@@ -4,7 +4,7 @@ import httpx
 import structlog
 
 from ..config import Settings
-from ..models import Datastore, Guest, HostStatus
+from ..models import Datastore, DiskHealth, Guest, HostStatus
 
 log = structlog.get_logger("proxmox")
 
@@ -48,6 +48,39 @@ def _status_from_running(running: bool, cpu: float, ram_pct: float) -> str:
     return "ok"
 
 
+def _extract_cpu_temp(status: dict) -> float | None:
+    """Best-effort CPU temperature extraction. Proxmox 8 exposes sensor data
+    under several different keys depending on lm-sensors output and host CPU;
+    we sniff the common shapes."""
+    candidates: list[float] = []
+
+    # Newer PVE may expose top-level "cputemp" (single value)
+    direct = status.get("cputemp")
+    if isinstance(direct, (int, float)):
+        return float(direct)
+
+    sensors = status.get("sensors") or status.get("cpu-temperature")
+    if isinstance(sensors, dict):
+        for chip, data in sensors.items():
+            if not isinstance(data, dict):
+                continue
+            for key, value in data.items():
+                if not isinstance(value, dict):
+                    continue
+                # lm-sensors keys like "temp1_input"
+                t = value.get("temp1_input") or value.get("Tctl") or value.get("Package id 0")
+                if isinstance(t, (int, float)):
+                    candidates.append(float(t))
+                # Or nested per-core readings
+                for sub_key, sub_val in value.items():
+                    if "input" in sub_key.lower() and isinstance(sub_val, (int, float)):
+                        candidates.append(float(sub_val))
+            _ = chip  # silence unused
+    if candidates:
+        return round(max(candidates), 1)
+    return None
+
+
 async def fetch_host_status(settings: Settings) -> HostStatus:
     async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=8.0) as client:
         try:
@@ -62,6 +95,37 @@ async def fetch_host_status(settings: Settings) -> HostStatus:
                 error_type=type(e).__name__,
             )
             return HostStatus(node=settings.proxmox_node, online=False)
+
+        # Disks are best-effort: requires Sys.Audit and may not be exposed on
+        # all storage configs.
+        disks: list[DiskHealth] = []
+        try:
+            raw_disks = await _get(
+                client, settings, f"/nodes/{settings.proxmox_node}/disks/list"
+            )
+            for d in raw_disks if isinstance(raw_disks, list) else []:
+                health = (d.get("health") or "UNKNOWN").upper()
+                if health not in ("PASSED", "FAILED", "UNKNOWN"):
+                    health = "UNKNOWN"
+                used = d.get("used", 0)
+                size = int(d.get("size", 0) or 0)
+                used_pct = None
+                if isinstance(used, (int, float)) and size:
+                    used_pct = round(float(used) / size * 100, 1) if used else None
+                temp = d.get("temperature")
+                disks.append(
+                    DiskHealth(
+                        device=str(d.get("devpath") or d.get("model") or "?"),
+                        model=d.get("model"),
+                        size_b=size,
+                        health=health,  # type: ignore[arg-type]
+                        used_pct=used_pct,
+                        temp_c=float(temp) if isinstance(temp, (int, float)) else None,
+                        type=d.get("type"),
+                    )
+                )
+        except httpx.HTTPError as e:
+            log.info("proxmox.disks_unavailable", error=str(e))
 
     cpu_pct = float(status.get("cpu", 0.0)) * 100.0
     mem = status.get("memory", {})
@@ -78,6 +142,8 @@ async def fetch_host_status(settings: Settings) -> HostStatus:
         disk_used_b=int(rootfs.get("used", 0)),
         disk_total_b=int(rootfs.get("total", 0)),
         online=True,
+        cpu_temp_c=_extract_cpu_temp(status),
+        disks=disks,
     )
 
 
@@ -171,6 +237,25 @@ async def fetch_datastores(settings: Settings) -> list[Datastore]:
                 used_pct=round(used / total * 100, 1),
             )
         )
+    return out
+
+
+async def fetch_task_log(settings: Settings, upid: str, limit: int = 200) -> list[dict]:
+    """Lines for a Proxmox task (UPID)."""
+    async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=8.0) as client:
+        try:
+            data = await _get(
+                client,
+                settings,
+                f"/nodes/{settings.proxmox_node}/tasks/{upid}/log?limit={limit}",
+            )
+        except httpx.HTTPError as e:
+            log.info("proxmox.task_log_failed", upid=upid, error=str(e))
+            return []
+    out: list[dict] = []
+    for line in data if isinstance(data, list) else []:
+        out.append({"n": int(line.get("n", 0)), "t": str(line.get("t", ""))})
+    out.sort(key=lambda x: x["n"])
     return out
 
 

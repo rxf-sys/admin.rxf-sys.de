@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api/client';
+import { AuditLog } from './components/AuditLog';
 import { BackupsCerts } from './components/BackupsCerts';
 import { CommandPalette } from './components/CommandPalette';
 import { ConfirmModal } from './components/ConfirmModal';
@@ -8,6 +9,7 @@ import { Header } from './components/Header';
 import { NetworkPanel } from './components/NetworkPanel';
 import { OverviewCards } from './components/OverviewCards';
 import { ServiceGrid } from './components/ServiceGrid';
+import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { Toasts, type Toast } from './components/Toasts';
 import { VMTable } from './components/VMTable';
 import { usePoll } from './hooks/usePoll';
@@ -23,14 +25,23 @@ export function App() {
   const [confirmGuest, setConfirmGuest] = useState<Guest | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const toastIdRef = useRef(1);
 
-  // Cmd/Ctrl+K toggles the command palette globally.
+  // Cmd/Ctrl+K toggles the palette; "?" opens the keyboard cheatsheet.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const inEditable =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable;
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+      } else if (e.key === '?' && !inEditable && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        setHelpOpen((o) => !o);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -144,6 +155,7 @@ export function App() {
         accent={ui.accent}
         onAccent={(a) => setUI('accent', a)}
         onOpenPalette={() => setPaletteOpen(true)}
+        onOpenHelp={() => setHelpOpen(true)}
       />
       {anyError && (
         <div className="error-banner">
@@ -167,6 +179,7 @@ export function App() {
         <VMTable guests={guests} onLogs={onLogs} onRestart={onRestart} />
         <NetworkPanel network={net.data} tunnel={tun.data} />
         <BackupsCerts backups={bkp.data} certs={cer.data} />
+        <AuditLog />
       </main>
 
       <Drawer
@@ -191,6 +204,7 @@ export function App() {
         onRefresh={refreshAll}
         onToggleTheme={() => setUI('theme', ui.theme === 'dark' ? 'light' : 'dark')}
       />
+      <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
       <Toasts toasts={toasts} />
     </div>
   );

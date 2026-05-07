@@ -1,5 +1,15 @@
 export type Status = 'ok' | 'warn' | 'err' | 'idle';
 
+export interface DiskHealth {
+  device: string;
+  model: string | null;
+  size_b: number;
+  health: 'PASSED' | 'FAILED' | 'UNKNOWN';
+  used_pct: number | null;
+  temp_c: number | null;
+  type: string | null;
+}
+
 export interface HostStatus {
   node: string;
   pve_version: string | null;
@@ -12,6 +22,8 @@ export interface HostStatus {
   disk_used_b: number;
   disk_total_b: number;
   online: boolean;
+  cpu_temp_c: number | null;
+  disks: DiskHealth[];
 }
 
 export interface Guest {
@@ -102,6 +114,9 @@ export interface NetworkSnapshot {
   throughput_up_mbit: number;
   networks: NetworkSegment[];
   clients_total: number;
+  reachable: boolean;
+  error: string | null;
+  auth_mode: 'api-key' | 'cookie' | 'none';
 }
 
 export interface CertInfo {

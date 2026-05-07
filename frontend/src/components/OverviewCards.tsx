@@ -59,6 +59,7 @@ export function OverviewCards({ host, guests, tunnel, backups, loading }: Props)
             sublabel={host ? `${fmtBytes(host.disk_used_b)} / ${fmtBytes(host.disk_total_b)}` : ''}
           />
         </div>
+        <HardwareHealth host={host} />
         <div className="ov-foot mono">
           {host?.node ?? '—'} · {host?.pve_version ?? '—'} · kernel {host?.kernel ?? '—'}
         </div>
@@ -189,6 +190,62 @@ export function OverviewCards({ host, guests, tunnel, backups, loading }: Props)
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function HardwareHealth({ host }: { host: HostStatus | null }) {
+  if (!host || (!host.disks?.length && host.cpu_temp_c == null)) return null;
+  const failed = host.disks.filter((d) => d.health === 'FAILED').length;
+  const unknown = host.disks.filter((d) => d.health === 'UNKNOWN').length;
+  const passed = host.disks.length - failed - unknown;
+  const tempColor =
+    host.cpu_temp_c == null
+      ? 'var(--text-3)'
+      : host.cpu_temp_c >= 85
+        ? 'var(--err)'
+        : host.cpu_temp_c >= 70
+          ? 'var(--warn)'
+          : 'var(--text-2)';
+
+  return (
+    <div className="hw-health" role="group" aria-label="Hardware-Gesundheit">
+      {host.cpu_temp_c != null && (
+        <span className="hw-pill" title="CPU-Temperatur">
+          <span className="dim">CPU</span>
+          <span className="mono" style={{ color: tempColor }}>
+            {Math.round(host.cpu_temp_c)}°C
+          </span>
+        </span>
+      )}
+      {host.disks.length > 0 && (
+        <span
+          className="hw-pill"
+          title={
+            failed
+              ? `${failed} Disk(s) FAILED`
+              : unknown && !passed
+                ? 'SMART-Status unbekannt'
+                : 'Alle Disks PASSED'
+          }
+        >
+          <span className="dim">Disks</span>
+          <span
+            className="mono"
+            style={{
+              color: failed ? 'var(--err)' : passed ? 'var(--ok)' : 'var(--text-3)',
+            }}
+          >
+            {passed}
+            {failed > 0 && (
+              <span style={{ color: 'var(--err)' }}>
+                {' '}
+                · {failed} FAIL
+              </span>
+            )}
+          </span>
+        </span>
+      )}
     </div>
   );
 }

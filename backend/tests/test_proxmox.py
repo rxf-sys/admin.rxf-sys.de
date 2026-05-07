@@ -25,6 +25,21 @@ async def test_fetch_host_status_ok(settings):
         },
     )
     respx.get(f"{base}/version").respond(200, json={"data": {"version": "9.1.9"}})
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/disks/list").respond(
+        200,
+        json={
+            "data": [
+                {
+                    "devpath": "/dev/sda",
+                    "model": "Samsung SSD",
+                    "size": 1_000_000_000,
+                    "health": "PASSED",
+                    "type": "ssd",
+                    "temperature": 38,
+                }
+            ]
+        },
+    )
 
     host = await proxmox.fetch_host_status(settings)
 
@@ -34,6 +49,9 @@ async def test_fetch_host_status_ok(settings):
     assert host.cpu_cores == 8
     assert host.cpu_pct == pytest.approx(25.0)
     assert host.ram_total_b == 4_000_000
+    assert len(host.disks) == 1
+    assert host.disks[0].health == "PASSED"
+    assert host.disks[0].temp_c == 38.0
 
 
 @pytest.mark.asyncio
@@ -164,6 +182,27 @@ async def test_fetch_guest_tasks_returns_empty_on_error(settings):
     tasks = await proxmox.fetch_guest_tasks(settings, 101)
 
     assert tasks == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_task_log(settings):
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.get(
+        f"{base}/nodes/{settings.proxmox_node}/tasks/UPID:abc/log?limit=50"
+    ).respond(
+        200,
+        json={
+            "data": [
+                {"n": 2, "t": "second line"},
+                {"n": 1, "t": "first line"},
+            ]
+        },
+    )
+
+    lines = await proxmox.fetch_task_log(settings, "UPID:abc", limit=50)
+
+    assert [line["t"] for line in lines] == ["first line", "second line"]
 
 
 @pytest.mark.asyncio
