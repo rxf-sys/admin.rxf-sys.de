@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import sys
 
+import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,7 +11,27 @@ from .auth import verify_cf_access
 from .config import get_settings
 from .routers import backups, certs, network, services, system, tunnel
 
-logging.basicConfig(level=get_settings().log_level)
+_settings = get_settings()
+logging.basicConfig(
+    level=_settings.log_level,
+    stream=sys.stdout,
+    format="%(message)s",
+)
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
+        structlog.processors.format_exc_info,
+        structlog.processors.JSONRenderer()
+        if _settings.app_env == "production"
+        else structlog.dev.ConsoleRenderer(colors=True),
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(
+        logging.getLevelName(_settings.log_level.upper())
+    ),
+    cache_logger_on_first_use=True,
+)
 
 app = FastAPI(
     title="rxf-sys admin",
@@ -20,7 +42,7 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-settings = get_settings()
+settings = _settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

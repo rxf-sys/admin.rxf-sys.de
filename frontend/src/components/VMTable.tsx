@@ -151,12 +151,19 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     <div className="row-actions">
-                      <button className="btn icon" title="Logs" onClick={() => onLogs(v)} type="button">
+                      <button
+                        className="btn icon"
+                        title="Logs"
+                        aria-label={`Logs für ${v.name} anzeigen`}
+                        onClick={() => onLogs(v)}
+                        type="button"
+                      >
                         {ICONS.logs}
                       </button>
                       <button
                         className="btn icon danger"
-                        title="Restart"
+                        title="Neu starten"
+                        aria-label={`${v.name} neu starten`}
                         onClick={() => onRestart(v)}
                         type="button"
                         disabled={!v.running}

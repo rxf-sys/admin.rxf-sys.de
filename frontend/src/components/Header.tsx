@@ -48,8 +48,12 @@ export function Header(p: HeaderProps) {
       </div>
 
       <div className="hdr-mid">
-        <div className={`global-status ${allUp ? 'ok' : 'warn'}`}>
-          <span className={`dot ${allUp ? 'ok' : 'warn'}`} />
+        <div
+          className={`global-status ${allUp ? 'ok' : 'warn'}`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className={`dot ${allUp ? 'ok' : 'warn'}`} aria-hidden="true" />
           <span className="gs-label">
             {p.servicesTotal === 0
               ? 'Initialisierung…'
@@ -72,7 +76,8 @@ export function Header(p: HeaderProps) {
         <button
           className={`btn icon ${p.refreshing ? 'spin' : ''}`}
           onClick={p.onRefresh}
-          title="Refresh"
+          title="Aktualisieren"
+          aria-label={p.refreshing ? 'Daten werden aktualisiert' : 'Daten aktualisieren'}
           type="button"
         >
           {ICONS.refresh}
@@ -89,7 +94,13 @@ export function Header(p: HeaderProps) {
             />
           ))}
         </div>
-        <button className="btn icon" onClick={p.onTheme} title="Theme" type="button">
+        <button
+          className="btn icon"
+          onClick={p.onTheme}
+          title="Theme wechseln"
+          aria-label={p.theme === 'dark' ? 'Zu hellem Theme wechseln' : 'Zu dunklem Theme wechseln'}
+          type="button"
+        >
           {p.theme === 'dark' ? ICONS.sun : ICONS.moon}
         </button>
         <div className="hdr-user">

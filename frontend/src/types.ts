@@ -83,6 +83,8 @@ export interface BackupSummary {
   last_success_iso: string | null;
   success_today: number;
   total_today: number;
+  reachable: boolean;
+  error: string | null;
 }
 
 export interface NetworkSegment {

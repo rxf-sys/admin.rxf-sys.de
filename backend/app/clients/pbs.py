@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import httpx
+import structlog
 
 from ..config import Settings
 from ..models import BackupSnapshot, BackupSummary, Datastore
+
+log = structlog.get_logger("pbs")
 
 
 def _auth_header(settings: Settings) -> dict[str, str]:
@@ -39,7 +42,9 @@ def _verify_status(verification: dict | None) -> str:
 
 async def fetch_backup_summary(settings: Settings) -> BackupSummary:
     if not (settings.pbs_token_id and settings.pbs_token_secret):
-        return BackupSummary(jobs=[], datastore=None)
+        return BackupSummary(
+            jobs=[], datastore=None, reachable=False, error="PBS-Token nicht konfiguriert"
+        )
 
     async with httpx.AsyncClient(verify=settings.pbs_verify_tls, timeout=10.0) as client:
         try:
@@ -47,8 +52,17 @@ async def fetch_backup_summary(settings: Settings) -> BackupSummary:
             snapshots = await _get(
                 client, settings, f"/admin/datastore/{settings.pbs_datastore}/snapshots"
             )
-        except httpx.HTTPError:
-            return BackupSummary(jobs=[], datastore=None)
+        except httpx.HTTPError as e:
+            log.warning(
+                "pbs.fetch_failed",
+                host=settings.pbs_host,
+                datastore=settings.pbs_datastore,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return BackupSummary(
+                jobs=[], datastore=None, reachable=False, error=f"PBS unerreichbar: {type(e).__name__}"
+            )
 
     datastore: Datastore | None = None
     for s in ds_list if isinstance(ds_list, list) else []:

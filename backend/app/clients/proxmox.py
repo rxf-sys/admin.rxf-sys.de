@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import httpx
+import structlog
 
 from ..config import Settings
 from ..models import Datastore, Guest, HostStatus
+
+log = structlog.get_logger("proxmox")
 
 # Map known CT/VM IDs -> service label (matches the table the user supplied).
 GUEST_SERVICE_LABELS: dict[int, str] = {
@@ -50,7 +53,14 @@ async def fetch_host_status(settings: Settings) -> HostStatus:
         try:
             status = await _get(client, settings, f"/nodes/{settings.proxmox_node}/status")
             version = await _get(client, settings, "/version")
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            log.warning(
+                "proxmox.host_status_failed",
+                host=settings.proxmox_host,
+                node=settings.proxmox_node,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return HostStatus(node=settings.proxmox_node, online=False)
 
     cpu_pct = float(status.get("cpu", 0.0)) * 100.0
@@ -104,7 +114,14 @@ async def fetch_guests(settings: Settings) -> list[Guest]:
         try:
             lxcs = await _get(client, settings, f"/nodes/{settings.proxmox_node}/lxc")
             qemus = await _get(client, settings, f"/nodes/{settings.proxmox_node}/qemu")
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            log.warning(
+                "proxmox.guests_failed",
+                host=settings.proxmox_host,
+                node=settings.proxmox_node,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return []
 
         result: list[Guest] = []
@@ -139,7 +156,8 @@ async def fetch_datastores(settings: Settings) -> list[Datastore]:
     async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=8.0) as client:
         try:
             stores = await _get(client, settings, f"/nodes/{settings.proxmox_node}/storage")
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            log.warning("proxmox.datastores_failed", host=settings.proxmox_host, error=str(e))
             return []
     out: list[Datastore] = []
     for s in stores:

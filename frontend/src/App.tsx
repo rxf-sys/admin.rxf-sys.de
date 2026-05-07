@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api/client';
 import { BackupsCerts } from './components/BackupsCerts';
 import { ConfirmModal } from './components/ConfirmModal';
@@ -54,8 +54,8 @@ export function App() {
     cer.refresh();
   }, [sys, svc, tun, bkp, net, cer]);
 
-  const services = svc.data ?? [];
-  const guests = sys.data?.guests ?? [];
+  const services = useMemo(() => svc.data ?? [], [svc.data]);
+  const guests = useMemo(() => sys.data?.guests ?? [], [sys.data]);
   const servicesUp = services.filter((s) => s.status === 'ok').length;
 
   const selectedSvcObj = useMemo(
@@ -91,6 +91,26 @@ export function App() {
 
   const anyError = sys.error || svc.error || tun.error;
 
+  // Surface persistent backend failures as a toast (once per error transition).
+  const errSig = `${sys.error?.message ?? ''}|${svc.error?.message ?? ''}|${tun.error?.message ?? ''}|${bkp.error?.message ?? ''}|${net.error?.message ?? ''}`;
+  const lastErrSig = useRef('');
+  useEffect(() => {
+    if (errSig === lastErrSig.current) return;
+    lastErrSig.current = errSig;
+    const errs: { name: string; err: Error | null }[] = [
+      { name: 'System', err: sys.error },
+      { name: 'Services', err: svc.error },
+      { name: 'Tunnel', err: tun.error },
+      { name: 'Backups', err: bkp.error },
+      { name: 'Netzwerk', err: net.error },
+    ];
+    for (const { name, err } of errs) {
+      if (err) {
+        pushToast({ level: 'err', title: `${name}-API Fehler`, body: err.message });
+      }
+    }
+  }, [errSig, sys.error, svc.error, tun.error, bkp.error, net.error, pushToast]);
+
   return (
     <div
       className="dashboard"
@@ -121,11 +141,13 @@ export function App() {
           guests={guests}
           tunnel={tun.data}
           backups={bkp.data}
+          loading={sys.loading || tun.loading || bkp.loading}
         />
         <ServiceGrid
           services={services}
           onSelect={setSelectedSvc}
           showSpark={ui.showSparklines}
+          loading={svc.loading}
         />
         <VMTable guests={guests} onLogs={onLogs} onRestart={onRestart} />
         <NetworkPanel network={net.data} tunnel={tun.data} />

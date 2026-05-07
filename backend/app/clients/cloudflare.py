@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import httpx
+import structlog
 
 from ..config import Settings
 from ..models import CertInfo, DNSRecordCheck, TunnelStatus
+
+log = structlog.get_logger("cloudflare")
 
 CF_API = "https://api.cloudflare.com/client/v4"
 
@@ -41,7 +44,13 @@ async def fetch_tunnel_status(settings: Settings) -> TunnelStatus:
                 settings,
                 f"/accounts/{settings.cf_account_id}/cfd_tunnel/{settings.cf_tunnel_id}/connections",
             )
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            log.warning(
+                "cloudflare.tunnel_failed",
+                tunnel_id=settings.cf_tunnel_id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return TunnelStatus(id=settings.cf_tunnel_id, status="unknown")
 
     raw_status = (tunnel.get("status") if isinstance(tunnel, dict) else None) or "unknown"
@@ -84,7 +93,8 @@ async def fetch_certs(settings: Settings) -> list[CertInfo]:
     async with httpx.AsyncClient(timeout=8.0) as client:
         try:
             packs = await _get(client, settings, f"/zones/{settings.cf_zone_id}/ssl/certificate_packs")
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            log.warning("cloudflare.certs_failed", zone=settings.cf_zone_id, error=str(e))
             return []
     out: list[CertInfo] = []
     now = datetime.now(timezone.utc)
@@ -125,7 +135,8 @@ async def fetch_dns_consistency(settings: Settings) -> list[DNSRecordCheck]:
             records = await _get(
                 client, settings, f"/zones/{settings.cf_zone_id}/dns_records?per_page=200"
             )
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            log.warning("cloudflare.dns_failed", zone=settings.cf_zone_id, error=str(e))
             return []
     by_name: dict[str, dict] = {}
     if isinstance(records, list):

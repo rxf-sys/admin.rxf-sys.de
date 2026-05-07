@@ -6,9 +6,25 @@ interface Props {
   guests: Guest[];
   tunnel: TunnelStatus | null;
   backups: BackupSummary | null;
+  loading?: boolean;
 }
 
-export function OverviewCards({ host, guests, tunnel, backups }: Props) {
+export function OverviewCards({ host, guests, tunnel, backups, loading }: Props) {
+  const initialLoad = loading && !host && !tunnel && !backups && guests.length === 0;
+  if (initialLoad) {
+    return (
+      <div className="overview-grid" aria-busy="true" aria-label="Übersicht lädt">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card overview-card skeleton-card" aria-hidden="true">
+            <div className="skeleton skeleton-h" />
+            <div className="skeleton skeleton-body" />
+            <div className="skeleton skeleton-line" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const upCount = guests.filter((v) => v.running).length;
   const ramPct = host && host.ram_total_b ? (host.ram_used_b / host.ram_total_b) * 100 : 0;
   const diskPct = host && host.disk_total_b ? (host.disk_used_b / host.disk_total_b) * 100 : 0;
@@ -116,47 +132,90 @@ export function OverviewCards({ host, guests, tunnel, backups }: Props) {
       <div className="card overview-card">
         <div className="card-h">
           <h3>Backup (PBS)</h3>
-          <span className={`badge ${(backups?.success_today ?? 0) > 0 ? 'ok' : 'warn'}`}>
-            <span className={`dot ${(backups?.success_today ?? 0) > 0 ? 'ok' : 'warn'}`} />
-            {backups ? `${backups.success_today}/${backups.total_today} HEUTE` : '— / —'}
-          </span>
+          <BackupBadge backups={backups} />
         </div>
-        <div className="ov-rows">
-          <div className="ov-row">
-            <span className="dim">Last successful</span>
-            <span className="mono" style={{ fontSize: 13 }}>
-              {fmtTimeAgo(backups?.last_success_iso ?? null)}
-            </span>
-          </div>
-          <div className="ov-row">
-            <span className="dim">Datastore</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
-              <div className="bar">
-                <div
-                  className="bar-fill"
-                  style={{
-                    width: `${dsPct}%`,
-                    background: dsPct > 85 ? 'var(--err)' : dsPct > 70 ? 'var(--warn)' : 'var(--ok)',
-                  }}
-                />
+        {backups && backups.reachable === false ? (
+          <div className="ov-empty" role="status">
+            <span className="dot err" aria-hidden="true" />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>PBS nicht erreichbar</div>
+              <div className="dim" style={{ fontSize: 11, marginTop: 2 }}>
+                {backups.error ?? 'Token oder Netzwerk prüfen'}
               </div>
-              <span className="mono" style={{ fontSize: 12 }}>
-                {dsPct}%
+            </div>
+          </div>
+        ) : (
+          <div className="ov-rows">
+            <div className="ov-row">
+              <span className="dim">Letzter Erfolg</span>
+              <span className="mono" style={{ fontSize: 13 }}>
+                {fmtTimeAgo(backups?.last_success_iso ?? null)}
+              </span>
+            </div>
+            <div className="ov-row">
+              <span className="dim">Datastore</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
+                <div
+                  className="bar"
+                  role="progressbar"
+                  aria-valuenow={dsPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Datastore Auslastung"
+                >
+                  <div
+                    className="bar-fill"
+                    style={{
+                      width: `${dsPct}%`,
+                      background: dsPct > 85 ? 'var(--err)' : dsPct > 70 ? 'var(--warn)' : 'var(--ok)',
+                    }}
+                  />
+                </div>
+                <span className="mono" style={{ fontSize: 12 }}>
+                  {dsPct}%
+                </span>
+              </div>
+            </div>
+            <div className="ov-row">
+              <span className="dim">Frei</span>
+              <Num value={fmtBytes(dsFreeB)} size="md" />
+            </div>
+            <div className="ov-row">
+              <span className="dim">Name</span>
+              <span className="mono dim" style={{ fontSize: 12 }}>
+                {backups?.datastore?.name ?? '—'}
               </span>
             </div>
           </div>
-          <div className="ov-row">
-            <span className="dim">Free</span>
-            <Num value={fmtBytes(dsFreeB)} size="md" />
-          </div>
-          <div className="ov-row">
-            <span className="dim">Datastore</span>
-            <span className="mono dim" style={{ fontSize: 12 }}>
-              {backups?.datastore?.name ?? '—'}
-            </span>
-          </div>
-        </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function BackupBadge({ backups }: { backups: BackupSummary | null }) {
+  if (!backups) {
+    return (
+      <span className="badge" aria-label="Backup-Status lädt">
+        <span className="dot" aria-hidden="true" /> — / —
+      </span>
+    );
+  }
+  if (backups.reachable === false) {
+    return (
+      <span className="badge err" aria-label="Backup-Server nicht erreichbar">
+        <span className="dot err" aria-hidden="true" /> OFFLINE
+      </span>
+    );
+  }
+  const success = backups.success_today;
+  const total = backups.total_today;
+  const cls = total === 0 ? 'warn' : success === total ? 'ok' : success > 0 ? 'warn' : 'err';
+  const label = total === 0 ? 'Heute keine Jobs' : `${success} von ${total} Jobs erfolgreich`;
+  return (
+    <span className={`badge ${cls}`} aria-label={label}>
+      <span className={`dot ${cls}`} aria-hidden="true" />
+      {success}/{total} HEUTE
+    </span>
   );
 }
