@@ -54,8 +54,11 @@ if not KEY:
     sys.exit(2)
 
 BASE = f"https://{HOST}:{PORT}"
+# Per developer.ui.com docs the header name is "X-API-Key" (mixed case).
+# HTTP headers are technically case-insensitive but some implementations
+# are picky, so match the documented spelling.
 HEADERS = {
-    "X-API-KEY": KEY,
+    "X-API-Key": KEY,
     "Accept": "application/json",
 }
 

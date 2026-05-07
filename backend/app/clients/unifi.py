@@ -52,8 +52,9 @@ def _base(settings: Settings) -> str:
 # order until one responds with a sites list.
 _INTEGRATION_ROOTS = [
     "/proxy/network/integration/v1",
+    "/proxy/network/integrations/v1",
     "/proxy/network/v2/api/site",
-    "/proxy/network/api/integrations/v1",
+    "/v1",
 ]
 
 
@@ -64,7 +65,8 @@ async def _try_integration(
     if not settings.unifi_api_key:
         return None
 
-    headers = {"X-API-KEY": settings.unifi_api_key, "Accept": "application/json"}
+    # Header name per developer.ui.com docs is "X-API-Key" (mixed case).
+    headers = {"X-API-Key": settings.unifi_api_key, "Accept": "application/json"}
 
     sites = None
     chosen_root: str | None = None
