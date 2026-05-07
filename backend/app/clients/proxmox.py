@@ -174,6 +174,33 @@ async def fetch_datastores(settings: Settings) -> list[Datastore]:
     return out
 
 
+async def fetch_guest_tasks(settings: Settings, vmid: int, limit: int = 10) -> list[dict]:
+    """Recent Proxmox cluster tasks scoped to a single VMID."""
+    async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=8.0) as client:
+        try:
+            tasks = await _get(
+                client,
+                settings,
+                f"/nodes/{settings.proxmox_node}/tasks?vmid={vmid}&limit={limit}",
+            )
+        except httpx.HTTPError as e:
+            log.warning("proxmox.tasks_failed", vmid=vmid, error=str(e))
+            return []
+    out: list[dict] = []
+    for t in tasks if isinstance(tasks, list) else []:
+        out.append(
+            {
+                "upid": t.get("upid"),
+                "type": t.get("type"),
+                "user": t.get("user"),
+                "status": t.get("status", "running"),
+                "starttime": int(t.get("starttime", 0)),
+                "endtime": int(t.get("endtime", 0)) or None,
+            }
+        )
+    return out
+
+
 async def restart_guest(settings: Settings, vmid: int, gtype: str) -> bool:
     path_type = "lxc" if gtype.lower() in ("lxc", "ct") else "qemu"
     async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=10.0) as client:

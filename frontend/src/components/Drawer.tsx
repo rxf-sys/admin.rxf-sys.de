@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import type { Guest, ServiceStatus } from '../types';
-import { Dot, ICONS, Num, Sparkline, fmtUptime } from './primitives';
+import { useEffect, useState } from 'react';
+import { api } from '../api/client';
+import type { Guest, GuestTask, ServiceStatus } from '../types';
+import { Dot, ICONS, Num, Sparkline, fmtTimeAgo, fmtUptime } from './primitives';
 import { getServiceHistory } from './ServiceGrid';
 
 interface Props {
@@ -15,6 +16,9 @@ function badgeLabel(s: ServiceStatus['status']): string {
 }
 
 export function Drawer({ open, svc, guests, onClose }: Props) {
+  const [tasks, setTasks] = useState<GuestTask[]>([]);
+  const [tasksError, setTasksError] = useState(false);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -23,6 +27,35 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // Heuristic: find the guest most likely backing this service.
+  const guest = svc
+    ? guests.find((g) => (g.service ?? '').toLowerCase().includes(svc.id)) ??
+      guests.find((g) => g.name.toLowerCase().includes(svc.id))
+    : undefined;
+
+  useEffect(() => {
+    if (!open || !guest) {
+      setTasks([]);
+      setTasksError(false);
+      return;
+    }
+    const ctrl = new AbortController();
+    api
+      .guestTasks(guest.id, ctrl.signal)
+      .then((r) => {
+        setTasks(r.tasks);
+        setTasksError(false);
+      })
+      .catch((e: Error) => {
+        if (ctrl.signal.aborted) return;
+        setTasksError(true);
+        setTasks([]);
+        // eslint-disable-next-line no-console
+        console.warn('tasks fetch failed', e);
+      });
+    return () => ctrl.abort();
+  }, [open, guest]);
 
   if (!svc) return null;
 
@@ -34,11 +67,6 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
   const max = data.length ? Math.max(...data) : 0;
   const avg = data.length ? data.reduce((a, b) => a + b, 0) / data.length : 0;
   const p95 = data.length ? sorted[Math.floor(data.length * 0.95)] ?? max : 0;
-
-  // Heuristic: find the guest most likely backing this service.
-  const guest =
-    guests.find((g) => (g.service ?? '').toLowerCase().includes(svc.id)) ??
-    guests.find((g) => g.name.toLowerCase().includes(svc.id));
 
   return (
     <>
@@ -159,6 +187,51 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
                   <span className="mono">{fmtUptime(guest.uptime_s)}</span>
                 </div>
               </div>
+            </div>
+          )}
+
+          {guest && (
+            <div className="drawer-section">
+              <h3>Letzte Tasks</h3>
+              {tasksError ? (
+                <div className="dimmer" style={{ fontSize: 12 }}>
+                  Tasks konnten nicht geladen werden.
+                </div>
+              ) : tasks.length === 0 ? (
+                <div className="dimmer" style={{ fontSize: 12 }}>
+                  Keine Tasks gefunden.
+                </div>
+              ) : (
+                <div className="event-list">
+                  {tasks.map((t) => {
+                    const ok = t.status === 'OK' || t.status === 'stopped';
+                    const running = !t.endtime;
+                    const dotStatus = running ? 'warn' : ok ? 'ok' : 'err';
+                    return (
+                      <div key={t.upid ?? `${t.starttime}-${t.type}`} className="event-row">
+                        <Dot status={dotStatus} />
+                        <span className="mono" style={{ fontSize: 12, fontWeight: 500 }}>
+                          {t.type ?? '—'}
+                        </span>
+                        <span className="dim mono" style={{ fontSize: 11 }}>
+                          {t.user ?? '—'}
+                        </span>
+                        <span
+                          className="mono dim"
+                          style={{ fontSize: 11, marginLeft: 'auto' }}
+                          title={t.upid ?? ''}
+                        >
+                          {fmtTimeAgo(
+                            t.starttime
+                              ? new Date(t.starttime * 1000).toISOString()
+                              : null,
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
