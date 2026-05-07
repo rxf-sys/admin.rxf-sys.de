@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api/client';
 import { BackupsCerts } from './components/BackupsCerts';
+import { CommandPalette } from './components/CommandPalette';
 import { ConfirmModal } from './components/ConfirmModal';
 import { Drawer } from './components/Drawer';
 import { Header } from './components/Header';
@@ -21,7 +22,20 @@ export function App() {
   const [selectedSvc, setSelectedSvc] = useState<string | null>(null);
   const [confirmGuest, setConfirmGuest] = useState<Guest | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const toastIdRef = useRef(1);
+
+  // Cmd/Ctrl+K toggles the command palette globally.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const pushToast = useCallback((t: Omit<Toast, 'id'>) => {
     const id = toastIdRef.current++;
@@ -129,6 +143,7 @@ export function App() {
         email={me.data?.email ?? null}
         accent={ui.accent}
         onAccent={(a) => setUI('accent', a)}
+        onOpenPalette={() => setPaletteOpen(true)}
       />
       {anyError && (
         <div className="error-banner">
@@ -165,6 +180,16 @@ export function App() {
         guest={confirmGuest}
         onConfirm={confirmRestart}
         onCancel={() => setConfirmGuest(null)}
+      />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        services={services}
+        guests={guests}
+        onSelectService={setSelectedSvc}
+        onRestartGuest={(g) => setConfirmGuest(g)}
+        onRefresh={refreshAll}
+        onToggleTheme={() => setUI('theme', ui.theme === 'dark' ? 'light' : 'dark')}
       />
       <Toasts toasts={toasts} />
     </div>

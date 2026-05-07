@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import verify_cf_access
+from .clients import cloudflare, pbs, probes
 from .config import get_settings
+from .notify import NotificationCenter, run_notification_loop
 from .routers import backups, certs, network, services, system, tunnel
 
 _settings = get_settings()
@@ -33,6 +37,63 @@ structlog.configure(
     cache_logger_on_first_use=True,
 )
 
+async def _gather_notify_snapshot() -> dict:
+    """Pull current state for the notification loop. Best-effort: any exception
+    in a sub-call yields its empty default rather than killing the loop."""
+    s = get_settings()
+    services_list, tunnel_status, backup_summary, certs_list = await asyncio.gather(
+        probes.probe_all(s),
+        cloudflare.fetch_tunnel_status(s),
+        pbs.fetch_backup_summary(s),
+        cloudflare.fetch_certs(s),
+        return_exceptions=True,
+    )
+    return {
+        "services": [
+            {"id": x.id, "status": x.status, "ms": x.ms}
+            for x in (services_list if isinstance(services_list, list) else [])
+        ],
+        "tunnel": (
+            {"status": tunnel_status.status}
+            if not isinstance(tunnel_status, BaseException)
+            else None
+        ),
+        "backups": (
+            backup_summary.model_dump()
+            if not isinstance(backup_summary, BaseException)
+            else None
+        ),
+        "certs": [
+            {"domain": c.domain, "days_left": c.days_left}
+            for c in (certs_list if isinstance(certs_list, list) else [])
+        ],
+    }
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task: asyncio.Task | None = None
+    if _settings.notify_webhook_url:
+        center = NotificationCenter(settings=_settings)
+        task = asyncio.create_task(
+            run_notification_loop(
+                center, _gather_notify_snapshot, interval_s=_settings.notify_interval_s
+            )
+        )
+        structlog.get_logger().info("notify.enabled", interval_s=_settings.notify_interval_s)
+    else:
+        structlog.get_logger().info("notify.disabled")
+    try:
+        yield
+    finally:
+        if task:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
 app = FastAPI(
     title="rxf-sys admin",
     description="Backend API for the rxf-sys homeserver admin dashboard.",
@@ -40,6 +101,7 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 settings = _settings

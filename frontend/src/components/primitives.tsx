@@ -22,6 +22,7 @@ export const ICONS: Record<string, ReactNode> = {
   check: <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12l5 5 9-11" /></svg>,
   warn: <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 4l10 17H2L12 4z" /><path d="M12 10v5M12 18v.5" /></svg>,
   x: <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" /></svg>,
+  search: <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="11" cy="11" r="6" /><path d="M16 16l4 4" strokeLinecap="round" /></svg>,
 };
 
 interface SparklineProps {

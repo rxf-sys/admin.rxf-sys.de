@@ -82,6 +82,16 @@ class Settings(BaseSettings):
     cache_ttl_unifi: int = 30
     cache_ttl_certs: int = 600
 
+    # ---- Notifications ----
+    # Discord/Slack-compatible incoming webhook URL. Empty = disabled.
+    notify_webhook_url: str = ""
+    # Service must stay degraded this long before we notify (anti-flap).
+    notify_service_threshold_s: int = 180
+    # Cert "expires soon" threshold in days.
+    notify_cert_days: int = 14
+    # Loop interval for the notification background task.
+    notify_interval_s: int = 60
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
