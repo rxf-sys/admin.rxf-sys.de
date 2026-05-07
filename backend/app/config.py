@@ -50,8 +50,12 @@ class Settings(BaseSettings):
     cf_tunnel_id: str = ""
 
     # ---- UniFi (local UCG-Ultra) ----
+    # Preferred: create a UniFi Integration API key in the Network app
+    # (Settings -> Control Plane -> Integrations -> Add API Key).
+    # Falls back to legacy username/password cookie auth if the key is empty.
     unifi_host: str = "192.168.2.1"
     unifi_port: int = 443
+    unifi_api_key: str = ""
     unifi_username: str = ""
     unifi_password: str = ""
     unifi_site: str = "default"

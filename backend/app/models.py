@@ -8,6 +8,16 @@ Status = Literal["ok", "warn", "err", "idle"]
 
 
 # ---------- System / Proxmox ----------
+class DiskHealth(BaseModel):
+    device: str
+    model: str | None = None
+    size_b: int = 0
+    health: Literal["PASSED", "FAILED", "UNKNOWN"] = "UNKNOWN"
+    used_pct: float | None = None
+    temp_c: float | None = None
+    type: str | None = None  # ssd / hdd / nvme
+
+
 class HostStatus(BaseModel):
     node: str
     pve_version: str | None = None
@@ -20,6 +30,8 @@ class HostStatus(BaseModel):
     disk_used_b: int = 0
     disk_total_b: int = 0
     online: bool = True
+    cpu_temp_c: float | None = None
+    disks: list[DiskHealth] = Field(default_factory=list)
 
 
 class Guest(BaseModel):
@@ -114,6 +126,9 @@ class NetworkSnapshot(BaseModel):
     throughput_up_mbit: float = 0.0
     networks: list[NetworkSegment] = Field(default_factory=list)
     clients_total: int = 0
+    reachable: bool = True
+    error: str | None = None
+    auth_mode: Literal["api-key", "cookie", "none"] = "none"
 
 
 # ---------- Certs / DNS ----------

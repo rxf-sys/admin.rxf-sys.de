@@ -12,6 +12,7 @@ interface HeaderProps {
   accent: 'peach' | 'indigo' | 'cyan' | 'green';
   onAccent: (a: 'peach' | 'indigo' | 'cyan' | 'green') => void;
   onOpenPalette: () => void;
+  onOpenHelp: () => void;
 }
 
 export function Header(p: HeaderProps) {
@@ -117,6 +118,15 @@ export function Header(p: HeaderProps) {
           type="button"
         >
           {p.theme === 'dark' ? ICONS.sun : ICONS.moon}
+        </button>
+        <button
+          className="btn icon"
+          onClick={p.onOpenHelp}
+          title="Tastenkürzel (?)"
+          aria-label="Tastenkürzel anzeigen"
+          type="button"
+        >
+          <span className="mono" style={{ fontSize: 14, fontWeight: 700 }}>?</span>
         </button>
         <div className="hdr-user">
           <div className="avatar">{initials}</div>

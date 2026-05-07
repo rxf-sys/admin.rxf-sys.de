@@ -136,32 +136,52 @@ export function NetworkPanel({ network, tunnel }: Props) {
         <div className="card">
           <div className="card-h">
             <h3>UniFi Clients</h3>
-            <span className="dimmer mono" style={{ fontSize: 11 }}>
-              {network?.clients_total ?? 0} total
-            </span>
-          </div>
-          <div className="net-rows">
-            {(network?.networks ?? []).map((n, i) => (
-              <div key={`${n.name}-${n.vlan ?? i}`} className="net-row">
-                <span
-                  className="net-dot"
-                  style={{ background: COLORS[i % COLORS.length] }}
-                />
-                <span style={{ fontSize: 13 }}>{n.name}</span>
-                <span className="mono dim" style={{ fontSize: 11 }}>
-                  VLAN {n.vlan ?? '—'}
-                </span>
-                <span className="mono" style={{ fontSize: 13, marginLeft: 'auto', fontWeight: 600 }}>
-                  {n.clients}
-                </span>
-              </div>
-            ))}
-            {(!network || network.networks.length === 0) && (
-              <div className="dimmer mono" style={{ fontSize: 11, padding: 8 }}>
-                UniFi nicht konfiguriert oder nicht erreichbar
-              </div>
+            {network && network.reachable === false ? (
+              <span className="badge err" aria-label="UniFi nicht erreichbar">
+                <span className="dot err" aria-hidden="true" /> ERROR
+              </span>
+            ) : (
+              <span className="dimmer mono" style={{ fontSize: 11 }}>
+                {network?.clients_total ?? 0} total
+                {network?.auth_mode === 'api-key' && ' · API-Key'}
+                {network?.auth_mode === 'cookie' && ' · Cookie'}
+              </span>
             )}
           </div>
+          {network && network.reachable === false ? (
+            <div className="ov-empty" role="status">
+              <span className="dot err" aria-hidden="true" />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>UniFi unerreichbar</div>
+                <div className="dim" style={{ fontSize: 11, marginTop: 2 }}>
+                  {network.error ?? 'Konfiguration prüfen'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="net-rows">
+              {(network?.networks ?? []).map((n, i) => (
+                <div key={`${n.name}-${n.vlan ?? i}`} className="net-row">
+                  <span
+                    className="net-dot"
+                    style={{ background: COLORS[i % COLORS.length] }}
+                  />
+                  <span style={{ fontSize: 13 }}>{n.name}</span>
+                  <span className="mono dim" style={{ fontSize: 11 }}>
+                    VLAN {n.vlan ?? '—'}
+                  </span>
+                  <span className="mono" style={{ fontSize: 13, marginLeft: 'auto', fontWeight: 600 }}>
+                    {n.clients}
+                  </span>
+                </div>
+              ))}
+              {(!network || network.networks.length === 0) && (
+                <div className="dimmer mono" style={{ fontSize: 11, padding: 8 }}>
+                  Keine Netzwerke gefunden
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </section>

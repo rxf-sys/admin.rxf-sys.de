@@ -50,6 +50,13 @@ export const api = {
     post<{ ok: boolean }>(`/api/system/guests/${vmid}/restart?type=${type}`),
   guestTasks: (vmid: number, signal?: AbortSignal) =>
     get<{ tasks: GuestTask[] }>(`/api/system/guests/${vmid}/tasks?limit=8`, signal),
+  taskLog: (upid: string, signal?: AbortSignal) =>
+    get<{ lines: { n: number; t: string }[] }>(
+      `/api/system/tasks/${encodeURIComponent(upid)}/log?limit=300`,
+      signal,
+    ),
+  audit: (signal?: AbortSignal) =>
+    get<{ events: Record<string, unknown>[] }>('/api/audit?limit=50', signal),
 };
 
 export { ApiError };

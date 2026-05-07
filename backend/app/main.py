@@ -13,7 +13,7 @@ from .auth import verify_cf_access
 from .clients import cloudflare, pbs, probes
 from .config import get_settings
 from .notify import NotificationCenter, run_notification_loop
-from .routers import backups, certs, network, services, system, tunnel
+from .routers import audit, backups, certs, network, services, system, tunnel
 
 _settings = get_settings()
 logging.basicConfig(
@@ -134,3 +134,4 @@ app.include_router(tunnel.router)
 app.include_router(backups.router)
 app.include_router(network.router)
 app.include_router(certs.router)
+app.include_router(audit.router)
