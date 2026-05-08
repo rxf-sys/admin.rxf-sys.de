@@ -73,12 +73,12 @@ def _make_conn() -> http.client.HTTPSConnection:
     return http.client.HTTPSConnection(HOST, PORT, context=ctx, timeout=8)
 
 
-def hit(path: str) -> tuple[int, str, str]:
-    full = f"{BASE_PATH}{path}"
+def hit(path: str, full: bool = False) -> tuple[int, str, str]:
+    full_path = f"{BASE_PATH}{path}"
     conn = _make_conn()
     try:
         try:
-            conn.request("GET", full, headers=HEADERS)
+            conn.request("GET", full_path, headers=HEADERS)
         except OSError as e:
             return -1, "", f"{type(e).__name__}: {e}"
         resp = conn.getresponse()
@@ -88,11 +88,38 @@ def hit(path: str) -> tuple[int, str, str]:
             body = body_bytes.decode("utf-8", errors="replace")
         except UnicodeDecodeError:
             body = repr(body_bytes[:500])
-        if len(body) > 1500:
-            body = body[:1500] + f"\n   … truncated ({len(body_bytes)} bytes total)"
+        if not full:
+            cap = 1500
+            if len(body) > cap:
+                body = body[:cap] + f"\n   … truncated ({len(body_bytes)} bytes total)"
         return resp.status, ct, body
     finally:
         conn.close()
+
+
+def _pretty(body: str) -> str:
+    """Pretty-print JSON if possible, otherwise return as-is."""
+    try:
+        return json.dumps(json.loads(body), indent=2, ensure_ascii=False)
+    except (json.JSONDecodeError, ValueError):
+        return body
+
+
+def _summarize_keys(body: str, sample_size: int = 3) -> str:
+    """For list responses, dump the keys present on the first N items."""
+    try:
+        parsed = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        return ""
+    items = parsed.get("data", parsed) if isinstance(parsed, dict) else parsed
+    if not isinstance(items, list) or not items:
+        return ""
+    out_lines = [f"  -- list of {len(items)} items --"]
+    for i, item in enumerate(items[:sample_size]):
+        if not isinstance(item, dict):
+            continue
+        out_lines.append(f"  item[{i}] keys: {sorted(item.keys())}")
+    return "\n".join(out_lines)
 
 
 def main() -> int:
@@ -142,18 +169,27 @@ def main() -> int:
         print(f"Could not parse /sites JSON; falling back to UNIFI_SITE={SITE!r}")
     print(SEPARATOR)
 
-    # Documented endpoints we want to inspect
+    # Documented endpoints we want to inspect (full bodies, no truncation)
     for path in [
         f"/sites/{site_id}",
         f"/sites/{site_id}/networks",
         f"/sites/{site_id}/clients",
         f"/sites/{site_id}/devices",
-        f"/sites/{site_id}/wlans",  # WiFi Broadcasts
+        f"/sites/{site_id}/wlans",
     ]:
-        status, ct, body = hit(path)
+        status, ct, body = hit(path, full=True)
         print(f"GET  {path}")
         print(f"  -> status={status}  content-type={ct}")
-        print(f"  body: {body[:600]}")
+        summary = _summarize_keys(body)
+        if summary:
+            print(summary)
+        print("  body:")
+        # Indent every line of the pretty body for visual grouping.
+        pretty = _pretty(body)
+        for line in pretty.splitlines()[:200]:  # cap to 200 lines per endpoint
+            print(f"    {line}")
+        if len(pretty.splitlines()) > 200:
+            print(f"    … ({len(pretty.splitlines()) - 200} more lines)")
         print()
 
     return 0
