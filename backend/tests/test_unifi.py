@@ -28,26 +28,28 @@ async def test_no_credentials_yields_unreachable():
 @pytest.mark.asyncio
 @respx.mock
 async def test_integration_api_happy_path():
-    """Documented endpoint shapes from developer.ui.com (Network v10.1.84).
+    """Real response shapes observed on UniFi Network v10.3.58 (UCG-Ultra).
 
-    The Integration API base path on a local controller is
-    /proxy/network/integration/v1. Sites and networks are identified by
-    UUIDs; networks expose a `vlanId` field and clients expose `vlanId`.
+    Clients carry only `type` (WIRED/WIRELESS) and `uplinkDeviceId`, no VLAN
+    membership. The gateway device exposes the public WAN IP under
+    `ipAddress`. ISP / throughput / link speed are not in the integration API.
     """
     s = Settings(
         unifi_host="unifi.test",
         unifi_port=443,
         unifi_api_key="key123",
-        unifi_site="default",
+        unifi_site="Default",
     )
     base = "https://unifi.test:443/proxy/network/integration/v1"
     site_uuid = "11111111-1111-1111-1111-111111111111"
+    gw_id = "gw-uuid"
+    ap_id = "ap-uuid"
 
     respx.get(f"{base}/sites").respond(
         200,
         json={
             "data": [
-                {"id": site_uuid, "name": "default"},
+                {"id": site_uuid, "name": "Default", "internalReference": "default"},
             ]
         },
     )
@@ -55,8 +57,9 @@ async def test_integration_api_happy_path():
         200,
         json={
             "data": [
-                {"id": "n1", "name": "LAN", "vlanId": 1, "enabled": True},
-                {"id": "n2", "name": "IoT", "vlanId": 30, "enabled": True},
+                {"id": "n1", "name": "Default", "vlanId": 1, "enabled": True},
+                {"id": "n2", "name": "IoT", "vlanId": 20, "enabled": True},
+                {"id": "n3", "name": "Guest", "vlanId": 30, "enabled": True},
             ]
         },
     )
@@ -64,9 +67,11 @@ async def test_integration_api_happy_path():
         200,
         json={
             "data": [
-                {"id": "c1", "vlanId": 1},
-                {"id": "c2", "vlanId": 1},
-                {"id": "c3", "vlanId": 30},
+                {"id": "c1", "type": "WIRED", "uplinkDeviceId": gw_id},
+                {"id": "c2", "type": "WIRED", "uplinkDeviceId": gw_id},
+                {"id": "c3", "type": "WIRELESS", "uplinkDeviceId": ap_id},
+                {"id": "c4", "type": "WIRELESS", "uplinkDeviceId": ap_id},
+                {"id": "c5", "type": "WIRELESS"},  # uplink unknown
             ]
         },
     )
@@ -75,15 +80,21 @@ async def test_integration_api_happy_path():
         json={
             "data": [
                 {
-                    "id": "d1",
-                    "role": "gateway",
-                    "wan": {
-                        "ip": "1.2.3.4",
-                        "ispName": "Vodafone",
-                        "rxRateBps": 12_500_000,  # 100 Mbit
-                        "txRateBps": 1_250_000,   # 10 Mbit
-                    },
-                }
+                    "id": gw_id,
+                    "name": "Cloud Gateway Ultra RX",
+                    "model": "UCG Ultra",
+                    "ipAddress": "93.221.213.49",
+                    "state": "ONLINE",
+                    "firmwareVersion": "5.0.16",
+                },
+                {
+                    "id": ap_id,
+                    "name": "U7 Lite",
+                    "model": "U7 Lite",
+                    "ipAddress": "192.168.2.22",
+                    "state": "ONLINE",
+                    "firmwareVersion": "8.5.21",
+                },
             ]
         },
     )
@@ -92,14 +103,22 @@ async def test_integration_api_happy_path():
 
     assert snap.reachable is True
     assert snap.auth_mode == "api-key"
-    assert snap.wan_ip == "1.2.3.4"
-    assert snap.isp == "Vodafone"
-    assert snap.clients_total == 3
-    assert snap.throughput_down_mbit == 100.0
-    assert snap.throughput_up_mbit == 10.0
+    assert snap.wan_ip == "93.221.213.49"
+    assert snap.clients_total == 5
+    assert snap.clients_wired == 2
+    assert snap.clients_wireless == 3
+    # Networks are listed but client counts are 0 since the API doesn't
+    # expose per-client VLAN membership in v10.3.
     by_name = {n.name: n for n in snap.networks}
-    assert by_name["LAN"].clients == 2
-    assert by_name["IoT"].clients == 1
+    assert set(by_name) == {"Default", "IoT", "Guest"}
+    assert by_name["IoT"].vlan == 20
+    # Devices: gateway flagged, clients counted by uplink.
+    by_dev = {d.id: d for d in snap.devices}
+    assert by_dev[gw_id].is_gateway is True
+    assert by_dev[gw_id].clients == 2
+    assert by_dev[ap_id].is_gateway is False
+    assert by_dev[ap_id].clients == 2
+    assert by_dev[gw_id].model == "UCG Ultra"
 
 
 @pytest.mark.asyncio
