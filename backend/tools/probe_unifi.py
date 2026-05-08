@@ -170,13 +170,40 @@ def main() -> int:
     print(SEPARATOR)
 
     # Documented endpoints we want to inspect (full bodies, no truncation)
-    for path in [
+    paths = [
         f"/sites/{site_id}",
         f"/sites/{site_id}/networks",
         f"/sites/{site_id}/clients",
         f"/sites/{site_id}/devices",
         f"/sites/{site_id}/wlans",
-    ]:
+        # Try a few candidates that might expose link speed / WAN throughput.
+        # These are not all documented for v10.3 but cost nothing to probe.
+        f"/sites/{site_id}/internet",
+        f"/sites/{site_id}/wan",
+        f"/sites/{site_id}/statistics",
+        f"/sites/{site_id}/health",
+        f"/sites/{site_id}/system-info",
+    ]
+
+    # Extract the first device id from the previous probe so we can hit the
+    # device-detail and per-port/interface endpoints (where link speeds may
+    # live).
+    device_ids: list[str] = []
+    status_d, _, body_d = hit(f"/sites/{site_id}/devices", full=True)
+    if status_d == 200:
+        try:
+            parsed = json.loads(body_d)
+            for d in parsed.get("data", []) if isinstance(parsed, dict) else []:
+                if isinstance(d, dict) and d.get("id"):
+                    device_ids.append(d["id"])
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    for did in device_ids[:2]:  # only the first two devices to keep output small
+        for sub in ["", "/statistics", "/ports", "/interfaces"]:
+            paths.append(f"/sites/{site_id}/devices/{did}{sub}")
+
+    for path in paths:
         status, ct, body = hit(path, full=True)
         print(f"GET  {path}")
         print(f"  -> status={status}  content-type={ct}")

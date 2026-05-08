@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     cache_ttl_pbs: int = 60
     cache_ttl_unifi: int = 30
     cache_ttl_certs: int = 600
+    cache_ttl_geoip: int = 21_600  # 6h; ISP info changes rarely
+
+    # ---- IP Geolocation (for ISP name when UniFi doesn't expose it) ----
+    geoip_enabled: bool = True
 
     # ---- Notifications ----
     # Discord/Slack-compatible incoming webhook URL. Empty = disabled.
