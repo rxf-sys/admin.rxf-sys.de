@@ -117,6 +117,17 @@ class NetworkSegment(BaseModel):
     clients: int = 0
 
 
+class UnifiDevice(BaseModel):
+    id: str
+    name: str
+    model: str | None = None
+    ip: str | None = None
+    state: str = "UNKNOWN"
+    firmware: str | None = None
+    is_gateway: bool = False
+    clients: int = 0
+
+
 class NetworkSnapshot(BaseModel):
     wan_ip: str | None = None
     isp: str | None = None
@@ -126,6 +137,9 @@ class NetworkSnapshot(BaseModel):
     throughput_up_mbit: float = 0.0
     networks: list[NetworkSegment] = Field(default_factory=list)
     clients_total: int = 0
+    clients_wired: int = 0
+    clients_wireless: int = 0
+    devices: list[UnifiDevice] = Field(default_factory=list)
     reachable: bool = True
     error: str | None = None
     auth_mode: Literal["api-key", "cookie", "none"] = "none"

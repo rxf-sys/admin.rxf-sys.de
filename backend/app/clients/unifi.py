@@ -27,7 +27,7 @@ import httpx
 import structlog
 
 from ..config import Settings
-from ..models import NetworkSegment, NetworkSnapshot
+from ..models import NetworkSegment, NetworkSnapshot, UnifiDevice
 
 log = structlog.get_logger("unifi")
 
@@ -99,6 +99,23 @@ def _unwrap(body: dict | list | None) -> list:
     return []
 
 
+_GATEWAY_HINTS = ("UCG", "UDM", "UDR", "USG", "GATEWAY", "DREAM")
+
+
+def _is_gateway(device: dict) -> bool:
+    """Best-effort gateway detection.
+
+    The Integration API up to v10.3 doesn't tag devices with a role/type,
+    so we sniff the model name. Covers Cloud Gateway Ultra, Dream Machine,
+    Dream Router, USG.
+    """
+    blob = " ".join(
+        str(device.get(k) or "")
+        for k in ("model", "name", "shortName", "longName", "type", "role")
+    ).upper()
+    return any(hint in blob for hint in _GATEWAY_HINTS)
+
+
 async def _try_integration(
     client: httpx.AsyncClient, settings: Settings
 ) -> NetworkSnapshot | None:
@@ -119,15 +136,21 @@ async def _try_integration(
             auth_mode="api-key",
         )
 
-    # Pick the requested site by name (also accept matching id), else first.
-    site_obj: dict | None = None
+    # Pick the requested site by name / internalReference / id, else first.
     target = settings.unifi_site
-    for s in sites:
-        if not isinstance(s, dict):
-            continue
-        if s.get("name") == target or s.get("id") == target:
-            site_obj = s
-            break
+    site_obj: dict | None = next(
+        (
+            s
+            for s in sites
+            if isinstance(s, dict)
+            and (
+                s.get("name") == target
+                or s.get("internalReference") == target
+                or s.get("id") == target
+            )
+        ),
+        None,
+    )
     if site_obj is None:
         site_obj = next((s for s in sites if isinstance(s, dict)), None)
     if site_obj is None:
@@ -139,29 +162,19 @@ async def _try_integration(
     site_name = site_obj.get("name") or "?"
 
     # Pull networks, clients, devices in parallel — all best-effort.
-    nets_task = _int_get(client, settings, f"/sites/{site_id}/networks")
-    clients_task = _int_get(client, settings, f"/sites/{site_id}/clients")
-    devices_task = _int_get(client, settings, f"/sites/{site_id}/devices")
     nets_body, clients_body, devices_body = await asyncio.gather(
-        nets_task, clients_task, devices_task
+        _int_get(client, settings, f"/sites/{site_id}/networks"),
+        _int_get(client, settings, f"/sites/{site_id}/clients"),
+        _int_get(client, settings, f"/sites/{site_id}/devices"),
     )
 
     nets = _unwrap(nets_body)
     clients_raw = _unwrap(clients_body)
-    devices = _unwrap(devices_body)
+    devices_raw = _unwrap(devices_body)
 
-    # Count clients per vlanId (documented field name).
-    by_vlan: dict[int | None, int] = {}
-    for c in clients_raw:
-        if not isinstance(c, dict):
-            continue
-        vlan = c.get("vlanId")
-        try:
-            vlan_int = int(vlan) if vlan is not None else None
-        except (TypeError, ValueError):
-            vlan_int = None
-        by_vlan[vlan_int] = by_vlan.get(vlan_int, 0) + 1
-
+    # Networks (VLANs). The Integration API does NOT return per-client VLAN
+    # membership in v10.3, so we cannot count clients per VLAN. We expose the
+    # VLAN list as-is and let the UI surface clients-by-uplink instead.
     networks: list[NetworkSegment] = []
     for n in nets:
         if not isinstance(n, dict):
@@ -172,65 +185,74 @@ async def _try_integration(
         except (TypeError, ValueError):
             vlan_int = None
         networks.append(
-            NetworkSegment(
-                name=n.get("name") or "?",
-                vlan=vlan_int,
-                clients=by_vlan.get(vlan_int, 0),
-            )
+            NetworkSegment(name=n.get("name") or "?", vlan=vlan_int, clients=0)
         )
 
-    # WAN info: best-effort lookup on the gateway device (UCG-Ultra etc.).
-    # The integration API exposes per-device info; field names vary slightly
-    # by firmware, so we sniff the common shapes.
-    wan_ip = None
-    isp = None
-    down_mbit = up_mbit = 0.0
-    link_down = link_up = None
-    for d in devices:
+    # Wired vs wireless and clients-per-uplink-device counts.
+    clients_wired = 0
+    clients_wireless = 0
+    by_uplink: dict[str, int] = {}
+    for c in clients_raw:
+        if not isinstance(c, dict):
+            continue
+        ctype = (c.get("type") or "").upper()
+        if ctype == "WIRED":
+            clients_wired += 1
+        elif ctype == "WIRELESS":
+            clients_wireless += 1
+        uplink = c.get("uplinkDeviceId")
+        if uplink:
+            by_uplink[uplink] = by_uplink.get(uplink, 0) + 1
+
+    # Devices and gateway WAN IP.
+    wan_ip: str | None = None
+    devices: list[UnifiDevice] = []
+    for d in devices_raw:
         if not isinstance(d, dict):
             continue
-        # Heuristic: only the gateway will have WAN/uplink info.
-        role = (d.get("role") or d.get("type") or "").lower()
-        if role and role not in ("gateway", "udm", "ucg", "router"):
-            continue
-        wan = d.get("wan") or d.get("uplink") or d.get("internet") or {}
-        if not isinstance(wan, dict):
-            continue
-        wan_ip = wan_ip or wan.get("ip") or wan.get("publicIp")
-        isp = isp or wan.get("ispName") or wan.get("isp")
-        if isinstance(wan.get("rxRateBps"), (int, float)):
-            down_mbit = float(wan["rxRateBps"]) * 8 / 1_000_000
-        elif isinstance(wan.get("downloadKbps"), (int, float)):
-            down_mbit = float(wan["downloadKbps"]) / 1000.0
-        if isinstance(wan.get("txRateBps"), (int, float)):
-            up_mbit = float(wan["txRateBps"]) * 8 / 1_000_000
-        elif isinstance(wan.get("uploadKbps"), (int, float)):
-            up_mbit = float(wan["uploadKbps"]) / 1000.0
-        if isinstance(wan.get("downlinkSpeedMbps"), (int, float)):
-            link_down = float(wan["downlinkSpeedMbps"])
-        if isinstance(wan.get("uplinkSpeedMbps"), (int, float)):
-            link_up = float(wan["uplinkSpeedMbps"])
-        if wan_ip:  # first matching device with WAN info wins
-            break
+        is_gw = _is_gateway(d)
+        # The gateway device's `ipAddress` is the public WAN IP on UCG/UDM.
+        if is_gw and not wan_ip:
+            wan_ip = d.get("ipAddress")
+        dev_id = d.get("id") or ""
+        devices.append(
+            UnifiDevice(
+                id=str(dev_id),
+                name=str(d.get("name") or d.get("model") or "?"),
+                model=d.get("model"),
+                ip=d.get("ipAddress"),
+                state=str(d.get("state") or "UNKNOWN"),
+                firmware=d.get("firmwareVersion"),
+                is_gateway=is_gw,
+                clients=by_uplink.get(str(dev_id), 0),
+            )
+        )
 
     log.info(
         "unifi.integration_ok",
         site=site_name,
         site_id=site_id,
         networks=len(networks),
-        clients=len(clients_raw),
+        clients_total=len(clients_raw),
+        clients_wired=clients_wired,
+        clients_wireless=clients_wireless,
         devices=len(devices),
         wan_ip=wan_ip is not None,
     )
     return NetworkSnapshot(
         wan_ip=wan_ip,
-        isp=isp,
-        link_down_mbit=link_down,
-        link_up_mbit=link_up,
-        throughput_down_mbit=round(down_mbit, 2),
-        throughput_up_mbit=round(up_mbit, 2),
+        # ISP / throughput / link speed are not exposed by the Integration
+        # API in v10.3 — left as defaults so the UI can show "—".
+        isp=None,
+        link_down_mbit=None,
+        link_up_mbit=None,
+        throughput_down_mbit=0.0,
+        throughput_up_mbit=0.0,
         networks=networks,
         clients_total=len(clients_raw),
+        clients_wired=clients_wired,
+        clients_wireless=clients_wireless,
+        devices=devices,
         reachable=True,
         error=None,
         auth_mode="api-key",

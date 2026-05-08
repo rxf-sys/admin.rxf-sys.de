@@ -105,6 +105,17 @@ export interface NetworkSegment {
   clients: number;
 }
 
+export interface UnifiDevice {
+  id: string;
+  name: string;
+  model: string | null;
+  ip: string | null;
+  state: string;
+  firmware: string | null;
+  is_gateway: boolean;
+  clients: number;
+}
+
 export interface NetworkSnapshot {
   wan_ip: string | null;
   isp: string | null;
@@ -114,6 +125,9 @@ export interface NetworkSnapshot {
   throughput_up_mbit: number;
   networks: NetworkSegment[];
   clients_total: number;
+  clients_wired: number;
+  clients_wireless: number;
+  devices: UnifiDevice[];
   reachable: boolean;
   error: string | null;
   auth_mode: 'api-key' | 'cookie' | 'none';
