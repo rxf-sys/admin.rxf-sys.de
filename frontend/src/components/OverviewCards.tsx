@@ -1,20 +1,29 @@
 import type { BackupSummary, Guest, HostStatus, TunnelStatus } from '../types';
 import { Donut, Dot, Num, fmtBytes, fmtTimeAgo, fmtUptime } from './primitives';
 
+export type OverviewCard = 'host' | 'guests' | 'tunnel' | 'backup';
+
 interface Props {
   host: HostStatus | null;
   guests: Guest[];
   tunnel: TunnelStatus | null;
   backups: BackupSummary | null;
   loading?: boolean;
+  /**
+   * Restrict the rendered set of cards. ``undefined`` renders all four (the
+   * default overview tab); a list lets a section tab show only the cards
+   * relevant to it (e.g. just the host card on the Server tab).
+   */
+  only?: OverviewCard[];
 }
 
-export function OverviewCards({ host, guests, tunnel, backups, loading }: Props) {
+export function OverviewCards({ host, guests, tunnel, backups, loading, only }: Props) {
   const initialLoad = loading && !host && !tunnel && !backups && guests.length === 0;
   if (initialLoad) {
+    const count = only?.length ?? 4;
     return (
       <div className="overview-grid" aria-busy="true" aria-label="Übersicht lädt">
-        {Array.from({ length: 4 }).map((_, i) => (
+        {Array.from({ length: count }).map((_, i) => (
           <div key={i} className="card overview-card skeleton-card" aria-hidden="true">
             <div className="skeleton skeleton-h" />
             <div className="skeleton skeleton-body" />
@@ -36,9 +45,11 @@ export function OverviewCards({ host, guests, tunnel, backups, loading }: Props)
   const dsPct = backups?.datastore?.used_pct ?? 0;
   const dsFreeB = backups?.datastore ? backups.datastore.total_b - backups.datastore.used_b : 0;
 
+  const wants = (k: OverviewCard) => !only || only.includes(k);
+
   return (
-    <div className="overview-grid">
-      {/* Proxmox Host */}
+    <div className="overview-grid" data-cards={only?.length ?? 4}>
+      {wants('host') && (
       <div className="card overview-card">
         <div className="card-h">
           <h3>Proxmox Host</h3>
@@ -64,8 +75,9 @@ export function OverviewCards({ host, guests, tunnel, backups, loading }: Props)
           {host?.node ?? '—'} · {host?.pve_version ?? '—'} · kernel {host?.kernel ?? '—'}
         </div>
       </div>
+      )}
 
-      {/* Containers/VMs */}
+      {wants('guests') && (
       <div className="card overview-card">
         <div className="card-h">
           <h3>Container & VMs</h3>
@@ -94,8 +106,9 @@ export function OverviewCards({ host, guests, tunnel, backups, loading }: Props)
           ))}
         </div>
       </div>
+      )}
 
-      {/* Cloudflare Tunnel */}
+      {wants('tunnel') && (
       <div className="card overview-card">
         <div className="card-h">
           <h3>Cloudflare Tunnel</h3>
@@ -128,8 +141,9 @@ export function OverviewCards({ host, guests, tunnel, backups, loading }: Props)
           </div>
         </div>
       </div>
+      )}
 
-      {/* Backup */}
+      {wants('backup') && (
       <div className="card overview-card">
         <div className="card-h">
           <h3>Backup (PBS)</h3>
@@ -190,6 +204,7 @@ export function OverviewCards({ host, guests, tunnel, backups, loading }: Props)
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

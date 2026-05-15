@@ -4,15 +4,21 @@ import { Dot, ICONS, fmtBytes, fmtTimeAgo } from './primitives';
 interface Props {
   backups: BackupSummary | null;
   certs: CertsSnapshot | null;
+  /**
+   * Which of the two cards to render. ``'all'`` (default) shows both side by
+   * side; ``'backup'`` only PBS jobs; ``'certs'`` only the cert + DNS card.
+   */
+  show?: 'all' | 'backup' | 'certs';
 }
 
-export function BackupsCerts({ backups, certs }: Props) {
+export function BackupsCerts({ backups, certs, show = 'all' }: Props) {
   const certColor = (d: number) =>
     d < 14 ? 'var(--err)' : d < 30 ? 'var(--warn)' : 'var(--ok)';
 
   return (
     <section className="dash-section">
-      <div className="bc-grid">
+      <div className={`bc-grid bc-grid-${show}`}>
+        {show !== 'certs' && (
         <div className="card">
           <div className="card-h">
             <h3>
@@ -71,7 +77,9 @@ export function BackupsCerts({ backups, certs }: Props) {
             )}
           </div>
         </div>
+        )}
 
+        {show !== 'backup' && (
         <div className="card">
           <div className="card-h">
             <h3>
@@ -141,6 +149,7 @@ export function BackupsCerts({ backups, certs }: Props) {
             </div>
           )}
         </div>
+        )}
       </div>
     </section>
   );

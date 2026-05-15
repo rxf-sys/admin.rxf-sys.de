@@ -13,16 +13,18 @@ type SortKey = 'id' | 'name' | 'ip' | 'cpu' | 'ram' | 'uptime';
 export function VMTable({ guests, onLogs, onRestart }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'id', dir: 'asc' });
   const [filter, setFilter] = useState('');
+  const [runningOnly, setRunningOnly] = useState(false);
 
   const sorted = useMemo(() => {
     const f = filter.trim().toLowerCase();
     let arr = guests.filter(
       (v) =>
-        !f ||
-        v.name.toLowerCase().includes(f) ||
-        (v.service ?? '').toLowerCase().includes(f) ||
-        String(v.id).includes(f) ||
-        (v.ip ?? '').includes(f),
+        (!runningOnly || v.running) &&
+        (!f ||
+          v.name.toLowerCase().includes(f) ||
+          (v.service ?? '').toLowerCase().includes(f) ||
+          String(v.id).includes(f) ||
+          (v.ip ?? '').includes(f)),
     );
     arr = [...arr].sort((a, b) => {
       const va: string | number =
@@ -46,7 +48,7 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
       return 0;
     });
     return arr;
-  }, [guests, sort, filter]);
+  }, [guests, sort, filter, runningOnly]);
 
   const toggle = (k: SortKey) =>
     setSort((s) => ({ key: k, dir: s.key === k && s.dir === 'asc' ? 'desc' : 'asc' }));
@@ -64,9 +66,18 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
     <section className="dash-section">
       <div className="section-head">
         <h2>
-          Container & VMs <span className="dim">· {guests.length}</span>
+          Container & VMs <span className="dim">· {sorted.length} / {guests.length}</span>
         </h2>
         <div className="section-tools">
+          <label className="toggle-pill" title="Nur laufende Container anzeigen">
+            <input
+              type="checkbox"
+              checked={runningOnly}
+              onChange={(e) => setRunningOnly(e.target.checked)}
+              aria-label="Nur laufende Container anzeigen"
+            />
+            <span>Nur laufende</span>
+          </label>
           <input
             className="input"
             placeholder="Filter…"
