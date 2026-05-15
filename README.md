@@ -48,8 +48,7 @@ separate, Cloudflare-Access-protected subdomain
 - **Backend** — FastAPI (Python 3.12) + httpx, async, with a TTL cache and
   single-flight de-duplication. All API secrets live server-side; the SPA
   only ever sees the aggregated JSON.
-- **Frontend** — Vite + React 18 + TypeScript SPA. Theme tokens and layout
-  CSS reused 1:1 from the original Claude-Design mockup (`design/`).
+- **Frontend** — Vite + React 18 + TypeScript SPA.
 - **Auth** — Cloudflare Access enforces login at the edge. The backend
   re-validates `Cf-Access-Jwt-Assertion` against
   `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` on every
@@ -80,17 +79,14 @@ frontend/               Vite + React + TS SPA
                         NetworkPanel, BackupsCerts, Drawer, ConfirmModal,
                         Toasts, primitives (icons, donut, sparkline)
     hooks/              usePoll, useTheme
-    styles/             tokens.css + layout.css (from design/)
+    styles/             tokens.css + layout.css
     types.ts
   Dockerfile, Caddyfile
 
 infrastructure/         Deployment helpers
   docker-compose.yml
   setup-lxc.sh          one-shot Proxmox host bootstrap
-  rxf-admin.service     optional bare-metal systemd unit
   .env.example
-
-design/                 Original Claude-Design mockup (reference)
 ```
 
 ## Deployment
@@ -219,9 +215,18 @@ so you can iterate without Cloudflare in the loop.
   the whole dashboard.
 - Browse the OpenAPI spec at <https://admin.rxf-sys.de/api/docs> if the
   dashboard is reporting unexpected values.
-- `design/` contains the original Claude-Design mockup (Babel-in-browser
-  prototype). It is *not* served in production and exists only as
-  reference for the visual language.
+- **CPU temperature**: Proxmox VE does not expose host CPU temperature
+  through its official API — there is no documented `cputemp` field on
+  `/nodes/{node}/status`. The dashboard does best-effort sniffing of the
+  various shapes `lm-sensors` output can take if a node operator has
+  patched `pveproxy` to surface it, but for stock PVE 8/9 installs the
+  field will simply stay empty. If you need temperatures, run a separate
+  node-exporter / IPMI exporter and chart it elsewhere.
+- **External vs. internal probes**: the public-hostname probes (through
+  Cloudflare) verify TLS, so a DNS hijack or expired edge cert shows up
+  as `ext=false`. The internal LAN probes (`probe_targets`) keep TLS
+  verification off because home-lab services typically use self-signed
+  or private-CA certs.
 
 ## Tech-stack rationale
 
@@ -229,10 +234,8 @@ so you can iterate without Cloudflare in the loop.
   refresh fans out to four to five upstream APIs in parallel.
   Pydantic schemas double as the wire contract consumed by the frontend
   via the generated OpenAPI document.
-- **Vite + React + TypeScript** — the existing JSX mockup ports almost
-  literally; TS adds the type safety that's missing in the prototype.
-  Babel-in-browser is fine for the design canvas but unacceptable in
-  production.
+- **Vite + React + TypeScript** — TS gives us a typed wire contract with
+  the OpenAPI-generated backend models, and Vite keeps the dev loop tight.
 - **Caddy** — single binary, automatic compression, trivial reverse
   proxy config. Cloudflare terminates TLS at the edge so plain :80
   inside the LXC is sufficient.

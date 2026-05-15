@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Section } from '../hooks/useSection';
 import type { Guest, ServiceStatus } from '../types';
 import { Dot, ICONS } from './primitives';
 
@@ -6,7 +7,7 @@ export interface CommandAction {
   id: string;
   title: string;
   hint?: string;
-  group: 'Service' | 'Container' | 'Aktion' | 'Theme';
+  group: 'Service' | 'Container' | 'Aktion' | 'Theme' | 'Bereich';
   keywords?: string;
   perform: () => void;
 }
@@ -20,7 +21,16 @@ interface Props {
   onRestartGuest: (g: Guest) => void;
   onRefresh: () => void;
   onToggleTheme: () => void;
+  onJumpSection: (s: Section) => void;
 }
+
+const SECTION_ACTIONS: { id: Section; title: string; hint: string }[] = [
+  { id: 'overview', title: 'Übersicht', hint: 'Tab 1 — alle Bereiche kompakt' },
+  { id: 'server', title: 'Server', hint: 'Tab 2 — Host, Container, Services' },
+  { id: 'network', title: 'Netzwerk', hint: 'Tab 3 — UniFi, VLANs, WAN' },
+  { id: 'backup', title: 'Backup', hint: 'Tab 4 — PBS-Jobs und Datastore' },
+  { id: 'cloudflare', title: 'Cloudflare', hint: 'Tab 5 — Tunnel, DNS, Zertifikate' },
+];
 
 /** Simple subsequence fuzzy matcher; returns score (lower = better) or null. */
 function fuzzyScore(needle: string, haystack: string): number | null {
@@ -51,6 +61,7 @@ export function CommandPalette({
   onRestartGuest,
   onRefresh,
   onToggleTheme,
+  onJumpSection,
 }: Props) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -59,6 +70,19 @@ export function CommandPalette({
 
   const allActions = useMemo<CommandAction[]>(() => {
     const out: CommandAction[] = [];
+    for (const s of SECTION_ACTIONS) {
+      out.push({
+        id: `section:${s.id}`,
+        title: `Springe zu ${s.title}`,
+        hint: s.hint,
+        group: 'Bereich',
+        keywords: `tab section ${s.id}`,
+        perform: () => {
+          onJumpSection(s.id);
+          onClose();
+        },
+      });
+    }
     for (const s of services) {
       out.push({
         id: `svc:${s.id}`,
@@ -110,7 +134,7 @@ export function CommandPalette({
       },
     );
     return out;
-  }, [services, guests, onSelectService, onRestartGuest, onRefresh, onToggleTheme, onClose]);
+  }, [services, guests, onSelectService, onRestartGuest, onRefresh, onToggleTheme, onJumpSection, onClose]);
 
   const filtered = useMemo(() => {
     const q = query.trim();

@@ -39,14 +39,21 @@ async def _probe(client: httpx.AsyncClient, url: str, timeout: float) -> tuple[b
 async def probe_all(settings: Settings) -> list[ServiceStatus]:
     results: list[ServiceStatus] = []
     timeout = settings.probe_timeout_s
-    async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+    # External probes go through Cloudflare with a real cert chain — verify TLS
+    # so a MITM/DNS-hijack against the public hostname shows up as down.
+    # Internal probes hit LAN hosts with self-signed/private-CA certs, so TLS
+    # verification has to stay off there.
+    async with (
+        httpx.AsyncClient(verify=True, timeout=timeout) as ext_client,
+        httpx.AsyncClient(verify=False, timeout=timeout) as int_client,
+    ):
         async def run(svc: dict[str, str]) -> ServiceStatus:
             sub_id = svc["id"]
             ext_url = f"https://{sub_id}.{settings.cf_zone_name}"
             int_url = settings.probe_targets.get(sub_id, ext_url)
             (ext_ok, ext_ms, ext_code), (int_ok, int_ms, int_code) = await asyncio.gather(
-                _probe(client, ext_url, timeout),
-                _probe(client, int_url, timeout),
+                _probe(ext_client, ext_url, timeout),
+                _probe(int_client, int_url, timeout),
             )
             ms = int_ms if int_ok else ext_ms
             if not ext_ok and not int_ok:

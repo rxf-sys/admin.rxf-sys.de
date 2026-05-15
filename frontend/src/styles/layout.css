@@ -630,3 +630,165 @@
 .tok-table td:first-child { color: var(--text-2); width: 240px; }
 .tok-table td:last-child { color: var(--text-4); }
 .tok-pre { background: var(--bg-0); border: 1px solid var(--border); border-radius: 6px; padding: 16px; font-size: 11px; color: var(--text-2); overflow-x: auto; line-height: 1.5; white-space: pre; }
+
+/* ============================================================ */
+/* SECTION NAV                                                  */
+/* ============================================================ */
+.section-nav {
+  position: sticky;
+  top: 48px;
+  z-index: 40;
+  background: color-mix(in srgb, var(--bg-0) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 24px;
+}
+.section-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 4px;
+  max-width: 1600px;
+  margin: 0 auto;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.section-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-3);
+  padding: 8px 14px;
+  border-radius: var(--r-2);
+  font: 500 13px/1 var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.section-tab:hover {
+  color: var(--text-1);
+  background: var(--surface-2);
+}
+.section-tab.active {
+  color: var(--text-1);
+  background: var(--surface-3);
+  border-color: var(--border);
+}
+.section-tab.active .section-tab-icon {
+  color: var(--accent);
+}
+.section-tab-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: var(--text-3);
+}
+.section-tab-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.section-tab-alerts {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--warn);
+  color: var(--bg-0);
+  font: 700 10px/1 var(--font-mono);
+}
+
+/* ============================================================ */
+/* PAUSE BANNER                                                 */
+/* ============================================================ */
+.paused-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 12px 24px 0;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--text-1);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.paused-banner .btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+/* ============================================================ */
+/* TOGGLE PILL (checkbox-as-pill)                               */
+/* ============================================================ */
+.toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.toggle-pill:hover { color: var(--text-1); }
+.toggle-pill input {
+  margin: 0;
+  accent-color: var(--accent);
+  width: 12px;
+  height: 12px;
+}
+.toggle-pill:has(input:checked) {
+  color: var(--text-1);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+}
+
+/* ============================================================ */
+/* HEADER BUTTON .active STATE                                  */
+/* ============================================================ */
+.btn.icon.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+/* ============================================================ */
+/* OVERVIEW GRID DYNAMIC COLUMNS                                */
+/* ============================================================ */
+.overview-grid[data-cards="1"] { grid-template-columns: minmax(0, 480px); }
+.overview-grid[data-cards="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.overview-grid[data-cards="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* ============================================================ */
+/* BACKUPS/CERTS SPLIT MODES                                    */
+/* ============================================================ */
+.bc-grid-backup,
+.bc-grid-certs { grid-template-columns: minmax(0, 1fr) !important; }
+
+/* ============================================================ */
+/* COZY DENSITY OVERRIDES                                       */
+/* ============================================================ */
+.dashboard[data-density="cozy"] .dash-main { padding: 28px 32px 80px; }
+.dashboard[data-density="cozy"] .dash-section { margin-bottom: 40px; }
+.dashboard[data-density="cozy"] .overview-grid { gap: 20px; }
+.dashboard[data-density="cozy"] .svc-grid { gap: 14px; }
+.dashboard[data-density="cozy"] .section-tab { padding: 10px 16px; }
+
+/* Mobile tweaks for the section nav */
+@media (max-width: 760px) {
+  .section-nav { padding: 6px 12px; top: 56px; }
+  .section-tab-label { display: none; }
+  .section-tab { padding: 8px 10px; }
+}

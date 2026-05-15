@@ -207,13 +207,49 @@ async def test_fetch_task_log(settings):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_restart_guest_lxc(settings):
+async def test_restart_guest_lxc_polls_upid_until_ok(settings):
     base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
-    route = respx.post(
+    upid = "UPID:test-node:0000ABCD:0:reboot::root@pam:"
+    reboot_route = respx.post(
         f"{base}/nodes/{settings.proxmox_node}/lxc/101/status/reboot"
-    ).respond(200, json={"data": "UPID:..."})
+    ).respond(200, json={"data": upid})
+    status_route = respx.get(
+        f"{base}/nodes/{settings.proxmox_node}/tasks/{upid}/status"
+    ).respond(200, json={"data": {"status": "stopped", "exitstatus": "OK"}})
 
     ok = await proxmox.restart_guest(settings, 101, "lxc")
 
     assert ok is True
-    assert route.called
+    assert reboot_route.called
+    assert status_route.called
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_restart_guest_lxc_reports_task_failure(settings):
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    upid = "UPID:test-node:0000DEAD:0:reboot::root@pam:"
+    respx.post(f"{base}/nodes/{settings.proxmox_node}/lxc/101/status/reboot").respond(
+        200, json={"data": upid}
+    )
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/tasks/{upid}/status").respond(
+        200, json={"data": {"status": "stopped", "exitstatus": "command failed"}}
+    )
+
+    ok = await proxmox.restart_guest(settings, 101, "lxc")
+
+    assert ok is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_restart_guest_lxc_without_upid_falls_back_to_http_status(settings):
+    """Old/proxy responses that don't echo a UPID still count as success."""
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.post(f"{base}/nodes/{settings.proxmox_node}/lxc/101/status/reboot").respond(
+        200, json={"data": None}
+    )
+
+    ok = await proxmox.restart_guest(settings, 101, "lxc")
+
+    assert ok is True

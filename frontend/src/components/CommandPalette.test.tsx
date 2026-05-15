@@ -33,6 +33,7 @@ function renderPalette(overrides: Partial<Parameters<typeof CommandPalette>[0]> 
     onRestartGuest: vi.fn(),
     onRefresh: vi.fn(),
     onToggleTheme: vi.fn(),
+    onJumpSection: vi.fn(),
     ...overrides,
   };
   render(<CommandPalette {...props} />);
@@ -51,6 +52,7 @@ describe('CommandPalette', () => {
         onRestartGuest={vi.fn()}
         onRefresh={vi.fn()}
         onToggleTheme={vi.fn()}
+        onJumpSection={vi.fn()}
       />,
     );
     expect(screen.queryByPlaceholderText(/Tippen f/i)).not.toBeInTheDocument();

@@ -13,6 +13,11 @@ interface HeaderProps {
   onAccent: (a: 'peach' | 'indigo' | 'cyan' | 'green') => void;
   onOpenPalette: () => void;
   onOpenHelp: () => void;
+  paused: boolean;
+  onTogglePause: () => void;
+  density: 'compact' | 'cozy';
+  onToggleDensity: () => void;
+  onSnapshot: () => void;
 }
 
 export function Header(p: HeaderProps) {
@@ -97,6 +102,35 @@ export function Header(p: HeaderProps) {
           type="button"
         >
           {ICONS.refresh}
+        </button>
+        <button
+          className={`btn icon ${p.paused ? 'active' : ''}`}
+          onClick={p.onTogglePause}
+          title={p.paused ? 'Auto-Refresh fortsetzen' : 'Auto-Refresh pausieren'}
+          aria-label={p.paused ? 'Auto-Refresh fortsetzen' : 'Auto-Refresh pausieren'}
+          aria-pressed={p.paused}
+          type="button"
+        >
+          {p.paused ? ICONS.play : ICONS.pause}
+        </button>
+        <button
+          className="btn icon"
+          onClick={p.onSnapshot}
+          title="Aktuellen Zustand als JSON in die Zwischenablage kopieren"
+          aria-label="Snapshot kopieren"
+          type="button"
+        >
+          {ICONS.download}
+        </button>
+        <button
+          className={`btn icon ${p.density === 'cozy' ? 'active' : ''}`}
+          onClick={p.onToggleDensity}
+          title={p.density === 'compact' ? 'Cozy-Modus (mehr Abstand)' : 'Compact-Modus (dichter)'}
+          aria-label="Dichte umschalten"
+          aria-pressed={p.density === 'cozy'}
+          type="button"
+        >
+          {ICONS.density}
         </button>
         <div className="accent-swatches" title="Accent">
           {(['peach', 'indigo', 'cyan', 'green'] as const).map((a) => (

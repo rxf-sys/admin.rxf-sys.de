@@ -8,6 +8,11 @@ interface Props {
 const SHORTCUTS: { keys: string[]; description: string }[] = [
   { keys: ['⌘', 'K'], description: 'Befehlspalette öffnen (auch Ctrl+K)' },
   { keys: ['?'], description: 'Diese Hilfe öffnen' },
+  { keys: ['1'], description: 'Bereich Übersicht' },
+  { keys: ['2'], description: 'Bereich Server' },
+  { keys: ['3'], description: 'Bereich Netzwerk' },
+  { keys: ['4'], description: 'Bereich Backup' },
+  { keys: ['5'], description: 'Bereich Cloudflare' },
   { keys: ['Esc'], description: 'Modal/Drawer/Palette schließen' },
   { keys: ['↑', '↓'], description: 'In Palette navigieren' },
   { keys: ['↵'], description: 'In Palette auswählen' },

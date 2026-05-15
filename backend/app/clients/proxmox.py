@@ -286,11 +286,65 @@ async def fetch_guest_tasks(settings: Settings, vmid: int, limit: int = 10) -> l
     return out
 
 
+async def _wait_for_task(
+    client: httpx.AsyncClient,
+    settings: Settings,
+    upid: str,
+    *,
+    timeout_s: float = 30.0,
+    interval_s: float = 1.0,
+) -> bool:
+    """Poll a Proxmox task UPID until it stops or the timeout elapses.
+
+    Proxmox actions like reboot return immediately with a UPID and execute
+    asynchronously. The HTTP 200 only acknowledges that the task was queued.
+    We poll ``/tasks/{upid}/status`` and return True iff the task finishes
+    with ``exitstatus == "OK"``. A timeout returns False (we don't know).
+    """
+    import asyncio
+
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    path = f"/nodes/{settings.proxmox_node}/tasks/{upid}/status"
+    while True:
+        try:
+            data = await _get(client, settings, path)
+        except httpx.HTTPError as e:
+            log.info("proxmox.task_status_failed", upid=upid, error=str(e))
+            return False
+        if isinstance(data, dict) and data.get("status") == "stopped":
+            exit_status = (data.get("exitstatus") or "").upper()
+            ok = exit_status == "OK"
+            if not ok:
+                log.info("proxmox.task_failed", upid=upid, exitstatus=exit_status)
+            return ok
+        if asyncio.get_event_loop().time() >= deadline:
+            log.info("proxmox.task_timeout", upid=upid, timeout_s=timeout_s)
+            return False
+        await asyncio.sleep(interval_s)
+
+
 async def restart_guest(settings: Settings, vmid: int, gtype: str) -> bool:
+    """Trigger reboot and wait for the resulting Proxmox task to finish.
+
+    Returns True only when the task reports ``exitstatus=OK``. A 200/202 on
+    the reboot call alone just means the task was queued — for VMs/CTs that
+    fail to shut down cleanly the actual reboot can still error out, and we
+    want the dashboard's success toast to reflect that.
+    """
     path_type = "lxc" if gtype.lower() in ("lxc", "ct") else "qemu"
     async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=10.0) as client:
         r = await client.post(
             f"{_base_url(settings)}/nodes/{settings.proxmox_node}/{path_type}/{vmid}/status/reboot",
             headers=_auth_header(settings),
         )
-        return r.status_code in (200, 202)
+        if r.status_code not in (200, 202):
+            return False
+        # PVE returns the UPID as the `data` field of a plain JSON envelope.
+        try:
+            upid = r.json().get("data")
+        except ValueError:
+            upid = None
+        if not isinstance(upid, str) or not upid.startswith("UPID:"):
+            # No UPID — fall back to the legacy "accepted == success" semantics.
+            return True
+        return await _wait_for_task(client, settings, upid)
