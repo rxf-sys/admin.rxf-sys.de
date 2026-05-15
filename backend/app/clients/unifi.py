@@ -64,12 +64,16 @@ def _integration_headers(settings: Settings) -> dict[str, str]:
 
 
 async def _int_get(
-    client: httpx.AsyncClient, settings: Settings, path: str
+    client: httpx.AsyncClient,
+    settings: Settings,
+    path: str,
+    *,
+    params: dict[str, str | int] | None = None,
 ) -> dict | list | None:
     """GET helper for the integration API. Returns parsed JSON or None."""
     url = f"{_base(settings)}{INTEGRATION_BASE}{path}"
     try:
-        r = await client.get(url, headers=_integration_headers(settings))
+        r = await client.get(url, headers=_integration_headers(settings), params=params)
     except httpx.HTTPError as e:
         log.info("unifi.int_request_error", path=path, error=str(e))
         return None
@@ -81,6 +85,43 @@ async def _int_get(
     except ValueError:
         log.info("unifi.int_non_json", path=path)
         return None
+
+
+# Integration API caps `limit` at 200 per page; we follow `offset` until the
+# returned slice is short or we've collected `totalCount` items.
+_PAGE_LIMIT = 200
+_MAX_PAGES = 25  # hard ceiling so a runaway controller can't pin us
+
+
+async def _int_get_paginated(
+    client: httpx.AsyncClient, settings: Settings, path: str
+) -> list:
+    """Fetch a list endpoint, following the Integration API's offset pagination."""
+    items: list = []
+    offset = 0
+    for _ in range(_MAX_PAGES):
+        body = await _int_get(
+            client, settings, path, params={"offset": offset, "limit": _PAGE_LIMIT}
+        )
+        if body is None:
+            return items
+        page = _unwrap(body)
+        if not page:
+            break
+        items.extend(page)
+        # Stop when the controller signals there's nothing left, otherwise when
+        # the returned slice was short.
+        total: int | None = None
+        if isinstance(body, dict):
+            t = body.get("totalCount")
+            if isinstance(t, int):
+                total = t
+        if total is not None and len(items) >= total:
+            break
+        if len(page) < _PAGE_LIMIT:
+            break
+        offset += _PAGE_LIMIT
+    return items
 
 
 def _unwrap(body: dict | list | None) -> list:
@@ -161,16 +202,14 @@ async def _try_integration(
     site_id = site_obj.get("id") or site_obj.get("name") or target
     site_name = site_obj.get("name") or "?"
 
-    # Pull networks, clients, devices in parallel — all best-effort.
-    nets_body, clients_body, devices_body = await asyncio.gather(
-        _int_get(client, settings, f"/sites/{site_id}/networks"),
-        _int_get(client, settings, f"/sites/{site_id}/clients"),
-        _int_get(client, settings, f"/sites/{site_id}/devices"),
+    # Pull networks, clients, devices in parallel — all best-effort. The
+    # Integration API paginates these endpoints (default limit 25, max 200);
+    # follow the cursor so a site with many clients doesn't get truncated.
+    nets, clients_raw, devices_raw = await asyncio.gather(
+        _int_get_paginated(client, settings, f"/sites/{site_id}/networks"),
+        _int_get_paginated(client, settings, f"/sites/{site_id}/clients"),
+        _int_get_paginated(client, settings, f"/sites/{site_id}/devices"),
     )
-
-    nets = _unwrap(nets_body)
-    clients_raw = _unwrap(clients_body)
-    devices_raw = _unwrap(devices_body)
 
     # Networks (VLANs). The Integration API does NOT return per-client VLAN
     # membership in v10.3, so we cannot count clients per VLAN. We expose the

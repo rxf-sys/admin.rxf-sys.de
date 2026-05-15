@@ -222,6 +222,18 @@ so you can iterate without Cloudflare in the loop.
 - `design/` contains the original Claude-Design mockup (Babel-in-browser
   prototype). It is *not* served in production and exists only as
   reference for the visual language.
+- **CPU temperature**: Proxmox VE does not expose host CPU temperature
+  through its official API — there is no documented `cputemp` field on
+  `/nodes/{node}/status`. The dashboard does best-effort sniffing of the
+  various shapes `lm-sensors` output can take if a node operator has
+  patched `pveproxy` to surface it, but for stock PVE 8/9 installs the
+  field will simply stay empty. If you need temperatures, run a separate
+  node-exporter / IPMI exporter and chart it elsewhere.
+- **External vs. internal probes**: the public-hostname probes (through
+  Cloudflare) verify TLS, so a DNS hijack or expired edge cert shows up
+  as `ext=false`. The internal LAN probes (`probe_targets`) keep TLS
+  verification off because home-lab services typically use self-signed
+  or private-CA certs.
 
 ## Tech-stack rationale
 

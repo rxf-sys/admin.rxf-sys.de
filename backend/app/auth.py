@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import time
 
 import httpx
+import jwt
 from fastapi import HTTPException, Request, status
-from jose import jwt
-from jose.exceptions import JWTError
+from jwt.algorithms import RSAAlgorithm
 
 from .config import Settings, get_settings
 
@@ -58,9 +59,13 @@ async def verify_cf_access(request: Request) -> dict:
         jwks = await _jwks.get(settings.cf_access_team_domain)
         unverified_header = jwt.get_unverified_header(token)
         kid = unverified_header.get("kid")
-        key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
-        if key is None:
+        key_jwk = next(
+            (k for k in jwks.get("keys", []) if k.get("kid") == kid), None
+        )
+        if key_jwk is None:
             raise HTTPException(status_code=401, detail="unknown signing key")
+
+        public_key = RSAAlgorithm.from_jwk(json.dumps(key_jwk))
 
         # Cloudflare Access signs exclusively with RS256. Pinning the algorithm
         # prevents an alg-confusion attack where a forged token could declare
@@ -68,13 +73,12 @@ async def verify_cf_access(request: Request) -> dict:
         # RSA public key as a shared HMAC secret.
         claims = jwt.decode(
             token,
-            key,
+            public_key,
             algorithms=["RS256"],
             audience=settings.cf_access_aud,
             issuer=f"https://{settings.cf_access_team_domain}",
-            options={"verify_at_hash": False},
         )
-    except JWTError as e:
+    except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
 
     return claims

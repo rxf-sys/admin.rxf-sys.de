@@ -23,8 +23,13 @@ def _auth(settings: Settings) -> dict[str, str]:
 _RETRY_STATUSES = {429, 500, 502, 503, 504}
 
 
-async def _get(client: httpx.AsyncClient, settings: Settings, path: str) -> dict | list:
-    """GET with exponential backoff on 429/5xx (max 3 attempts: 0.5s, 1s)."""
+async def _get_raw(client: httpx.AsyncClient, settings: Settings, path: str) -> dict:
+    """GET with exponential backoff on 429/5xx (max 3 attempts: 0.5s, 1s).
+
+    Returns the full decoded body so callers that need ``result_info`` (for
+    pagination) can read it. Use :func:`_get` for the common case where only
+    ``result`` matters.
+    """
     import asyncio
 
     delay = 0.5
@@ -50,10 +55,41 @@ async def _get(client: httpx.AsyncClient, settings: Settings, path: str) -> dict
         body = r.json()
         if not body.get("success", False):
             raise httpx.HTTPError(f"CF API error: {body.get('errors')}")
-        return body.get("result", {})
+        return body
     if last_exc:
         raise last_exc
     raise httpx.HTTPError(f"CF API exhausted retries for {path}")
+
+
+async def _get(client: httpx.AsyncClient, settings: Settings, path: str) -> dict | list:
+    body = await _get_raw(client, settings, path)
+    return body.get("result", {})
+
+
+async def _get_paginated(
+    client: httpx.AsyncClient, settings: Settings, path: str, per_page: int = 100
+) -> list:
+    """List endpoints with ``result_info.total_pages``. Caller passes the path
+    *without* ``page`` / ``per_page`` — we append them and walk all pages."""
+    sep = "&" if "?" in path else "?"
+    items: list = []
+    page = 1
+    while True:
+        body = await _get_raw(
+            client, settings, f"{path}{sep}page={page}&per_page={per_page}"
+        )
+        result = body.get("result")
+        if isinstance(result, list):
+            items.extend(result)
+        info = body.get("result_info") or {}
+        total_pages = int(info.get("total_pages", 1) or 1)
+        if page >= total_pages or not isinstance(result, list) or not result:
+            break
+        page += 1
+        if page > 50:  # hard ceiling to avoid runaway loops
+            log.warning("cloudflare.pagination_ceiling", path=path)
+            break
+    return items
 
 
 async def fetch_tunnel_status(settings: Settings) -> TunnelStatus:
@@ -161,17 +197,16 @@ async def fetch_dns_consistency(settings: Settings) -> list[DNSRecordCheck]:
     expected = f"{settings.cf_tunnel_id}.cfargotunnel.com"
     async with httpx.AsyncClient(timeout=8.0) as client:
         try:
-            records = await _get(
-                client, settings, f"/zones/{settings.cf_zone_id}/dns_records?per_page=200"
+            records = await _get_paginated(
+                client, settings, f"/zones/{settings.cf_zone_id}/dns_records"
             )
         except httpx.HTTPError as e:
             log.warning("cloudflare.dns_failed", zone=settings.cf_zone_id, error=str(e))
             return []
     by_name: dict[str, dict] = {}
-    if isinstance(records, list):
-        for rec in records:
-            name = rec.get("name", "")
-            by_name[name] = rec
+    for rec in records:
+        name = rec.get("name", "")
+        by_name[name] = rec
     out: list[DNSRecordCheck] = []
     for sub in EXPECTED_TUNNEL_SUBS:
         fqdn = f"{sub}.{settings.cf_zone_name}"
