@@ -1,4 +1,6 @@
+import { REFRESH_INTERVALS_MS } from '../hooks/useTheme';
 import { ICONS, fmtClock } from './primitives';
+import { StatusHistory } from './StatusHistory';
 
 interface HeaderProps {
   servicesUp: number;
@@ -6,8 +8,9 @@ interface HeaderProps {
   lastRefresh: number;
   onRefresh: () => void;
   refreshing: boolean;
-  theme: 'dark' | 'light';
-  onTheme: () => void;
+  theme: 'dark' | 'light' | 'auto';
+  onCycleTheme: () => void;
+  resolvedTheme: 'dark' | 'light';
   email: string | null;
   accent: 'peach' | 'indigo' | 'cyan' | 'green';
   onAccent: (a: 'peach' | 'indigo' | 'cyan' | 'green') => void;
@@ -18,6 +21,25 @@ interface HeaderProps {
   density: 'compact' | 'cozy';
   onToggleDensity: () => void;
   onSnapshot: () => void;
+  refreshIntervalMs: number;
+  onChangeRefreshInterval: (ms: number) => void;
+}
+
+function refreshLabel(ms: number): string {
+  if (ms === 0) return 'aus';
+  if (ms < 60_000) return `${ms / 1000}s`;
+  return `${ms / 60_000}min`;
+}
+
+function themeIcon(theme: 'dark' | 'light' | 'auto', resolved: 'dark' | 'light') {
+  if (theme === 'auto') return ICONS.monitor;
+  return resolved === 'dark' ? ICONS.sun : ICONS.moon;
+}
+
+function themeTooltip(theme: 'dark' | 'light' | 'auto'): string {
+  if (theme === 'dark') return 'Theme: dunkel — klicken für hell';
+  if (theme === 'light') return 'Theme: hell — klicken für Auto';
+  return 'Theme: Auto (System-Präferenz) — klicken für dunkel';
 }
 
 export function Header(p: HeaderProps) {
@@ -69,6 +91,11 @@ export function Header(p: HeaderProps) {
                 : `${p.servicesTotal - p.servicesUp} von ${p.servicesTotal} Services degraded`}
           </span>
         </div>
+        <StatusHistory
+          pollTs={p.lastRefresh}
+          servicesUp={p.servicesUp}
+          servicesTotal={p.servicesTotal}
+        />
       </div>
 
       <div className="hdr-right">
@@ -94,11 +121,25 @@ export function Header(p: HeaderProps) {
           <span className="cmdk-trigger-label">Suche</span>
           <kbd>⌘K</kbd>
         </button>
+        <label className="refresh-select" title="Auto-Refresh-Intervall">
+          <span className="dimmer" aria-hidden="true">⟳</span>
+          <select
+            value={p.refreshIntervalMs}
+            onChange={(e) => p.onChangeRefreshInterval(Number(e.target.value))}
+            aria-label="Auto-Refresh-Intervall"
+          >
+            {REFRESH_INTERVALS_MS.map((ms) => (
+              <option key={ms} value={ms}>
+                {refreshLabel(ms)}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           className={`btn icon ${p.refreshing ? 'spin' : ''}`}
           onClick={p.onRefresh}
-          title="Aktualisieren"
-          aria-label={p.refreshing ? 'Daten werden aktualisiert' : 'Daten aktualisieren'}
+          title="Jetzt aktualisieren"
+          aria-label={p.refreshing ? 'Daten werden aktualisiert' : 'Daten jetzt aktualisieren'}
           type="button"
         >
           {ICONS.refresh}
@@ -146,12 +187,12 @@ export function Header(p: HeaderProps) {
         </div>
         <button
           className="btn icon"
-          onClick={p.onTheme}
-          title="Theme wechseln"
-          aria-label={p.theme === 'dark' ? 'Zu hellem Theme wechseln' : 'Zu dunklem Theme wechseln'}
+          onClick={p.onCycleTheme}
+          title={themeTooltip(p.theme)}
+          aria-label={themeTooltip(p.theme)}
           type="button"
         >
-          {p.theme === 'dark' ? ICONS.sun : ICONS.moon}
+          {themeIcon(p.theme, p.resolvedTheme)}
         </button>
         <button
           className="btn icon"

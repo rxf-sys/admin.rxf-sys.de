@@ -207,6 +207,47 @@ async def test_fetch_task_log(settings):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_fetch_host_journal_filters_by_vmid(settings):
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/journal?lastentries=500").respond(
+        200,
+        json={
+            "data": [
+                "Jan 12 10:00 host kernel: lxc-100: started",
+                "Jan 12 10:01 host systemd: pve-container@200.service: stop",
+                "Jan 12 10:02 host pveproxy: CT 100 backup ok",
+                # Unrelated entries — must not appear.
+                "Jan 12 10:03 host kernel: random pid 10000 noise",
+                "Jan 12 10:04 host audit: msg=audit(1707730000.123:456) bogus",
+            ]
+        },
+    )
+
+    lines = await proxmox.fetch_host_journal_for_vmid(settings, 100)
+
+    # Only the three lines that mention 100 as a recognisable token.
+    assert len(lines) == 2
+    assert any("lxc-100" in line for line in lines)
+    assert any("CT 100" in line for line in lines)
+    # 10000 must NOT match because the regex uses word boundaries / shape.
+    assert not any("pid 10000" in line for line in lines)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_host_journal_returns_empty_on_error(settings):
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/journal?lastentries=500").mock(
+        side_effect=httpx.ConnectError("denied")
+    )
+
+    lines = await proxmox.fetch_host_journal_for_vmid(settings, 100)
+
+    assert lines == []
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_restart_guest_lxc_polls_upid_until_ok(settings):
     base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
     upid = "UPID:test-node:0000ABCD:0:reboot::root@pam:"

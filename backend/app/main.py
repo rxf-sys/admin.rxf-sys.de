@@ -9,6 +9,7 @@ import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import storage
 from .auth import verify_cf_access
 from .clients import cloudflare, pbs, probes
 from .config import get_settings
@@ -70,12 +71,32 @@ async def _gather_notify_snapshot() -> dict:
     }
 
 
+async def _history_cleanup_loop() -> None:
+    """Periodically drop probe samples older than the retention window."""
+    while True:
+        try:
+            await asyncio.sleep(_settings.history_cleanup_interval_s)
+            await storage.cleanup_old(_settings.history_retention_days)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - never let the loop die
+            structlog.get_logger().error(
+                "history.cleanup_error", error=str(e), error_type=type(e).__name__
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task: asyncio.Task | None = None
+    notify_task: asyncio.Task | None = None
+    cleanup_task: asyncio.Task | None = None
+
+    await storage.ensure_schema(_settings)
+    if storage.is_enabled():
+        cleanup_task = asyncio.create_task(_history_cleanup_loop())
+
     if _settings.notify_webhook_url:
         center = NotificationCenter(settings=_settings)
-        task = asyncio.create_task(
+        notify_task = asyncio.create_task(
             run_notification_loop(
                 center, _gather_notify_snapshot, interval_s=_settings.notify_interval_s
             )
@@ -86,7 +107,9 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        if task:
+        for task in (notify_task, cleanup_task):
+            if task is None:
+                continue
             task.cancel()
             try:
                 await task

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { Guest, GuestTask, ServiceStatus } from '../types';
+import type { Guest, GuestTask, ServiceHistory, ServiceStatus } from '../types';
 import { Dot, ICONS, Num, Sparkline, fmtTimeAgo, fmtUptime } from './primitives';
 import { getServiceHistory } from './ServiceGrid';
 
@@ -18,6 +18,8 @@ function badgeLabel(s: ServiceStatus['status']): string {
 export function Drawer({ open, svc, guests, onClose }: Props) {
   const [tasks, setTasks] = useState<GuestTask[]>([]);
   const [tasksError, setTasksError] = useState(false);
+  const [history, setHistory] = useState<ServiceHistory | null>(null);
+  const [historyHours, setHistoryHours] = useState<number>(24);
 
   useEffect(() => {
     if (!open) return;
@@ -56,6 +58,24 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
       });
     return () => ctrl.abort();
   }, [open, guest]);
+
+  useEffect(() => {
+    if (!open || !svc) {
+      setHistory(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    api
+      .serviceHistory(svc.id, historyHours, ctrl.signal)
+      .then((h) => setHistory(h))
+      .catch((e: Error) => {
+        if (ctrl.signal.aborted) return;
+        setHistory(null);
+        // eslint-disable-next-line no-console
+        console.warn('history fetch failed', e);
+      });
+    return () => ctrl.abort();
+  }, [open, svc, historyHours]);
 
   if (!svc) return null;
 
@@ -166,6 +186,25 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
             </div>
           </div>
 
+          <div className="drawer-section">
+            <div className="drawer-section-head">
+              <h3>Verlauf · persistent</h3>
+              <select
+                className="hours-select"
+                value={historyHours}
+                onChange={(e) => setHistoryHours(Number(e.target.value))}
+                aria-label="Zeitraum"
+              >
+                <option value={1}>1h</option>
+                <option value={6}>6h</option>
+                <option value={24}>24h</option>
+                <option value={72}>3d</option>
+                <option value={168}>7d</option>
+              </select>
+            </div>
+            <HistoryView history={history} />
+          </div>
+
           {guest && (
             <div className="drawer-section">
               <h3>Container</h3>
@@ -225,6 +264,76 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
           </a>
         </div>
       </aside>
+    </>
+  );
+}
+
+function HistoryView({ history }: { history: ServiceHistory | null }) {
+  if (history === null) {
+    return (
+      <div className="dimmer" style={{ fontSize: 12 }}>
+        Lade…
+      </div>
+    );
+  }
+  if (!history.enabled) {
+    return (
+      <div className="dimmer" style={{ fontSize: 12 }}>
+        Probe-History deaktiviert — <span className="mono">STORAGE_DB_PATH</span> nicht gesetzt.
+      </div>
+    );
+  }
+  if (history.samples.length === 0) {
+    return (
+      <div className="dimmer" style={{ fontSize: 12 }}>
+        Noch keine Daten — Sammlung beginnt mit dem ersten Probe-Lauf.
+      </div>
+    );
+  }
+  // Bucket samples into a fixed-width stripe so the same component scales
+  // across "1h" (≈ 240 samples) and "7d" (≈ 40k).
+  const TARGET_BUCKETS = 60;
+  const buckets: ('ok' | 'warn' | 'err' | 'idle')[] = new Array(TARGET_BUCKETS).fill('idle');
+  const oldest = history.samples[0].ts;
+  const newest = history.samples[history.samples.length - 1].ts;
+  const span = Math.max(1, newest - oldest);
+  for (const s of history.samples) {
+    const idx = Math.min(TARGET_BUCKETS - 1, Math.floor(((s.ts - oldest) / span) * TARGET_BUCKETS));
+    // Worst status wins within a bucket so a single err isn't masked by ok.
+    const order = { ok: 0, idle: 1, warn: 2, err: 3 } as const;
+    if (order[s.status] >= order[buckets[idx]]) buckets[idx] = s.status;
+  }
+  const msValues = history.samples.map((s) => s.ms);
+  const avg = Math.round(msValues.reduce((a, b) => a + b, 0) / msValues.length);
+  return (
+    <>
+      <div className="history-stripe" role="img" aria-label="Status-Verlauf">
+        {buckets.map((b, i) => (
+          <span key={i} className={`status-cell ${b}`} />
+        ))}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          gap: 16,
+          marginTop: 8,
+          fontSize: 11,
+          color: 'var(--text-3)',
+        }}
+      >
+        <span className="mono">
+          Uptime{' '}
+          <strong style={{ color: 'var(--text-1)' }}>
+            {history.uptime_pct == null ? '—' : `${history.uptime_pct.toFixed(2)}%`}
+          </strong>
+        </span>
+        <span className="mono">
+          Samples <strong style={{ color: 'var(--text-1)' }}>{history.samples.length}</strong>
+        </span>
+        <span className="mono">
+          Ø Antwort <strong style={{ color: 'var(--text-1)' }}>{avg}ms</strong>
+        </span>
+      </div>
     </>
   );
 }

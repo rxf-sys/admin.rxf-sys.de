@@ -82,6 +82,9 @@ export interface TunnelStatus {
 export interface BackupSnapshot {
   id: string;
   target: string;
+  backup_type: string;
+  backup_id: string;
+  backup_time: number;
   status: Status;
   verify: 'ok' | 'pending' | 'failed' | '—';
   size_b: number;
@@ -165,4 +168,18 @@ export interface GuestTask {
   status: string;
   starttime: number;
   endtime: number | null;
+}
+
+export interface ProbeSample {
+  ts: number;
+  status: 'ok' | 'warn' | 'err' | 'idle';
+  ms: number;
+}
+
+export interface ServiceHistory {
+  service_id: string;
+  hours: number;
+  enabled: boolean;
+  uptime_pct: number | null;
+  samples: ProbeSample[];
 }

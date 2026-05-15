@@ -5,6 +5,7 @@ import time
 
 import httpx
 
+from .. import storage
 from ..config import Settings
 from ..models import ServiceStatus
 
@@ -85,4 +86,8 @@ async def probe_all(settings: Settings) -> list[ServiceStatus]:
             )
 
         results = await asyncio.gather(*(run(s) for s in SERVICES))
+
+    # Persist a sample per service for the uptime view. Best-effort; if
+    # storage is disabled or the write fails it's a no-op (see storage.py).
+    await storage.record_probes([(r.id, r.status, int(r.ms)) for r in results])
     return list(results)

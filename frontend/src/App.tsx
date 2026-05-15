@@ -5,6 +5,7 @@ import { BackupsCerts } from './components/BackupsCerts';
 import { CommandPalette } from './components/CommandPalette';
 import { ConfirmModal } from './components/ConfirmModal';
 import { Drawer } from './components/Drawer';
+import { GuestDrawer } from './components/GuestDrawer';
 import { Header } from './components/Header';
 import { NetworkPanel } from './components/NetworkPanel';
 import { OverviewCards } from './components/OverviewCards';
@@ -15,16 +16,15 @@ import { Toasts, type Toast } from './components/Toasts';
 import { VMTable } from './components/VMTable';
 import { usePoll } from './hooks/usePoll';
 import { type Section, useSection } from './hooks/useSection';
-import { useUISettings } from './hooks/useTheme';
-import type { Guest } from './types';
-
-const POLL_FAST = 15_000;
-const POLL_SLOW = 60_000;
+import { useResolvedTheme, useUISettings } from './hooks/useTheme';
+import type { BackupSnapshot, Guest } from './types';
 
 export function App() {
   const [ui, setUI] = useUISettings();
+  const resolvedTheme = useResolvedTheme(ui.theme);
   const [section, setSection] = useSection();
   const [selectedSvc, setSelectedSvc] = useState<string | null>(null);
+  const [logsGuest, setLogsGuest] = useState<Guest | null>(null);
   const [confirmGuest, setConfirmGuest] = useState<Guest | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -66,16 +66,18 @@ export function App() {
   }, [setSection]);
 
   // Pause swaps polling intervals to 0 (no auto-refresh) while keeping the
-  // last known state in memory. Manual refresh still works.
-  const pollFast = paused ? 0 : POLL_FAST;
-  const pollSlow = paused ? 0 : POLL_SLOW;
+  // last known state in memory. Manual refresh still works. The fast interval
+  // is the user-configured one; slow polls (backups, certs) scale off it.
+  const pollFast = paused ? 0 : ui.refreshIntervalMs;
+  const pollSlow = paused || ui.refreshIntervalMs === 0 ? 0 : Math.max(ui.refreshIntervalMs * 4, 30_000);
   const me = usePoll((sig) => api.me(sig), 0);
   const sys = usePoll((sig) => api.system(sig), pollFast);
   const svc = usePoll((sig) => api.services(sig), pollFast);
   const tun = usePoll((sig) => api.tunnel(sig), pollFast);
   const bkp = usePoll((sig) => api.backups(sig), pollSlow);
   const net = usePoll((sig) => api.network(sig), pollFast);
-  const cer = usePoll((sig) => api.certs(sig), pollSlow * 5);
+  // Certs change very rarely; clamp to at least 5 min when polling is enabled.
+  const cer = usePoll((sig) => api.certs(sig), pollSlow === 0 ? 0 : Math.max(pollSlow * 5, 300_000));
 
   const lastRefresh = Math.max(
     sys.lastFetched,
@@ -123,8 +125,7 @@ export function App() {
     [selectedSvc, services],
   );
 
-  const onLogs = (g: Guest) =>
-    pushToast({ level: 'ok', title: `Logs für ${g.name}`, body: 'Live-Logs sind in v1 noch nicht implementiert.' });
+  const onLogs = (g: Guest) => setLogsGuest(g);
 
   const onRestart = (g: Guest) => setConfirmGuest(g);
 
@@ -148,6 +149,32 @@ export function App() {
       });
     }
   };
+
+  const onVerifyBackup = useCallback(
+    async (snap: BackupSnapshot) => {
+      const ok = window.confirm(
+        `Verifikation für ${snap.target} (${new Date(snap.backup_time * 1000).toLocaleString()}) starten?\n\nDer Job läuft asynchron auf dem PBS und kann bei großen Backups länger dauern.`,
+      );
+      if (!ok) return;
+      try {
+        const r = await api.verifyBackup(snap.backup_type, snap.backup_id, snap.backup_time);
+        pushToast({
+          level: 'ok',
+          title: `Verify gestartet · ${snap.target}`,
+          body: `UPID: ${r.upid.slice(0, 32)}…`,
+        });
+        // Pull a fresh backup summary in a moment so verify status flips to pending.
+        setTimeout(bkp.refresh, 2000);
+      } catch (e) {
+        pushToast({
+          level: 'err',
+          title: 'Verify fehlgeschlagen',
+          body: (e as Error).message,
+        });
+      }
+    },
+    [pushToast, bkp],
+  );
 
   // Build a JSON snapshot of the current dashboard state and copy it to the
   // clipboard. Useful for filing issues without having to screenshot.
@@ -202,7 +229,8 @@ export function App() {
   return (
     <div
       className="dashboard"
-      data-theme={ui.theme}
+      data-theme={resolvedTheme}
+      data-theme-pref={ui.theme}
       data-accent={ui.accent}
       data-density={ui.density}
       data-section={section}
@@ -214,7 +242,12 @@ export function App() {
         onRefresh={refreshAll}
         refreshing={sys.loading || svc.loading}
         theme={ui.theme}
-        onTheme={() => setUI('theme', ui.theme === 'dark' ? 'light' : 'dark')}
+        resolvedTheme={resolvedTheme}
+        onCycleTheme={() => {
+          const order: ('dark' | 'light' | 'auto')[] = ['dark', 'light', 'auto'];
+          const next = order[(order.indexOf(ui.theme) + 1) % order.length];
+          setUI('theme', next);
+        }}
         email={me.data?.email ?? null}
         accent={ui.accent}
         onAccent={(a) => setUI('accent', a)}
@@ -225,6 +258,8 @@ export function App() {
         density={ui.density}
         onToggleDensity={() => setUI('density', ui.density === 'compact' ? 'cozy' : 'compact')}
         onSnapshot={onSnapshot}
+        refreshIntervalMs={ui.refreshIntervalMs}
+        onChangeRefreshInterval={(ms) => setUI('refreshIntervalMs', ms)}
       />
       <SectionNav active={section} onChange={setSection} alerts={alerts} />
       {anyError && (
@@ -291,7 +326,7 @@ export function App() {
               loading={overallLoading}
               only={['backup']}
             />
-            <BackupsCerts backups={bkp.data} certs={cer.data} show="backup" />
+            <BackupsCerts backups={bkp.data} certs={cer.data} show="backup" onVerify={onVerifyBackup} />
           </>
         )}
         {section === 'cloudflare' && (
@@ -315,6 +350,15 @@ export function App() {
         guests={guests}
         onClose={() => setSelectedSvc(null)}
       />
+      <GuestDrawer
+        open={!!logsGuest}
+        guest={logsGuest}
+        onClose={() => setLogsGuest(null)}
+        onRestart={(g) => {
+          setLogsGuest(null);
+          setConfirmGuest(g);
+        }}
+      />
       <ConfirmModal
         open={!!confirmGuest}
         guest={confirmGuest}
@@ -329,7 +373,11 @@ export function App() {
         onSelectService={setSelectedSvc}
         onRestartGuest={(g) => setConfirmGuest(g)}
         onRefresh={refreshAll}
-        onToggleTheme={() => setUI('theme', ui.theme === 'dark' ? 'light' : 'dark')}
+        onToggleTheme={() => {
+          const order: ('dark' | 'light' | 'auto')[] = ['dark', 'light', 'auto'];
+          const next = order[(order.indexOf(ui.theme) + 1) % order.length];
+          setUI('theme', next);
+        }}
         onJumpSection={setSection}
       />
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />

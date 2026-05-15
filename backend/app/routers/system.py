@@ -74,3 +74,25 @@ async def task_log(
     """Log lines for a single Proxmox task UPID."""
     lines = await proxmox.fetch_task_log(settings, upid, limit=min(max(limit, 1), 1000))
     return {"lines": lines}
+
+
+@router.get("/guests/{vmid}/journal")
+async def guest_journal(
+    vmid: int,
+    settings: Settings = Depends(get_settings),
+    lastentries: int = 500,
+) -> dict:
+    """Host-journal entries that mention this VMID.
+
+    NOTE: This is the host-side journal filtered for VMID references, not the
+    guest's own ``journalctl`` (which the PVE API doesn't expose). It surfaces
+    lifecycle events emitted by pveproxy / pve-container / pve-firewall.
+    """
+    lines = await proxmox.fetch_host_journal_for_vmid(
+        settings, vmid, lastentries=min(max(lastentries, 50), 2000)
+    )
+    return {
+        "vmid": vmid,
+        "lines": lines,
+        "note": "Host-Journal gefiltert nach VMID — kein Container-internes journalctl.",
+    }

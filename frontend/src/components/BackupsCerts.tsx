@@ -1,4 +1,4 @@
-import type { BackupSummary, CertsSnapshot } from '../types';
+import type { BackupSnapshot, BackupSummary, CertsSnapshot } from '../types';
 import { Dot, ICONS, fmtBytes, fmtTimeAgo } from './primitives';
 
 interface Props {
@@ -9,9 +9,10 @@ interface Props {
    * side; ``'backup'`` only PBS jobs; ``'certs'`` only the cert + DNS card.
    */
   show?: 'all' | 'backup' | 'certs';
+  onVerify?: (snapshot: BackupSnapshot) => void;
 }
 
-export function BackupsCerts({ backups, certs, show = 'all' }: Props) {
+export function BackupsCerts({ backups, certs, show = 'all', onVerify }: Props) {
   const certColor = (d: number) =>
     d < 14 ? 'var(--err)' : d < 30 ? 'var(--warn)' : 'var(--ok)';
 
@@ -68,6 +69,22 @@ export function BackupsCerts({ backups, certs, show = 'all' }: Props) {
                 <span className="mono dim" style={{ fontSize: 11, width: 100, textAlign: 'right' }}>
                   {fmtTimeAgo(j.when_iso)}
                 </span>
+                {onVerify && (
+                  <button
+                    className="btn icon-sm"
+                    onClick={() => onVerify(j)}
+                    title={
+                      j.verify === 'pending'
+                        ? 'Verifikation läuft / wurde angefordert'
+                        : 'Verify-Job für diesen Snapshot starten'
+                    }
+                    aria-label={`Verify ${j.target} ${j.backup_time}`}
+                    type="button"
+                    disabled={j.verify === 'pending'}
+                  >
+                    {ICONS.check}
+                  </button>
+                )}
               </div>
             ))}
             {(!backups || backups.jobs.length === 0) && (

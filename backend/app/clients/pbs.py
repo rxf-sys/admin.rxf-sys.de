@@ -48,6 +48,49 @@ def _verify_status(verification: dict | None) -> str:
     return "—"
 
 
+async def trigger_verify(
+    settings: Settings, backup_type: str, backup_id: str, backup_time: int
+) -> str | None:
+    """Kick off a verification job for a single PBS snapshot.
+
+    Returns the resulting UPID on success, ``None`` on error. The token needs
+    the ``Datastore.Verify`` privilege on the datastore — ``DatastoreAudit``
+    alone (the default for read-only dashboards) is not sufficient.
+    """
+    if not (settings.pbs_token_id and settings.pbs_token_secret):
+        return None
+    payload = {
+        "backup-type": backup_type,
+        "backup-id": backup_id,
+        "backup-time": backup_time,
+    }
+    async with httpx.AsyncClient(verify=settings.pbs_verify_tls, timeout=10.0) as client:
+        try:
+            r = await client.post(
+                f"{_base_url(settings)}/admin/datastore/{settings.pbs_datastore}/verify",
+                headers={**_auth_header(settings), "Content-Type": "application/json"},
+                json=payload,
+            )
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            log.warning(
+                "pbs.verify_trigger_failed",
+                backup_type=backup_type,
+                backup_id=backup_id,
+                backup_time=backup_time,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return None
+        try:
+            data = r.json().get("data")
+        except ValueError:
+            data = None
+        if isinstance(data, str) and data.startswith("UPID:"):
+            return data
+        return None
+
+
 async def fetch_backup_summary(settings: Settings) -> BackupSummary:
     if not (settings.pbs_token_id and settings.pbs_token_secret):
         return BackupSummary(
@@ -96,12 +139,17 @@ async def fetch_backup_summary(settings: Settings) -> BackupSummary:
         when_iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
         verify = _verify_status(snap.get("verification"))
         size = int(snap.get("size", 0))
-        target = f"{snap.get('backup-type', '?')}/{snap.get('backup-id', '?')}"
+        b_type = str(snap.get("backup-type", "?"))
+        b_id = str(snap.get("backup-id", "?"))
+        target = f"{b_type}/{b_id}"
         status = "err" if verify == "failed" else ("warn" if verify == "pending" else "ok")
         jobs.append(
             BackupSnapshot(
                 id=f"{target}@{ts}",
                 target=target,
+                backup_type=b_type,
+                backup_id=b_id,
+                backup_time=ts,
                 status=status,  # type: ignore[arg-type]
                 verify=verify,  # type: ignore[arg-type]
                 size_b=size,

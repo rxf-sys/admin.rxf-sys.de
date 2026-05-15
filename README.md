@@ -130,6 +130,12 @@ Configuration → Access Control → **Add** user `admin-dashboard@pbs`.
 Datastore → `<your-datastore>` → Permissions → **Add** for the user with
 role `DatastoreAudit`.
 
+If you want the "Verify"-button next to each snapshot in the dashboard
+to actually work, the same user additionally needs `DatastoreReader` or
+a custom role that includes `Datastore.Verify` on the datastore.
+Read-only `DatastoreAudit` will return 403 on `POST /admin/datastore/<store>/verify`
+— the dashboard surfaces that as a toast.
+
 Copy into `PBS_TOKEN_ID` / `PBS_TOKEN_SECRET`.
 
 #### Cloudflare API
@@ -227,6 +233,14 @@ so you can iterate without Cloudflare in the loop.
   as `ext=false`. The internal LAN probes (`probe_targets`) keep TLS
   verification off because home-lab services typically use self-signed
   or private-CA certs.
+- **Probe history**: the backend persists each probe sample in a SQLite
+  file (default `/data/rxf-admin.db`, configurable via
+  `STORAGE_DB_PATH`). Retention defaults to 7 days. The service drawer
+  shows the resulting uptime % and a 60-bucket history strip. To run
+  the dashboard *without* persistent history, set `STORAGE_DB_PATH=`
+  in the env — the UI falls back to "history disabled" gracefully.
+  When deploying via docker-compose, mount a volume on `/data` so the
+  history survives container restarts.
 
 ## Tech-stack rationale
 

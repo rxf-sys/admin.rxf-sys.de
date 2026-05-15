@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     # ---- IP Geolocation (for ISP name when UniFi doesn't expose it) ----
     geoip_enabled: bool = True
 
+    # ---- Probe history (SQLite) ----
+    # Where to keep persisted service-probe history. Set to "" to disable
+    # storage entirely; the dashboard then falls back to in-memory only.
+    storage_db_path: str = "/data/rxf-admin.db"
+    # How long to keep individual probe samples (days). Older rows are dropped
+    # by a periodic cleanup task in the lifespan.
+    history_retention_days: int = 7
+    # Cleanup loop tick (seconds).
+    history_cleanup_interval_s: int = 3600
+
     # ---- Notifications ----
     # Discord/Slack-compatible incoming webhook URL. Empty = disabled.
     notify_webhook_url: str = ""

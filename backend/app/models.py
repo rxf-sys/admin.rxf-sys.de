@@ -93,6 +93,9 @@ class TunnelStatus(BaseModel):
 class BackupSnapshot(BaseModel):
     id: str
     target: str
+    backup_type: str
+    backup_id: str
+    backup_time: int
     status: Status
     verify: Literal["ok", "pending", "failed", "—"] = "—"
     size_b: int = 0
