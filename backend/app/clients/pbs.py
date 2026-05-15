@@ -28,12 +28,20 @@ async def _get(client: httpx.AsyncClient, settings: Settings, path: str) -> list
 
 
 def _verify_status(verification: dict | None) -> str:
+    """Map PBS verification.state to our four-state UI value.
+
+    PBS exposes (per pbs-docs): ``ok`` / ``failed`` / ``none`` (never verified)
+    and ``old``/``outdated`` (verified, but the verify-job's ``outdated-after``
+    has elapsed since). We surface stale verifications as ``pending`` so the
+    dashboard nudges the operator to re-verify, rather than masking them as
+    "unknown" alongside completely unverified backups.
+    """
     if not verification:
         return "—"
     state = (verification.get("state") or "").lower()
     if state in ("ok", "success"):
         return "ok"
-    if state in ("queued", "running"):
+    if state in ("queued", "running", "old", "outdated"):
         return "pending"
     if state in ("failed", "error"):
         return "failed"

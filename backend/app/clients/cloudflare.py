@@ -135,7 +135,9 @@ async def fetch_certs(settings: Settings) -> list[CertInfo]:
                     exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
                 except ValueError:
                     continue
-                hosts = cert.get("hosts") or [p.get("hosts", [None])[0] or "?"]
+                # Prefer the per-certificate hosts; fall back to the pack's
+                # hosts (may be empty) and finally to a sentinel.
+                hosts = cert.get("hosts") or p.get("hosts") or ["?"]
                 for host in hosts:
                     out.append(
                         CertInfo(
