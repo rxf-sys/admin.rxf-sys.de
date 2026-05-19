@@ -67,6 +67,12 @@ export interface ServiceStatus {
   code_ext: number | null;
   code_int: number | null;
   note: string | null;
+  /** 30-day rolling, percent. ``null`` when storage is disabled / no samples. */
+  uptime_pct: number | null;
+  /** 95th percentile response time over the last 24h, ms. */
+  p95_ms: number | null;
+  /** ISO 8601 timestamp of the most recent incident transition. */
+  last_incident_iso: string | null;
 }
 
 export interface TunnelStatus {
@@ -82,6 +88,9 @@ export interface TunnelStatus {
 export interface BackupSnapshot {
   id: string;
   target: string;
+  backup_type: string;
+  backup_id: string;
+  backup_time: number;
   status: Status;
   verify: 'ok' | 'pending' | 'failed' | '—';
   size_b: number;
@@ -165,4 +174,105 @@ export interface GuestTask {
   status: string;
   starttime: number;
   endtime: number | null;
+}
+
+export interface ProbeSample {
+  ts: number;
+  status: 'ok' | 'warn' | 'err' | 'idle';
+  ms: number;
+}
+
+export interface ServiceHistory {
+  service_id: string;
+  hours: number;
+  enabled: boolean;
+  uptime_pct: number | null;
+  p95_ms: number | null;
+  last_incident_iso: string | null;
+  samples: ProbeSample[];
+}
+
+export interface GuestMetricSample {
+  ts: number;
+  cpu_pct: number;
+  ram_used_b: number;
+  ram_total_b: number;
+}
+
+export interface GuestHistory {
+  vmid: number;
+  hours: number;
+  enabled: boolean;
+  samples: GuestMetricSample[];
+}
+
+export interface GuestBackups {
+  vmid: number;
+  limit: number;
+  reachable: boolean;
+  error: string | null;
+  jobs: BackupSnapshot[];
+}
+
+export interface NetworkThroughputSample {
+  ts: number;
+  down_mbit: number;
+  up_mbit: number;
+}
+
+export interface NetworkThroughput {
+  hours: number;
+  enabled: boolean;
+  peak_down_mbit: number;
+  peak_up_mbit: number;
+  samples: NetworkThroughputSample[];
+}
+
+export interface BackupHeatmapCell {
+  day: string;
+  label: 'empty' | 'ok' | 'partial' | 'err';
+  ok: number;
+  warn: number;
+  err: number;
+  total: number;
+}
+
+export interface BackupHeatmap {
+  days: number;
+  reachable: boolean;
+  error: string | null;
+  success_pct: number | null;
+  cells: BackupHeatmapCell[];
+}
+
+export interface BackupStorageItem {
+  target: string;
+  backup_type: string;
+  backup_id: string;
+  size_b: number;
+  count: number;
+}
+
+export interface BackupStorage {
+  reachable: boolean;
+  error: string | null;
+  total_b: number;
+  items: BackupStorageItem[];
+}
+
+export interface AccessSession {
+  email: string | null;
+  app_uid: string | null;
+  allowed: boolean;
+  created_at: string | null;
+  ip: string | null;
+  country: string | null;
+}
+
+export interface AccessSessions {
+  reachable: boolean;
+  error: string | null;
+  last_login_iso: string | null;
+  sessions_24h: number;
+  items: AccessSession[];
 }

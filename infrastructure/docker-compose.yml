@@ -9,6 +9,10 @@ services:
       - ./.env
     expose:
       - "8080"
+    volumes:
+      # Persists the probe-history SQLite file across container restarts.
+      # The default STORAGE_DB_PATH points at /data inside the container.
+      - rxf-admin-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health').read()"]
       interval: 30s
@@ -30,6 +34,9 @@ services:
       - "80:80"
     networks:
       - admin
+
+volumes:
+  rxf-admin-data:
 
 networks:
   admin:

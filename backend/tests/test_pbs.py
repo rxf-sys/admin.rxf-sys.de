@@ -83,3 +83,43 @@ async def test_pbs_summary_counts_today(settings):
     assert summary.total_today == 2
     assert summary.last_success_iso is not None
     assert len(summary.jobs) == 2
+    first = summary.jobs[0]
+    assert first.backup_type == "ct"
+    assert first.backup_id in ("100", "101")
+    assert first.backup_time > 0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_trigger_verify_returns_upid(settings):
+    base = f"https://{settings.pbs_host}:{settings.pbs_port}/api2/json"
+    upid = "UPID:pbs-test:0000ABCD:0:verify::root@pbs:"
+    respx.post(f"{base}/admin/datastore/{settings.pbs_datastore}/verify").respond(
+        200, json={"data": upid}
+    )
+
+    result = await pbs.trigger_verify(settings, "ct", "100", 1707730000)
+
+    assert result == upid
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_trigger_verify_failure_returns_none(settings):
+    base = f"https://{settings.pbs_host}:{settings.pbs_port}/api2/json"
+    respx.post(f"{base}/admin/datastore/{settings.pbs_datastore}/verify").respond(
+        403, json={"data": None}
+    )
+
+    result = await pbs.trigger_verify(settings, "ct", "100", 1707730000)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_trigger_verify_without_token_is_noop():
+    from app.config import Settings
+
+    settings = Settings(pbs_token_id="", pbs_token_secret="")
+    result = await pbs.trigger_verify(settings, "ct", "100", 1707730000)
+    assert result is None

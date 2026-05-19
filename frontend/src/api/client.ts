@@ -1,9 +1,16 @@
 import type {
+  AccessSessions,
+  BackupHeatmap,
+  BackupStorage,
   BackupSummary,
   CertsSnapshot,
+  GuestBackups,
+  GuestHistory,
   GuestTask,
   Identity,
   NetworkSnapshot,
+  NetworkThroughput,
+  ServiceHistory,
   ServiceStatus,
   SystemSnapshot,
   TunnelStatus,
@@ -42,10 +49,20 @@ export const api = {
   me: (signal?: AbortSignal) => get<Identity>('/api/me', signal),
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
   services: (signal?: AbortSignal) => get<ServiceStatus[]>('/api/services', signal),
+  serviceHistory: (id: string, hours = 24, signal?: AbortSignal) =>
+    get<ServiceHistory>(`/api/services/${encodeURIComponent(id)}/history?hours=${hours}`, signal),
   tunnel: (signal?: AbortSignal) => get<TunnelStatus>('/api/tunnel', signal),
   backups: (signal?: AbortSignal) => get<BackupSummary>('/api/backups', signal),
+  backupsHeatmap: (days = 30, signal?: AbortSignal) =>
+    get<BackupHeatmap>(`/api/backups/heatmap?days=${days}`, signal),
+  backupsStorageByGuest: (signal?: AbortSignal) =>
+    get<BackupStorage>('/api/backups/storage-by-guest', signal),
   network: (signal?: AbortSignal) => get<NetworkSnapshot>('/api/network', signal),
+  networkThroughput: (hours = 1, signal?: AbortSignal) =>
+    get<NetworkThroughput>(`/api/network/throughput?hours=${hours}`, signal),
   certs: (signal?: AbortSignal) => get<CertsSnapshot>('/api/certs', signal),
+  cfAccessSessions: (hours = 24, signal?: AbortSignal) =>
+    get<AccessSessions>(`/api/cloudflare/access/sessions?hours=${hours}`, signal),
   restartGuest: (vmid: number, type: 'lxc' | 'qemu') =>
     post<{ ok: boolean }>(`/api/system/guests/${vmid}/restart?type=${type}`),
   guestTasks: (vmid: number, signal?: AbortSignal) =>
@@ -55,8 +72,25 @@ export const api = {
       `/api/system/tasks/${encodeURIComponent(upid)}/log?limit=300`,
       signal,
     ),
+  guestJournal: (vmid: number, lastentries = 500, signal?: AbortSignal) =>
+    get<{ vmid: number; lines: string[]; note: string }>(
+      `/api/system/guests/${vmid}/journal?lastentries=${lastentries}`,
+      signal,
+    ),
+  guestHistory: (vmid: number, hours = 24, signal?: AbortSignal) =>
+    get<GuestHistory>(`/api/system/guests/${vmid}/history?hours=${hours}`, signal),
+  guestBackups: (vmid: number, limit = 5, signal?: AbortSignal) =>
+    get<GuestBackups>(`/api/system/guests/${vmid}/backups?limit=${limit}`, signal),
   audit: (signal?: AbortSignal) =>
     get<{ events: Record<string, unknown>[] }>('/api/audit?limit=50', signal),
+  events: (limit = 50, signal?: AbortSignal) =>
+    get<{ events: Record<string, unknown>[] }>(`/api/events?limit=${limit}`, signal),
+  verifyBackup: (backup_type: string, backup_id: string, backup_time: number) =>
+    post<{ ok: boolean; upid: string }>('/api/backups/verify', {
+      backup_type,
+      backup_id,
+      backup_time,
+    }),
 };
 
 export { ApiError };

@@ -259,6 +259,43 @@ async def fetch_task_log(settings: Settings, upid: str, limit: int = 200) -> lis
     return out
 
 
+async def fetch_host_journal_for_vmid(
+    settings: Settings, vmid: int, lastentries: int = 500
+) -> list[str]:
+    """Return host-journal lines that mention this VMID.
+
+    Proxmox does not expose an API to read inside a container — the
+    Integration API only offers ``/journal`` for the host. We fetch the last
+    N entries and filter for the VMID as a whole word, which catches the
+    usual ``lxc-<vmid>``, ``pve-container@<vmid>.service``, and bare-id
+    references that systemd / pveproxy / pve-firewall emit around lifecycle
+    events. This is *not* a replacement for ``journalctl`` inside the guest,
+    but it surfaces host-side events for that container without requiring
+    SSH access.
+    """
+    import re
+
+    async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=10.0) as client:
+        try:
+            data = await _get(
+                client,
+                settings,
+                f"/nodes/{settings.proxmox_node}/journal?lastentries={lastentries}",
+            )
+        except httpx.HTTPError as e:
+            log.warning("proxmox.journal_failed", vmid=vmid, error=str(e))
+            return []
+
+    if not isinstance(data, list):
+        return []
+
+    # \b<vmid>\b matches the id as a standalone token. We also accept
+    # ``lxc-<vmid>`` and ``CT <vmid>`` shapes explicitly so a numeric-prefix
+    # in a longer word (e.g. memory addresses) doesn't generate false hits.
+    pattern = re.compile(rf"(?:\blxc-{vmid}\b|\bCT\s*{vmid}\b|@{vmid}\.service|\b{vmid}\b)")
+    return [line for line in data if isinstance(line, str) and pattern.search(line)]
+
+
 async def fetch_guest_tasks(settings: Settings, vmid: int, limit: int = 10) -> list[dict]:
     """Recent Proxmox cluster tasks scoped to a single VMID."""
     async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=8.0) as client:

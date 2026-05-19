@@ -76,6 +76,10 @@ class ServiceStatus(BaseModel):
     code_ext: int | None = None
     code_int: int | None = None
     note: str | None = None
+    # Persisted-history rollups (None when storage is disabled / no data yet).
+    uptime_pct: float | None = None  # rolling 30-day, percent
+    p95_ms: int | None = None  # 95th percentile of response_ms over 24h
+    last_incident_iso: str | None = None  # most recent incident start, ISO 8601
 
 
 # ---------- Cloudflare Tunnel ----------
@@ -93,6 +97,9 @@ class TunnelStatus(BaseModel):
 class BackupSnapshot(BaseModel):
     id: str
     target: str
+    backup_type: str
+    backup_id: str
+    backup_time: int
     status: Status
     verify: Literal["ok", "pending", "failed", "—"] = "—"
     size_b: int = 0

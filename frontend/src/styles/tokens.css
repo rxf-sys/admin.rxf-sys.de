@@ -4,16 +4,25 @@
    Surface stack lifted from RF dark mode; Peach kept as brand accent.
    ============================================================================ */
 :root {
-  /* Surface stack (RF dark) */
-  --bg-0:        #0a0d14;   /* page background — slightly deeper than RF for OLED-friendly dashboards */
-  --bg-1:        #0f1119;   /* RF dark bg */
-  --surface-1:   #14172260; /* card alpha */
+  /* Surface stack (deeper for v2 dashboard) */
+  --bg-0:        #07090e;   /* page background — OLED-friendly */
+  --bg-1:        #0c0f17;   /* elevated background */
+  --surface-1:   #11141f;   /* solid base card */
   --surface-2:   #1a1d2e;   /* RF dark card */
   --surface-3:   #22253a;
   --surface-4:   #2a2d3e;   /* RF dark elev */
   --border:      #262a3d;
   --border-2:    #3a3d4e;   /* RF dark border */
   --border-strong: #4a4e63;
+
+  /* Shadows */
+  --shadow-1:    0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-pop:  0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+
+  /* Hero gradient (AttentionHero etc.) */
+  --grad-hero:
+    radial-gradient(ellipse at top right, rgba(255, 177, 122, 0.06), transparent 60%),
+    radial-gradient(ellipse at bottom left, rgba(66, 71, 105, 0.10), transparent 55%);
 
   /* Text */
   --text-1:      #f0f1f5;
@@ -29,7 +38,7 @@
   --peach-2:     #ffd6b1;
   --peach-press: #ff9d55;
 
-  /* Accent (default = peach, swappable via [data-accent]) */
+  /* Accent — baked-in brand peach (no longer user-selectable) */
   --accent:      var(--peach);
   --accent-2:    var(--peach-2);
   --accent-soft: rgba(255, 177, 122, 0.12);
@@ -95,28 +104,10 @@
   --card-pad: 22px;
 }
 
-[data-accent="indigo"] {
-  --accent:      #8b91c4;
-  --accent-2:    #a8aedb;
-  --accent-soft: rgba(139, 145, 196, 0.14);
-  --accent-ring: rgba(139, 145, 196, 0.35);
-}
-[data-accent="cyan"] {
-  --accent:      #4f9eff;
-  --accent-2:    #7ab6ff;
-  --accent-soft: rgba(79, 158, 255, 0.14);
-  --accent-ring: rgba(79, 158, 255, 0.35);
-}
-[data-accent="green"] {
-  --accent:      #00d97e;
-  --accent-2:    #4fe9a4;
-  --accent-soft: rgba(0, 217, 126, 0.14);
-  --accent-ring: rgba(0, 217, 126, 0.35);
-}
-
 [data-theme="light"] {
   --bg-0:        #f6f7f9;
   --bg-1:        #ffffff;
+  --surface-1:   #fbfcfe;
   --surface-2:   #ffffff;
   --surface-3:   #f1f3f7;
   --surface-4:   #e7eaf0;
@@ -127,6 +118,11 @@
   --text-2:      #424769;
   --text-3:      #6b7180;
   --text-4:      #9aa0ad;
+  --shadow-1:    0 1px 0 rgba(0, 0, 0, 0.04) inset, 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-pop:  0 12px 32px rgba(20, 30, 60, 0.10), 0 2px 8px rgba(20, 30, 60, 0.06);
+  --grad-hero:
+    radial-gradient(ellipse at top right, rgba(255, 177, 122, 0.10), transparent 60%),
+    radial-gradient(ellipse at bottom left, rgba(66, 71, 105, 0.06), transparent 55%);
 }
 
 * { box-sizing: border-box; }

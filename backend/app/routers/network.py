@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from .. import storage
 from ..auth import verify_cf_access
 from ..cache import cache
 from ..clients import geoip, unifi
@@ -29,3 +30,24 @@ async def get_network(settings: Settings = Depends(get_settings)) -> NetworkSnap
         return snap
 
     return await cache.get_or_set("network", settings.cache_ttl_unifi, loader)
+
+
+@router.get("/throughput")
+async def get_throughput(hours: int = 1) -> dict:
+    """WAN up/down time series, fed by the background metrics sampling loop.
+
+    Returns ``enabled=false`` when storage is disabled and an empty samples
+    list when the loop hasn't accumulated points yet. ``hours`` is capped at
+    24 to keep the response small.
+    """
+    hours = max(1, min(hours, 24))
+    samples = await storage.network_history(hours=hours)
+    peak_down = max((s["down_mbit"] for s in samples), default=0.0)
+    peak_up = max((s["up_mbit"] for s in samples), default=0.0)
+    return {
+        "hours": hours,
+        "enabled": storage.is_enabled(),
+        "peak_down_mbit": round(peak_down, 2),
+        "peak_up_mbit": round(peak_up, 2),
+        "samples": samples,
+    }

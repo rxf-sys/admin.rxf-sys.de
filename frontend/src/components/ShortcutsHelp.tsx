@@ -13,6 +13,7 @@ const SHORTCUTS: { keys: string[]; description: string }[] = [
   { keys: ['3'], description: 'Bereich Netzwerk' },
   { keys: ['4'], description: 'Bereich Backup' },
   { keys: ['5'], description: 'Bereich Cloudflare' },
+  { keys: ['6'], description: 'Bereich Einstellungen' },
   { keys: ['Esc'], description: 'Modal/Drawer/Palette schließen' },
   { keys: ['↑', '↓'], description: 'In Palette navigieren' },
   { keys: ['↵'], description: 'In Palette auswählen' },
