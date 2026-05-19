@@ -1385,3 +1385,17 @@
 .job-table tbody tr.attn:hover td {
   background: color-mix(in srgb, var(--err) 12%, var(--surface-3));
 }
+
+/* ============================================================ */
+/* CLOUDFLARE — DNS list                                        */
+/* ============================================================ */
+.dns-list { display: flex; flex-direction: column; gap: 4px; }
+.dns-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  transition: background var(--t-fast);
+}
+.dns-row:hover { background: var(--surface-3); }

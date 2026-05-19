@@ -14,7 +14,16 @@ from .auth import verify_cf_access
 from .clients import cloudflare, pbs, probes, proxmox, unifi
 from .config import get_settings
 from .notify import NotificationCenter, run_notification_loop
-from .routers import audit, backups, certs, network, services, system, tunnel
+from .routers import (
+    audit,
+    backups,
+    certs,
+    cloudflare as cloudflare_router,
+    network,
+    services,
+    system,
+    tunnel,
+)
 
 _settings = get_settings()
 logging.basicConfig(
@@ -203,3 +212,4 @@ app.include_router(network.router)
 app.include_router(certs.router)
 app.include_router(audit.router)
 app.include_router(audit.events_router)
+app.include_router(cloudflare_router.router)

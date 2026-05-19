@@ -1,4 +1,5 @@
 import type {
+  AccessSessions,
   BackupHeatmap,
   BackupStorage,
   BackupSummary,
@@ -60,6 +61,8 @@ export const api = {
   networkThroughput: (hours = 1, signal?: AbortSignal) =>
     get<NetworkThroughput>(`/api/network/throughput?hours=${hours}`, signal),
   certs: (signal?: AbortSignal) => get<CertsSnapshot>('/api/certs', signal),
+  cfAccessSessions: (hours = 24, signal?: AbortSignal) =>
+    get<AccessSessions>(`/api/cloudflare/access/sessions?hours=${hours}`, signal),
   restartGuest: (vmid: number, type: 'lxc' | 'qemu') =>
     post<{ ok: boolean }>(`/api/system/guests/${vmid}/restart?type=${type}`),
   guestTasks: (vmid: number, signal?: AbortSignal) =>

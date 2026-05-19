@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api/client';
 import { AuditLog } from './components/AuditLog';
-import { BackupsCerts } from './components/BackupsCerts';
 import { BackupsSection } from './components/BackupsSection';
+import { CloudflareSection } from './components/CloudflareSection';
 import { CommandPalette } from './components/CommandPalette';
 import { ConfirmModal } from './components/ConfirmModal';
 import { Drawer } from './components/Drawer';
@@ -314,17 +314,12 @@ export function App() {
           <BackupsSection backups={bkp.data} onVerify={onVerifyBackup} />
         )}
         {section === 'cloudflare' && (
-          <>
-            <OverviewCards
-              host={sys.data?.host ?? null}
-              guests={guests}
-              tunnel={tun.data}
-              backups={bkp.data}
-              loading={overallLoading}
-              only={['tunnel']}
-            />
-            <BackupsCerts backups={bkp.data} certs={cer.data} show="certs" />
-          </>
+          <CloudflareSection
+            tunnel={tun.data}
+            certs={cer.data}
+            services={services}
+            zoneName="rxf-sys.de"
+          />
         )}
         {section === 'settings' && (
           <SettingsPage

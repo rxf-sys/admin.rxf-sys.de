@@ -259,3 +259,20 @@ export interface BackupStorage {
   total_b: number;
   items: BackupStorageItem[];
 }
+
+export interface AccessSession {
+  email: string | null;
+  app_uid: string | null;
+  allowed: boolean;
+  created_at: string | null;
+  ip: string | null;
+  country: string | null;
+}
+
+export interface AccessSessions {
+  reachable: boolean;
+  error: string | null;
+  last_login_iso: string | null;
+  sessions_24h: number;
+  items: AccessSession[];
+}
