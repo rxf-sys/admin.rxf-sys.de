@@ -227,3 +227,35 @@ export interface NetworkThroughput {
   peak_up_mbit: number;
   samples: NetworkThroughputSample[];
 }
+
+export interface BackupHeatmapCell {
+  day: string;
+  label: 'empty' | 'ok' | 'partial' | 'err';
+  ok: number;
+  warn: number;
+  err: number;
+  total: number;
+}
+
+export interface BackupHeatmap {
+  days: number;
+  reachable: boolean;
+  error: string | null;
+  success_pct: number | null;
+  cells: BackupHeatmapCell[];
+}
+
+export interface BackupStorageItem {
+  target: string;
+  backup_type: string;
+  backup_id: string;
+  size_b: number;
+  count: number;
+}
+
+export interface BackupStorage {
+  reachable: boolean;
+  error: string | null;
+  total_b: number;
+  items: BackupStorageItem[];
+}

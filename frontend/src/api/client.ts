@@ -1,4 +1,6 @@
 import type {
+  BackupHeatmap,
+  BackupStorage,
   BackupSummary,
   CertsSnapshot,
   GuestBackups,
@@ -50,6 +52,10 @@ export const api = {
     get<ServiceHistory>(`/api/services/${encodeURIComponent(id)}/history?hours=${hours}`, signal),
   tunnel: (signal?: AbortSignal) => get<TunnelStatus>('/api/tunnel', signal),
   backups: (signal?: AbortSignal) => get<BackupSummary>('/api/backups', signal),
+  backupsHeatmap: (days = 30, signal?: AbortSignal) =>
+    get<BackupHeatmap>(`/api/backups/heatmap?days=${days}`, signal),
+  backupsStorageByGuest: (signal?: AbortSignal) =>
+    get<BackupStorage>('/api/backups/storage-by-guest', signal),
   network: (signal?: AbortSignal) => get<NetworkSnapshot>('/api/network', signal),
   networkThroughput: (hours = 1, signal?: AbortSignal) =>
     get<NetworkThroughput>(`/api/network/throughput?hours=${hours}`, signal),

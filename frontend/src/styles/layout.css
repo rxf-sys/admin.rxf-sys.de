@@ -1289,3 +1289,99 @@
   border-radius: 2px;
   flex-shrink: 0;
 }
+
+/* ============================================================ */
+/* BACKUPS — 30-day heatmap                                     */
+/* ============================================================ */
+.day-grid {
+  display: grid;
+  grid-template-columns: repeat(30, 1fr);
+  gap: 3px;
+  margin-bottom: 10px;
+}
+.day-cell {
+  height: 26px;
+  border-radius: 3px;
+  background: var(--surface-4);
+  transition: background var(--t-fast);
+}
+.day-cell.day-empty   { background: color-mix(in srgb, var(--surface-4) 60%, transparent); }
+.day-cell.day-ok      { background: var(--ok); }
+.day-cell.day-partial { background: var(--warn); }
+.day-cell.day-err     { background: var(--err); }
+.heatmap-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.heatmap-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ============================================================ */
+/* BACKUPS — stacked storage bar                                */
+/* ============================================================ */
+.stacked-bar {
+  display: flex;
+  height: 16px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-4);
+  margin: 8px 0 12px;
+}
+.stacked-seg {
+  height: 100%;
+  transition: opacity var(--t-fast);
+}
+.stacked-seg:hover { opacity: 0.85; }
+.stacked-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 14px;
+}
+.stacked-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stacked-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ============================================================ */
+/* BACKUPS — job table                                          */
+/* ============================================================ */
+.job-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.job-table thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.job-table tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.job-table tbody tr:last-child td { border-bottom: 0; }
+.job-table tbody tr:hover td { background: var(--surface-3); }
+.job-table tbody tr.attn td {
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--err);
+}
+.job-table tbody tr.attn:hover td {
+  background: color-mix(in srgb, var(--err) 12%, var(--surface-3));
+}
