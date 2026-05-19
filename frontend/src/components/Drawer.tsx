@@ -60,7 +60,6 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
         if (ctrl.signal.aborted) return;
         setTasksError(true);
         setTasks([]);
-        // eslint-disable-next-line no-console
         console.warn('tasks fetch failed', e);
       });
     return () => ctrl.abort();
@@ -78,7 +77,6 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
       .catch((e: Error) => {
         if (ctrl.signal.aborted) return;
         setHistory(null);
-        // eslint-disable-next-line no-console
         console.warn('history fetch failed', e);
       });
     return () => ctrl.abort();
