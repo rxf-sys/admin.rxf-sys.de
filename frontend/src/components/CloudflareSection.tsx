@@ -13,9 +13,16 @@ interface Props {
   certs: CertsSnapshot | null;
   services: ServiceStatus[];
   zoneName: string;
+  onSelectService?: (id: string) => void;
 }
 
-export function CloudflareSection({ tunnel, certs, services, zoneName }: Props) {
+export function CloudflareSection({
+  tunnel,
+  certs,
+  services,
+  zoneName,
+  onSelectService,
+}: Props) {
   const [sessions, setSessions] = useState<AccessSessions | null>(null);
 
   useEffect(() => {
@@ -247,25 +254,54 @@ export function CloudflareSection({ tunnel, certs, services, zoneName }: Props) 
             </div>
           ) : (
             <div className="dns-list">
-              {dnsStatuses.map((r) => (
-                <div key={r.name} className="dns-row">
-                  <Dot status={r.status} />
-                  <span className="mono" style={{ fontSize: 12, flex: 1, minWidth: 0 }}>
-                    {r.name}
-                  </span>
-                  <span className="type-pill" style={{ background: 'var(--surface-3)', color: 'var(--text-3)' }}>
-                    {r.type}
-                  </span>
-                  <span className="mono dim" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
-                    → {r.content.endsWith('cfargotunnel.com') ? 'cfargotunnel.com' : r.content}
-                  </span>
-                  {r.svc?.ext && r.svc?.internal && (
-                    <span className="badge ok" style={{ fontSize: 9, padding: '1px 6px' }}>
-                      PROXIED
+              {dnsStatuses.map((r) => {
+                const clickable = !!(onSelectService && r.svc);
+                const onRowClick = clickable
+                  ? () => onSelectService!(r.svc!.id)
+                  : undefined;
+                return (
+                  <div
+                    key={r.name}
+                    className="dns-row"
+                    onClick={onRowClick}
+                    role={onRowClick ? 'button' : undefined}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    onKeyDown={
+                      onRowClick
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onRowClick();
+                            }
+                          }
+                        : undefined
+                    }
+                    style={onRowClick ? { cursor: 'pointer' } : undefined}
+                    aria-label={
+                      onRowClick ? `Service-Details für ${r.name} öffnen` : undefined
+                    }
+                  >
+                    <Dot status={r.status} />
+                    <span className="mono" style={{ fontSize: 12, flex: 1, minWidth: 0 }}>
+                      {r.name}
                     </span>
-                  )}
-                </div>
-              ))}
+                    <span
+                      className="type-pill"
+                      style={{ background: 'var(--surface-3)', color: 'var(--text-3)' }}
+                    >
+                      {r.type}
+                    </span>
+                    <span className="mono dim" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
+                      → {r.content.endsWith('cfargotunnel.com') ? 'cfargotunnel.com' : r.content}
+                    </span>
+                    {r.svc?.ext && r.svc?.internal && (
+                      <span className="badge ok" style={{ fontSize: 9, padding: '1px 6px' }}>
+                        PROXIED
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

@@ -5,12 +5,15 @@ import type {
   BackupSnapshot,
   BackupStorage,
   BackupSummary,
+  Guest,
 } from '../types';
 import { Dot, ICONS, fmtBytes, fmtTimeAgo } from './primitives';
 
 interface Props {
   backups: BackupSummary | null;
+  guests: Guest[];
   onVerify?: (snapshot: BackupSnapshot) => void;
+  onOpenGuest?: (guest: Guest) => void;
 }
 
 const PALETTE = [
@@ -24,7 +27,7 @@ const PALETTE = [
   '#c5cad6',
 ];
 
-export function BackupsSection({ backups, onVerify }: Props) {
+export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props) {
   const [heatmap, setHeatmap] = useState<BackupHeatmap | null>(null);
   const [storage, setStorage] = useState<BackupStorage | null>(null);
 
@@ -191,7 +194,12 @@ export function BackupsSection({ backups, onVerify }: Props) {
               </span>
             </h3>
           </div>
-          <JobsTable backups={backups} onVerify={onVerify} />
+          <JobsTable
+            backups={backups}
+            guests={guests}
+            onVerify={onVerify}
+            onOpenGuest={onOpenGuest}
+          />
         </div>
       </div>
     </section>
@@ -255,10 +263,14 @@ function StackedStorage({ storage }: { storage: BackupStorage }) {
 
 function JobsTable({
   backups,
+  guests,
   onVerify,
+  onOpenGuest,
 }: {
   backups: BackupSummary | null;
+  guests: Guest[];
   onVerify?: (snapshot: BackupSnapshot) => void;
+  onOpenGuest?: (guest: Guest) => void;
 }) {
   if (!backups || backups.jobs.length === 0) {
     return (
@@ -267,6 +279,8 @@ function JobsTable({
       </div>
     );
   }
+  const guestByVmid = new Map<number, Guest>();
+  guests.forEach((g) => guestByVmid.set(g.id, g));
   return (
     <table className="job-table">
       <thead>
@@ -283,8 +297,34 @@ function JobsTable({
       <tbody>
         {backups.jobs.slice(0, 20).map((j) => {
           const rowCls = j.status === 'err' ? 'attn' : '';
+          const vmid = Number(j.backup_id);
+          const linkedGuest = Number.isFinite(vmid) ? guestByVmid.get(vmid) : undefined;
+          const clickable = !!(onOpenGuest && linkedGuest);
+          const onRowClick = clickable
+            ? () => onOpenGuest!(linkedGuest!)
+            : undefined;
           return (
-            <tr key={j.id} className={rowCls}>
+            <tr
+              key={j.id}
+              className={rowCls}
+              onClick={onRowClick}
+              style={onRowClick ? { cursor: 'pointer' } : undefined}
+              tabIndex={onRowClick ? 0 : undefined}
+              role={onRowClick ? 'button' : undefined}
+              aria-label={
+                onRowClick ? `Details für ${linkedGuest!.name} öffnen` : undefined
+              }
+              onKeyDown={
+                onRowClick
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onRowClick();
+                      }
+                    }
+                  : undefined
+              }
+            >
               <td>
                 <Dot status={j.status} />
               </td>
@@ -324,7 +364,10 @@ function JobsTable({
                 {fmtTimeAgo(j.when_iso)}
               </td>
               {onVerify && (
-                <td style={{ textAlign: 'right' }}>
+                <td
+                  style={{ textAlign: 'right' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <button
                     className="btn icon-sm"
                     onClick={() => onVerify(j)}

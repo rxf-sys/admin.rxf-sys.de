@@ -311,7 +311,12 @@ export function App() {
           <NetworkPanel network={net.data} tunnel={tun.data} />
         )}
         {section === 'backup' && (
-          <BackupsSection backups={bkp.data} onVerify={onVerifyBackup} />
+          <BackupsSection
+            backups={bkp.data}
+            guests={guests}
+            onVerify={onVerifyBackup}
+            onOpenGuest={onLogs}
+          />
         )}
         {section === 'cloudflare' && (
           <CloudflareSection
@@ -319,6 +324,7 @@ export function App() {
             certs={cer.data}
             services={services}
             zoneName="rxf-sys.de"
+            onSelectService={setSelectedSvc}
           />
         )}
         {section === 'settings' && (
