@@ -1,4 +1,6 @@
+import { REFRESH_INTERVALS_MS } from '../hooks/useTheme';
 import { ICONS, fmtClock } from './primitives';
+import { StatusHistory } from './StatusHistory';
 
 interface HeaderProps {
   servicesUp: number;
@@ -6,18 +8,19 @@ interface HeaderProps {
   lastRefresh: number;
   onRefresh: () => void;
   refreshing: boolean;
-  theme: 'dark' | 'light';
-  onTheme: () => void;
   email: string | null;
-  accent: 'peach' | 'indigo' | 'cyan' | 'green';
-  onAccent: (a: 'peach' | 'indigo' | 'cyan' | 'green') => void;
   onOpenPalette: () => void;
-  onOpenHelp: () => void;
   paused: boolean;
   onTogglePause: () => void;
-  density: 'compact' | 'cozy';
-  onToggleDensity: () => void;
   onSnapshot: () => void;
+  refreshIntervalMs: number;
+  onChangeRefreshInterval: (ms: number) => void;
+}
+
+function refreshLabel(ms: number): string {
+  if (ms === 0) return 'aus';
+  if (ms < 60_000) return `${ms / 1000}s`;
+  return `${ms / 60_000}min`;
 }
 
 export function Header(p: HeaderProps) {
@@ -69,6 +72,11 @@ export function Header(p: HeaderProps) {
                 : `${p.servicesTotal - p.servicesUp} von ${p.servicesTotal} Services degraded`}
           </span>
         </div>
+        <StatusHistory
+          pollTs={p.lastRefresh}
+          servicesUp={p.servicesUp}
+          servicesTotal={p.servicesTotal}
+        />
       </div>
 
       <div className="hdr-right">
@@ -94,11 +102,25 @@ export function Header(p: HeaderProps) {
           <span className="cmdk-trigger-label">Suche</span>
           <kbd>⌘K</kbd>
         </button>
+        <label className="refresh-select" title="Auto-Refresh-Intervall">
+          <span className="dimmer" aria-hidden="true">⟳</span>
+          <select
+            value={p.refreshIntervalMs}
+            onChange={(e) => p.onChangeRefreshInterval(Number(e.target.value))}
+            aria-label="Auto-Refresh-Intervall"
+          >
+            {REFRESH_INTERVALS_MS.map((ms) => (
+              <option key={ms} value={ms}>
+                {refreshLabel(ms)}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           className={`btn icon ${p.refreshing ? 'spin' : ''}`}
           onClick={p.onRefresh}
-          title="Aktualisieren"
-          aria-label={p.refreshing ? 'Daten werden aktualisiert' : 'Daten aktualisieren'}
+          title="Jetzt aktualisieren"
+          aria-label={p.refreshing ? 'Daten werden aktualisiert' : 'Daten jetzt aktualisieren'}
           type="button"
         >
           {ICONS.refresh}
@@ -121,46 +143,6 @@ export function Header(p: HeaderProps) {
           type="button"
         >
           {ICONS.download}
-        </button>
-        <button
-          className={`btn icon ${p.density === 'cozy' ? 'active' : ''}`}
-          onClick={p.onToggleDensity}
-          title={p.density === 'compact' ? 'Cozy-Modus (mehr Abstand)' : 'Compact-Modus (dichter)'}
-          aria-label="Dichte umschalten"
-          aria-pressed={p.density === 'cozy'}
-          type="button"
-        >
-          {ICONS.density}
-        </button>
-        <div className="accent-swatches" title="Accent">
-          {(['peach', 'indigo', 'cyan', 'green'] as const).map((a) => (
-            <button
-              key={a}
-              className={`swatch ${p.accent === a ? 'active' : ''}`}
-              data-a={a}
-              onClick={() => p.onAccent(a)}
-              aria-label={a}
-              type="button"
-            />
-          ))}
-        </div>
-        <button
-          className="btn icon"
-          onClick={p.onTheme}
-          title="Theme wechseln"
-          aria-label={p.theme === 'dark' ? 'Zu hellem Theme wechseln' : 'Zu dunklem Theme wechseln'}
-          type="button"
-        >
-          {p.theme === 'dark' ? ICONS.sun : ICONS.moon}
-        </button>
-        <button
-          className="btn icon"
-          onClick={p.onOpenHelp}
-          title="Tastenkürzel (?)"
-          aria-label="Tastenkürzel anzeigen"
-          type="button"
-        >
-          <span className="mono" style={{ fontSize: 14, fontWeight: 700 }}>?</span>
         </button>
         <div className="hdr-user">
           <div className="avatar">{initials}</div>

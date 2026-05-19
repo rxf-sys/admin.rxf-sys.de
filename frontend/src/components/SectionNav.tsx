@@ -24,6 +24,7 @@ const TABS: { id: Section; label: string; icon: keyof typeof ICONS }[] = [
   { id: 'network', label: 'Netzwerk', icon: 'network' },
   { id: 'backup', label: 'Backup', icon: 'archive' },
   { id: 'cloudflare', label: 'Cloudflare', icon: 'cloud' },
+  { id: 'settings', label: 'Einstellungen', icon: 'gear' },
 ];
 
 export function SectionNav({ active, onChange, alerts }: Props) {

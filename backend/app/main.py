@@ -9,11 +9,21 @@ import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import storage
 from .auth import verify_cf_access
-from .clients import cloudflare, pbs, probes
+from .clients import cloudflare, pbs, probes, proxmox, unifi
 from .config import get_settings
 from .notify import NotificationCenter, run_notification_loop
-from .routers import audit, backups, certs, network, services, system, tunnel
+from .routers import (
+    audit,
+    backups,
+    certs,
+    cloudflare as cloudflare_router,
+    network,
+    services,
+    system,
+    tunnel,
+)
 
 _settings = get_settings()
 logging.basicConfig(
@@ -70,12 +80,76 @@ async def _gather_notify_snapshot() -> dict:
     }
 
 
+async def _history_cleanup_loop() -> None:
+    """Periodically drop samples older than the retention window."""
+    while True:
+        try:
+            await asyncio.sleep(_settings.history_cleanup_interval_s)
+            await storage.cleanup_old(_settings.history_retention_days)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - never let the loop die
+            structlog.get_logger().error(
+                "history.cleanup_error", error=str(e), error_type=type(e).__name__
+            )
+
+
+async def _metrics_sample_loop() -> None:
+    """Pull guest CPU/RAM and WAN throughput every tick and persist them.
+
+    Lets the dashboard draw 24h CPU/RAM-per-guest and 1h WAN-throughput
+    charts without leaning on each upstream's (missing) history endpoints.
+    Best-effort: if either upstream is unreachable on this tick we skip
+    writing for that side rather than killing the loop.
+    """
+    interval = max(15, _settings.metrics_sample_interval_s)
+    log_ = structlog.get_logger("metrics")
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            guests_task = asyncio.create_task(proxmox.fetch_guests(_settings))
+            net_task = asyncio.create_task(unifi.fetch_network_snapshot(_settings))
+            guests, net = await asyncio.gather(
+                guests_task, net_task, return_exceptions=True
+            )
+            if isinstance(guests, list):
+                rows = [
+                    (g.id, float(g.cpu_pct), int(g.ram_used_b), int(g.ram_total_b))
+                    for g in guests
+                    if g.running and g.type != "HOST"
+                ]
+                await storage.record_guest_metrics(rows)
+            else:
+                log_.info("metrics.guests_skip", error=str(guests))
+            if not isinstance(net, BaseException) and net.reachable:
+                await storage.record_network_metrics(
+                    float(net.throughput_down_mbit), float(net.throughput_up_mbit)
+                )
+            elif isinstance(net, BaseException):
+                log_.info("metrics.network_skip", error=str(net))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - never let the loop die
+            log_.error(
+                "metrics.sample_error", error=str(e), error_type=type(e).__name__
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task: asyncio.Task | None = None
+    notify_task: asyncio.Task | None = None
+    cleanup_task: asyncio.Task | None = None
+    metrics_task: asyncio.Task | None = None
+
+    await storage.ensure_schema(_settings)
+    if storage.is_enabled():
+        cleanup_task = asyncio.create_task(_history_cleanup_loop())
+        if _settings.metrics_sample_interval_s > 0:
+            metrics_task = asyncio.create_task(_metrics_sample_loop())
+
     if _settings.notify_webhook_url:
         center = NotificationCenter(settings=_settings)
-        task = asyncio.create_task(
+        notify_task = asyncio.create_task(
             run_notification_loop(
                 center, _gather_notify_snapshot, interval_s=_settings.notify_interval_s
             )
@@ -86,7 +160,9 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        if task:
+        for task in (notify_task, cleanup_task, metrics_task):
+            if task is None:
+                continue
             task.cancel()
             try:
                 await task
@@ -135,3 +211,5 @@ app.include_router(backups.router)
 app.include_router(network.router)
 app.include_router(certs.router)
 app.include_router(audit.router)
+app.include_router(audit.events_router)
+app.include_router(cloudflare_router.router)

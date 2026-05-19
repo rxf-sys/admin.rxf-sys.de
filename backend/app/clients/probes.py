@@ -5,6 +5,7 @@ import time
 
 import httpx
 
+from .. import storage
 from ..config import Settings
 from ..models import ServiceStatus
 
@@ -85,4 +86,13 @@ async def probe_all(settings: Settings) -> list[ServiceStatus]:
             )
 
         results = await asyncio.gather(*(run(s) for s in SERVICES))
+
+    # Persist a sample per service for the uptime view. Best-effort; if
+    # storage is disabled or the write fails it's a no-op (see storage.py).
+    await storage.record_probes([(r.id, r.status, int(r.ms)) for r in results])
+    # Track incident transitions so we can answer "last_incident_iso" across
+    # restarts. One row per state-change; serial calls within a single
+    # incident just bump the worst_status if the new probe is more severe.
+    for r in results:
+        await storage.update_service_incident(r.id, r.status)
     return list(results)

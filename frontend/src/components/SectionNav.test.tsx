@@ -9,10 +9,11 @@ const ZERO_ALERTS: Record<Section, number> = {
   network: 0,
   backup: 0,
   cloudflare: 0,
+  settings: 0,
 };
 
 describe('SectionNav', () => {
-  it('renders all five tabs with the active one marked', () => {
+  it('renders all six tabs with the active one marked', () => {
     render(<SectionNav active="server" onChange={vi.fn()} alerts={ZERO_ALERTS} />);
     expect(screen.getByRole('tab', { name: /Übersicht/i })).toHaveAttribute(
       'aria-selected',
@@ -25,6 +26,7 @@ describe('SectionNav', () => {
     expect(screen.getByRole('tab', { name: /Netzwerk/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Backup/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Cloudflare/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Einstellungen/i })).toBeInTheDocument();
   });
 
   it('emits onChange when clicking a tab', () => {

@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "pyjwt[crypto]>=2.9",
+    "aiosqlite>=0.20",
     "structlog>=24.4",
 ]
 

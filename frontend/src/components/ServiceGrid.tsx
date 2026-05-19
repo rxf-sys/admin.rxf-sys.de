@@ -75,6 +75,9 @@ export function ServiceTile({ svc, onClick, showSpark }: TileProps) {
   const data = history[svc.id] ?? [svc.ms];
   const statusWord =
     svc.status === 'ok' ? 'erreichbar' : svc.status === 'warn' ? 'eingeschränkt' : svc.status === 'err' ? 'nicht erreichbar' : 'inaktiv';
+  const uptime = svc.uptime_pct;
+  const uptimeClass =
+    uptime == null ? '' : uptime >= 99.5 ? 'ok' : uptime >= 95 ? 'warn' : 'err';
   return (
     <button
       className={`svc-tile status-${svc.status}`}
@@ -95,12 +98,34 @@ export function ServiceTile({ svc, onClick, showSpark }: TileProps) {
           <Sparkline data={data} color={sparkColor} width={140} height={26} />
         )}
       </div>
-      <div className="svc-foot">
-        <span className="mono" style={{ fontSize: 13, fontWeight: 600 }}>
-          {Math.round(svc.ms)}
-          <span className="dimmer" style={{ fontSize: 10, marginLeft: 2 }}>
-            ms
+      <div className="svc-stats" aria-hidden="true">
+        <div className="svc-stat">
+          <span className="svc-stat-label">Response</span>
+          <span className="svc-stat-value mono">
+            {Math.round(svc.ms)}
+            <span className="svc-stat-unit">ms</span>
           </span>
+        </div>
+        <div className="svc-stat">
+          <span className="svc-stat-label">p95 · 24h</span>
+          <span className="svc-stat-value mono">
+            {svc.p95_ms == null ? '—' : `${svc.p95_ms}`}
+            <span className="svc-stat-unit">{svc.p95_ms == null ? '' : 'ms'}</span>
+          </span>
+        </div>
+        <div className="svc-stat">
+          <span className="svc-stat-label">Uptime · 30d</span>
+          <span className={`svc-stat-value mono ${uptimeClass}`}>
+            {uptime == null ? '—' : `${uptime.toFixed(2)}`}
+            <span className="svc-stat-unit">{uptime == null ? '' : '%'}</span>
+          </span>
+        </div>
+      </div>
+      <div className="svc-foot">
+        <span className="dimmer mono" style={{ fontSize: 10 }}>
+          {svc.last_incident_iso
+            ? `Letzter Vorfall ${fmtIncidentAgo(svc.last_incident_iso)}`
+            : 'Keine Vorfälle aufgezeichnet'}
         </span>
         <div className="svc-reach">
           <span
@@ -119,6 +144,16 @@ export function ServiceTile({ svc, onClick, showSpark }: TileProps) {
       </div>
     </button>
   );
+}
+
+function fmtIncidentAgo(iso: string): string {
+  const d = new Date(iso).getTime();
+  if (!Number.isFinite(d)) return iso;
+  const diff = (Date.now() - d) / 1000;
+  if (diff < 60) return 'gerade';
+  if (diff < 3600) return `vor ${Math.round(diff / 60)} min`;
+  if (diff < 86400) return `vor ${Math.round(diff / 3600)} h`;
+  return `vor ${Math.round(diff / 86400)} d`;
 }
 
 export function getServiceHistory(id: string): number[] {

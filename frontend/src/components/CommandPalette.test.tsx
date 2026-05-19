@@ -8,11 +8,13 @@ const services: ServiceStatus[] = [
     id: 'vault', name: 'vault', sub: 'vault.rxf-sys.de', icon: 'lock',
     desc: 'Vaultwarden', status: 'ok', ms: 100, ext: true, internal: true,
     code_ext: 200, code_int: 200, note: null,
+    uptime_pct: 99.9, p95_ms: 180, last_incident_iso: null,
   },
   {
     id: 'cloud', name: 'cloud', sub: 'cloud.rxf-sys.de', icon: 'cloud',
     desc: 'Nextcloud', status: 'err', ms: 4000, ext: false, internal: false,
     code_ext: null, code_int: null, note: null,
+    uptime_pct: 95.4, p95_ms: 2200, last_incident_iso: '2026-05-19T10:00:00Z',
   },
 ];
 

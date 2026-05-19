@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import structlog
@@ -189,6 +189,76 @@ async def fetch_certs(settings: Settings) -> list[CertInfo]:
         if key not in dedup or dedup[key].days_left > c.days_left:
             dedup[key] = c
     return sorted(dedup.values(), key=lambda c: c.days_left)
+
+
+async def fetch_access_sessions(settings: Settings, hours: int = 24, limit: int = 100) -> dict:
+    """Pull recent Cloudflare Access login events.
+
+    Uses the audit-log API at ``/accounts/{id}/access/logs/access_requests``.
+    The CF token needs the "Access: Apps and Policies: Read" permission
+    (or equivalent audit-log scope) — without it the call returns 403 and
+    we surface ``reachable=false`` with the error so the UI can explain.
+
+    Returns ``{reachable, error, last_login_iso, sessions_24h, items: [...]}``.
+    Each item has ``email``, ``app_uid``, ``allowed``, ``created_at``,
+    ``ip``, ``country``. Window-bounded server-side; we accept up to 100
+    items so a busy account doesn't blow up the cache.
+    """
+    if not (settings.cf_api_token and settings.cf_account_id):
+        return {
+            "reachable": False,
+            "error": "CF_API_TOKEN oder CF_ACCOUNT_ID nicht konfiguriert",
+            "last_login_iso": None,
+            "sessions_24h": 0,
+            "items": [],
+        }
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    since_iso = since.isoformat().replace("+00:00", "Z")
+    path = (
+        f"/accounts/{settings.cf_account_id}/access/logs/access_requests"
+        f"?since={since_iso}&limit={limit}"
+    )
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        try:
+            body = await _get_raw(client, settings, path)
+        except httpx.HTTPError as e:
+            log.info(
+                "cloudflare.access_sessions_failed",
+                account=settings.cf_account_id,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return {
+                "reachable": False,
+                "error": f"Access-Audit-Log nicht abrufbar — Token-Scope prüfen ({type(e).__name__})",
+                "last_login_iso": None,
+                "sessions_24h": 0,
+                "items": [],
+            }
+    raw = body.get("result")
+    items: list[dict] = []
+    if isinstance(raw, list):
+        for r in raw[:limit]:
+            if not isinstance(r, dict):
+                continue
+            items.append(
+                {
+                    "email": r.get("user_email"),
+                    "app_uid": r.get("app_uid"),
+                    "allowed": bool(r.get("allowed", True)),
+                    "created_at": r.get("created_at"),
+                    "ip": r.get("ip_address"),
+                    "country": r.get("country"),
+                }
+            )
+    last = items[0]["created_at"] if items else None
+    return {
+        "reachable": True,
+        "error": None,
+        "last_login_iso": last,
+        "sessions_24h": len(items),
+        "items": items,
+    }
 
 
 async def fetch_dns_consistency(settings: Settings) -> list[DNSRecordCheck]:

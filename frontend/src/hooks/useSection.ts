@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 
-export type Section = 'overview' | 'server' | 'network' | 'backup' | 'cloudflare';
+export type Section = 'overview' | 'server' | 'network' | 'backup' | 'cloudflare' | 'settings';
 
 const STORAGE_KEY = 'rxf-admin-section';
-const VALID: readonly Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare'];
+const VALID: readonly Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare', 'settings'];
 
 function parse(raw: string | null | undefined): Section | null {
   if (!raw) return null;
