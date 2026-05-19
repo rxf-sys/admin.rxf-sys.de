@@ -54,7 +54,7 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
     usedPct > 85 ? 'var(--err)' : usedPct > 70 ? 'var(--warn)' : 'var(--accent)';
 
   return (
-    <section className="dash-section">
+    <section className="backup-section">
       <div className="grid-12" style={{ marginBottom: 14 }}>
         <div className="col-5 card">
           <div className="card-h">

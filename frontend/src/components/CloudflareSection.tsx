@@ -51,10 +51,10 @@ export function CloudflareSection({
   }, [certs, services]);
 
   return (
-    <section className="dash-section" aria-labelledby="cloudflare-heading">
-      <h2 id="cloudflare-heading" className="dimmer mono" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, margin: '0 0 12px' }}>
-        Cloudflare
-      </h2>
+    <section className="cloudflare-section" aria-labelledby="cloudflare-heading">
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h2 id="cloudflare-heading">Cloudflare</h2>
+      </div>
 
       <div className="grid-12" style={{ marginBottom: 14 }}>
         <div className="col-5 card">

@@ -1,14 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { fmtTimeAgo } from './primitives';
+import { ICONS, fmtTimeAgo } from './primitives';
 
 type Event = Record<string, unknown> & { ts: number; event: string };
+
+function level(event: string): 'ok' | 'warn' | 'err' | 'info' {
+  if (event.endsWith('.failure') || event.includes('.error')) return 'err';
+  if (event.endsWith('.warn') || event.includes('.degraded')) return 'warn';
+  if (event.endsWith('.result') || event.endsWith('.success') || event.endsWith('.recovered')) return 'ok';
+  return 'info';
+}
+
+function describe(e: Event): { strong?: string; tag?: string; text: string } {
+  const target = (e.target as string | undefined) ?? (e.guest as string | undefined) ?? (e.service as string | undefined);
+  const action = e.event.replace(/^(guest|service|backup|cert|cloudflare|system)\./, '');
+  const status = e.status as string | undefined;
+  const tag = e.event;
+  if (target) {
+    return { strong: target, tag, text: status ? `${action} → ${status}` : action };
+  }
+  return { tag, text: action };
+}
 
 export function AuditLog() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const lastFetchRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -18,7 +35,6 @@ export function AuditLog() {
         if (cancelled) return;
         setEvents(r.events as Event[]);
         setError(false);
-        lastFetchRef.current = Date.now();
       } catch {
         if (!cancelled) setError(true);
       } finally {
@@ -34,52 +50,38 @@ export function AuditLog() {
   }, []);
 
   return (
-    <section className="dash-section" aria-labelledby="audit-heading">
-      <div className="section-head">
-        <h2 id="audit-heading">
-          Audit-Log <span className="dim">· letzte {events.length}</span>
-        </h2>
+    <div className="activity-card">
+      <div className="card-h">
+        <h3>Activity <span className="h3-sub">letzte 24h</span></h3>
         <span className="dimmer mono" style={{ fontSize: 11 }}>
           {error ? 'Fehler beim Laden' : 'auto · 30s'}
         </span>
       </div>
-      <div className="card flat" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="activity-list">
         {loading && events.length === 0 ? (
-          <div className="dimmer mono" style={{ fontSize: 12, padding: 14 }}>
-            Lade…
-          </div>
+          <div className="dim" style={{ fontSize: 12, padding: 14 }}>Lade…</div>
         ) : events.length === 0 ? (
-          <div className="dimmer mono" style={{ fontSize: 12, padding: 14 }}>
-            Noch keine Audit-Events seit Backend-Start.
-          </div>
+          <div className="dim" style={{ fontSize: 12, padding: 14 }}>Noch keine Events.</div>
         ) : (
-          <ul className="audit-list">
-            {events.map((e, i) => (
-              <li key={`${e.ts}-${i}`} className="audit-row">
-                <span className={`audit-tag ${classify(e.event)}`}>{e.event}</span>
-                <span className="audit-fields mono">{formatFields(e)}</span>
-                <span className="dim mono audit-time">
-                  {fmtTimeAgo(new Date((e.ts as number) * 1000).toISOString())}
+          events.slice(0, 12).map((e, i) => {
+            const lvl = level(e.event);
+            const d = describe(e);
+            return (
+              <div key={`${e.ts}-${i}`} className="activity-row">
+                <span className={`a-icon ${lvl}`} aria-hidden="true">
+                  {lvl === 'ok' ? ICONS.check : lvl === 'err' ? ICONS.x : lvl === 'warn' ? ICONS.warn : ICONS.info}
                 </span>
-              </li>
-            ))}
-          </ul>
+                <span className="a-text" title={JSON.stringify(e)}>
+                  {d.strong && <strong>{d.strong} </strong>}
+                  {d.tag && <span className="a-tag">{d.tag}</span>}
+                  {d.text}
+                </span>
+                <span className="a-time">{fmtTimeAgo(new Date((e.ts as number) * 1000).toISOString())}</span>
+              </div>
+            );
+          })
         )}
       </div>
-    </section>
+    </div>
   );
-}
-
-function classify(event: string): string {
-  if (event.endsWith('.result')) return 'result';
-  if (event.startsWith('guest.')) return 'guest';
-  return 'other';
-}
-
-function formatFields(e: Event): string {
-  const omit = new Set(['ts', 'event']);
-  return Object.entries(e)
-    .filter(([k]) => !omit.has(k))
-    .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
-    .join(' ');
 }
