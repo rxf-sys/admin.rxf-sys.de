@@ -63,10 +63,10 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
   );
 
   return (
-    <section className="dash-section">
-      <div className="section-head">
+    <section className="vm-section">
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
         <h2>
-          Container & VMs <span className="dim">· {sorted.length} / {guests.length}</span>
+          Container &amp; VMs <span className="count">· {sorted.length} / {guests.length}</span>
         </h2>
         <div className="section-tools">
           <label className="toggle-pill" title="Nur laufende Container anzeigen">
@@ -87,7 +87,7 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
           />
         </div>
       </div>
-      <div className="card flat" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="vm-table-wrap">
         <table className="vm-table">
           <thead>
             <tr>

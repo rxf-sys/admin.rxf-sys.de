@@ -44,8 +44,8 @@ export function NetworkPanel({ network, tunnel }: Props) {
   const devices = network?.devices ?? [];
 
   return (
-    <section className="dash-section" aria-labelledby="network-heading">
-      <div className="section-head">
+    <section className="network-section" aria-labelledby="network-heading">
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
         <h2 id="network-heading">Netzwerk</h2>
         <div className="section-tools">
           <span className="dimmer mono" style={{ fontSize: 11 }}>
@@ -117,10 +117,8 @@ export function NetworkPanel({ network, tunnel }: Props) {
 
           {devices.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div className="section-head">
-                <h3 style={{ margin: 0, fontSize: 13, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-                  UniFi Devices · {devices.length} online
-                </h3>
+              <div className="dash-section-head">
+                <h2>UniFi Devices <span className="count">· {devices.length} online</span></h2>
               </div>
               <div className="grid-12">
                 {devices.map((d) => (

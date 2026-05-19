@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api/client';
+import { AttentionHero } from './components/AttentionHero';
 import { AuditLog } from './components/AuditLog';
 import { BackupsSection } from './components/BackupsSection';
 import { CloudflareSection } from './components/CloudflareSection';
@@ -8,8 +9,9 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { Drawer } from './components/Drawer';
 import { GuestDrawer } from './components/GuestDrawer';
 import { Header } from './components/Header';
+import { HostPanel } from './components/HostPanel';
+import { KpiStrip } from './components/KpiStrip';
 import { NetworkPanel } from './components/NetworkPanel';
-import { OverviewCards } from './components/OverviewCards';
 import { SectionNav } from './components/SectionNav';
 import { ServiceGrid } from './components/ServiceGrid';
 import { SettingsPage } from './components/SettingsPage';
@@ -42,8 +44,6 @@ export function App() {
     setTimeout(() => setToasts((s) => s.filter((x) => x.id !== id)), 4500);
   }, []);
 
-  // Cmd/Ctrl+K toggles the palette; "?" opens the keyboard cheatsheet;
-  // 1-6 jumps to sections (when not in an input).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -68,8 +68,6 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [setSection]);
 
-  // Pause swaps polling intervals to 0 (no auto-refresh) while keeping the
-  // last known state in memory. Manual refresh still works.
   const pollFast = paused ? 0 : ui.refreshIntervalMs;
   const pollBackup = paused ? 0 : ui.pollBackupMs;
   const pollCerts = paused ? 0 : ui.pollCertsMs;
@@ -80,14 +78,6 @@ export function App() {
   const bkp = usePoll((sig) => api.backups(sig), pollBackup);
   const net = usePoll((sig) => api.network(sig), pollFast);
   const cer = usePoll((sig) => api.certs(sig), pollCerts);
-
-  const lastRefresh = Math.max(
-    sys.lastFetched,
-    svc.lastFetched,
-    tun.lastFetched,
-    bkp.lastFetched,
-    net.lastFetched,
-  );
 
   const refreshAll = useCallback(() => {
     sys.refresh();
@@ -101,8 +91,8 @@ export function App() {
   const services = useMemo(() => svc.data ?? [], [svc.data]);
   const guests = useMemo(() => sys.data?.guests ?? [], [sys.data]);
   const servicesUp = services.filter((s) => s.status === 'ok').length;
+  const servicesCritical = services.filter((s) => s.status === 'err').length;
 
-  // Per-section alert counts shown as pills on the nav tabs.
   const alerts = useMemo<Record<Section, number>>(() => {
     const svcBad = services.filter((s) => s.status === 'err' || s.status === 'warn').length;
     const hostBad = sys.data?.host && !sys.data.host.online ? 1 : 0;
@@ -133,7 +123,6 @@ export function App() {
   );
 
   const onLogs = (g: Guest) => setLogsGuest(g);
-
   const onRestart = (g: Guest) => setConfirmGuest(g);
 
   const confirmRestart = async () => {
@@ -142,48 +131,30 @@ export function App() {
     setConfirmGuest(null);
     try {
       await api.restartGuest(guest.id, guest.type === 'VM' ? 'qemu' : 'lxc');
-      pushToast({
-        level: 'warn',
-        title: `${guest.name} restarting`,
-        body: `Container ${guest.id} wird neu gestartet`,
-      });
+      pushToast({ level: 'warn', title: `${guest.name} restarting`, body: `Container ${guest.id} wird neu gestartet` });
       setTimeout(refreshAll, 3000);
     } catch (e) {
-      pushToast({
-        level: 'err',
-        title: 'Restart fehlgeschlagen',
-        body: (e as Error).message,
-      });
+      pushToast({ level: 'err', title: 'Restart fehlgeschlagen', body: (e as Error).message });
     }
   };
 
   const onVerifyBackup = useCallback(
     async (snap: BackupSnapshot) => {
       const ok = window.confirm(
-        `Verifikation für ${snap.target} (${new Date(snap.backup_time * 1000).toLocaleString()}) starten?\n\nDer Job läuft asynchron auf dem PBS und kann bei großen Backups länger dauern.`,
+        `Verifikation für ${snap.target} (${new Date(snap.backup_time * 1000).toLocaleString()}) starten?`,
       );
       if (!ok) return;
       try {
         const r = await api.verifyBackup(snap.backup_type, snap.backup_id, snap.backup_time);
-        pushToast({
-          level: 'ok',
-          title: `Verify gestartet · ${snap.target}`,
-          body: `UPID: ${r.upid.slice(0, 32)}…`,
-        });
+        pushToast({ level: 'ok', title: `Verify gestartet · ${snap.target}`, body: `UPID: ${r.upid.slice(0, 32)}…` });
         setTimeout(bkp.refresh, 2000);
       } catch (e) {
-        pushToast({
-          level: 'err',
-          title: 'Verify fehlgeschlagen',
-          body: (e as Error).message,
-        });
+        pushToast({ level: 'err', title: 'Verify fehlgeschlagen', body: (e as Error).message });
       }
     },
     [pushToast, bkp],
   );
 
-  // Build a JSON snapshot of the current dashboard state and copy it to the
-  // clipboard. Useful for filing issues without having to screenshot.
   const onSnapshot = useCallback(async () => {
     const snapshot = {
       capturedAt: new Date().toISOString(),
@@ -198,19 +169,13 @@ export function App() {
     const text = JSON.stringify(snapshot, null, 2);
     try {
       await navigator.clipboard.writeText(text);
-      pushToast({ level: 'ok', title: 'Snapshot kopiert', body: `${text.length.toLocaleString()} Zeichen in der Zwischenablage` });
+      pushToast({ level: 'ok', title: 'Snapshot kopiert', body: `${text.length.toLocaleString()} Zeichen` });
     } catch (e) {
-      pushToast({
-        level: 'err',
-        title: 'Snapshot fehlgeschlagen',
-        body: (e as Error).message || 'Zwischenablage nicht verfügbar',
-      });
+      pushToast({ level: 'err', title: 'Snapshot fehlgeschlagen', body: (e as Error).message || 'Zwischenablage nicht verfügbar' });
     }
   }, [me.data, sys.data, svc.data, tun.data, bkp.data, net.data, cer.data, pushToast]);
 
   const anyError = sys.error || svc.error || tun.error;
-
-  // Surface persistent backend failures as a toast (once per error transition).
   const errSig = `${sys.error?.message ?? ''}|${svc.error?.message ?? ''}|${tun.error?.message ?? ''}|${bkp.error?.message ?? ''}|${net.error?.message ?? ''}`;
   const lastErrSig = useRef('');
   useEffect(() => {
@@ -224,13 +189,20 @@ export function App() {
       { name: 'Netzwerk', err: net.error },
     ];
     for (const { name, err } of errs) {
-      if (err) {
-        pushToast({ level: 'err', title: `${name}-API Fehler`, body: err.message });
-      }
+      if (err) pushToast({ level: 'err', title: `${name}-API Fehler`, body: err.message });
     }
   }, [errSig, sys.error, svc.error, tun.error, bkp.error, net.error, pushToast]);
 
-  const overallLoading = sys.loading || tun.loading || bkp.loading;
+  const onInspectGuest = (vmid: number) => {
+    const g = guests.find((x) => x.id === vmid);
+    if (g) setLogsGuest(g);
+  };
+
+  const onToggleTheme = useCallback(() => {
+    const order: ('dark' | 'light' | 'auto')[] = ['dark', 'light', 'auto'];
+    const next = order[(order.indexOf(ui.theme) + 1) % order.length];
+    setUI('theme', next);
+  }, [ui.theme, setUI]);
 
   return (
     <div
@@ -244,7 +216,7 @@ export function App() {
       <Header
         servicesUp={servicesUp}
         servicesTotal={services.length}
-        lastRefresh={lastRefresh}
+        servicesCritical={servicesCritical}
         onRefresh={refreshAll}
         refreshing={sys.loading || svc.loading}
         email={me.data?.email ?? null}
@@ -252,8 +224,9 @@ export function App() {
         paused={paused}
         onTogglePause={() => setPaused((p) => !p)}
         onSnapshot={onSnapshot}
-        refreshIntervalMs={ui.refreshIntervalMs}
-        onChangeRefreshInterval={(ms) => setUI('refreshIntervalMs', ms)}
+        onOpenSettings={() => setSection('settings')}
+        onToggleTheme={onToggleTheme}
+        isDarkTheme={resolvedTheme === 'dark'}
       />
       <SectionNav active={section} onChange={setSection} alerts={alerts} />
       {anyError && (
@@ -264,40 +237,41 @@ export function App() {
       {paused && (
         <div className="paused-banner" role="status">
           <span>Auto-Refresh pausiert — Daten werden nicht aktualisiert.</span>
-          <button className="btn" type="button" onClick={() => setPaused(false)}>
-            Fortsetzen
-          </button>
+          <button className="btn" type="button" onClick={() => setPaused(false)}>Fortsetzen</button>
         </div>
       )}
       <main className="dash-main" id={`section-${section}`} role="tabpanel" aria-label={section}>
         {section === 'overview' && (
           <>
-            <OverviewCards
-              host={sys.data?.host ?? null}
+            <AttentionHero
               guests={guests}
-              tunnel={tun.data}
+              services={services}
+              certs={cer.data?.certs ?? []}
               backups={bkp.data}
-              loading={overallLoading}
+              certWarnDays={ui.certWarnDays}
+              onInspectService={setSelectedSvc}
+              onInspectGuest={onInspectGuest}
             />
+            <HostPanel host={sys.data?.host ?? null} guests={guests} />
+            <div className="quick-stats">
+              <KpiStrip guests={guests} services={services} />
+              <AuditLog />
+            </div>
             <ServiceGrid
               services={services}
               onSelect={setSelectedSvc}
               showSpark={ui.showSparklines}
               loading={svc.loading}
             />
-            <AuditLog />
           </>
         )}
         {section === 'server' && (
           <>
-            <OverviewCards
-              host={sys.data?.host ?? null}
-              guests={guests}
-              tunnel={tun.data}
-              backups={bkp.data}
-              loading={overallLoading}
-              only={['host', 'guests']}
-            />
+            <HostPanel host={sys.data?.host ?? null} guests={guests} />
+            <div className="quick-stats">
+              <KpiStrip guests={guests} services={services} />
+              <AuditLog />
+            </div>
             <VMTable guests={guests} onLogs={onLogs} onRestart={onRestart} />
             <ServiceGrid
               services={services}
@@ -307,9 +281,7 @@ export function App() {
             />
           </>
         )}
-        {section === 'network' && (
-          <NetworkPanel network={net.data} tunnel={tun.data} />
-        )}
+        {section === 'network' && <NetworkPanel network={net.data} tunnel={tun.data} />}
         {section === 'backup' && (
           <BackupsSection
             backups={bkp.data}
@@ -368,11 +340,7 @@ export function App() {
         onSelectService={setSelectedSvc}
         onRestartGuest={(g) => setConfirmGuest(g)}
         onRefresh={refreshAll}
-        onToggleTheme={() => {
-          const order: ('dark' | 'light' | 'auto')[] = ['dark', 'light', 'auto'];
-          const next = order[(order.indexOf(ui.theme) + 1) % order.length];
-          setUI('theme', next);
-        }}
+        onToggleTheme={onToggleTheme}
         onJumpSection={setSection}
       />
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
