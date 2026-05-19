@@ -1090,3 +1090,29 @@
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
 }
+
+/* ============================================================ */
+/* 12-COL HELPER (used by Network/Backup/Cloudflare rebuilds)   */
+/* ============================================================ */
+.grid-12 {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+}
+.col-3  { grid-column: span 3; }
+.col-4  { grid-column: span 4; }
+.col-5  { grid-column: span 5; }
+.col-6  { grid-column: span 6; }
+.col-7  { grid-column: span 7; }
+.col-8  { grid-column: span 8; }
+.col-9  { grid-column: span 9; }
+.col-12 { grid-column: span 12; }
+@media (max-width: 1100px) {
+  .grid-12 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .col-3, .col-4 { grid-column: span 3; }
+  .col-5, .col-6, .col-7, .col-8, .col-9 { grid-column: span 6; }
+}
+@media (max-width: 640px) {
+  .grid-12 { grid-template-columns: 1fr; }
+  .col-3, .col-4, .col-5, .col-6, .col-7, .col-8, .col-9, .col-12 { grid-column: span 1; }
+}
