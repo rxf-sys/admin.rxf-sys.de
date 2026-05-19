@@ -5,10 +5,11 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from .. import storage
 from ..audit import record as audit_record
 from ..auth import verify_cf_access
 from ..cache import cache
-from ..clients import proxmox
+from ..clients import pbs, proxmox
 from ..config import Settings, get_settings
 from ..models import SystemSnapshot
 
@@ -74,6 +75,53 @@ async def task_log(
     """Log lines for a single Proxmox task UPID."""
     lines = await proxmox.fetch_task_log(settings, upid, limit=min(max(limit, 1), 1000))
     return {"lines": lines}
+
+
+@router.get("/guests/{vmid}/history")
+async def guest_history(
+    vmid: int,
+    hours: int = 24,
+) -> dict:
+    """CPU + RAM time series for a single guest, sampled by the metrics loop.
+
+    Returns an ``enabled`` flag so the UI can distinguish "history disabled"
+    (storage off) from "no data yet" (loop just started). The PVE API doesn't
+    expose its own history, so the rows come from our ``guest_metrics`` table.
+    """
+    hours = max(1, min(hours, 168))  # 7 day cap
+    samples = await storage.guest_history(vmid, hours=hours)
+    return {
+        "vmid": vmid,
+        "hours": hours,
+        "enabled": storage.is_enabled(),
+        "samples": samples,
+    }
+
+
+@router.get("/guests/{vmid}/backups")
+async def guest_backups(
+    vmid: int,
+    limit: int = 5,
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Recent PBS snapshots whose ``backup-id`` matches this guest's VMID.
+
+    PBS keys snapshots by ``backup-id`` (the guest's numeric ID for VM/CT
+    backups), so we filter the existing backup summary rather than calling
+    PBS again. Returned newest-first, capped at ``limit``.
+    """
+    limit = max(1, min(limit, 30))
+    summary = await pbs.fetch_backup_summary(settings)
+    vmid_str = str(vmid)
+    matched = [j for j in summary.jobs if j.backup_id == vmid_str]
+    matched.sort(key=lambda j: j.backup_time, reverse=True)
+    return {
+        "vmid": vmid,
+        "limit": limit,
+        "reachable": summary.reachable,
+        "error": summary.error,
+        "jobs": [j.model_dump() for j in matched[:limit]],
+    }
 
 
 @router.get("/guests/{vmid}/journal")

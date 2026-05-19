@@ -1,6 +1,8 @@
 import type {
   BackupSummary,
   CertsSnapshot,
+  GuestBackups,
+  GuestHistory,
   GuestTask,
   Identity,
   NetworkSnapshot,
@@ -63,8 +65,14 @@ export const api = {
       `/api/system/guests/${vmid}/journal?lastentries=${lastentries}`,
       signal,
     ),
+  guestHistory: (vmid: number, hours = 24, signal?: AbortSignal) =>
+    get<GuestHistory>(`/api/system/guests/${vmid}/history?hours=${hours}`, signal),
+  guestBackups: (vmid: number, limit = 5, signal?: AbortSignal) =>
+    get<GuestBackups>(`/api/system/guests/${vmid}/backups?limit=${limit}`, signal),
   audit: (signal?: AbortSignal) =>
     get<{ events: Record<string, unknown>[] }>('/api/audit?limit=50', signal),
+  events: (limit = 50, signal?: AbortSignal) =>
+    get<{ events: Record<string, unknown>[] }>(`/api/events?limit=${limit}`, signal),
   verifyBackup: (backup_type: string, backup_id: string, backup_time: number) =>
     post<{ ok: boolean; upid: string }>('/api/backups/verify', {
       backup_type,

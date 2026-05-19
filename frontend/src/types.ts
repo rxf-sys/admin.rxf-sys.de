@@ -67,6 +67,12 @@ export interface ServiceStatus {
   code_ext: number | null;
   code_int: number | null;
   note: string | null;
+  /** 30-day rolling, percent. ``null`` when storage is disabled / no samples. */
+  uptime_pct: number | null;
+  /** 95th percentile response time over the last 24h, ms. */
+  p95_ms: number | null;
+  /** ISO 8601 timestamp of the most recent incident transition. */
+  last_incident_iso: string | null;
 }
 
 export interface TunnelStatus {
@@ -181,5 +187,29 @@ export interface ServiceHistory {
   hours: number;
   enabled: boolean;
   uptime_pct: number | null;
+  p95_ms: number | null;
+  last_incident_iso: string | null;
   samples: ProbeSample[];
+}
+
+export interface GuestMetricSample {
+  ts: number;
+  cpu_pct: number;
+  ram_used_b: number;
+  ram_total_b: number;
+}
+
+export interface GuestHistory {
+  vmid: number;
+  hours: number;
+  enabled: boolean;
+  samples: GuestMetricSample[];
+}
+
+export interface GuestBackups {
+  vmid: number;
+  limit: number;
+  reachable: boolean;
+  error: string | null;
+  jobs: BackupSnapshot[];
 }
