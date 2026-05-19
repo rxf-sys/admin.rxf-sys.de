@@ -1,49 +1,92 @@
 import { useEffect, useState } from 'react';
 
 type Theme = 'dark' | 'light' | 'auto';
-type Accent = 'peach' | 'indigo' | 'cyan' | 'green';
 type Density = 'compact' | 'cozy';
+type CertWarnDays = 0 | 7 | 14 | 30;
 
 /** Allowed values for the auto-refresh interval, in milliseconds. */
-export const REFRESH_INTERVALS_MS: readonly number[] = [0, 5_000, 15_000, 30_000, 60_000] as const;
+export const REFRESH_INTERVALS_MS: readonly number[] = [5_000, 10_000, 15_000, 30_000, 60_000] as const;
+
+/** Backup polling — fewer changes, longer intervals. */
+export const BACKUP_INTERVALS_MS: readonly number[] = [30_000, 60_000, 300_000] as const;
+
+/** Cert polling — change very rarely. */
+export const CERT_INTERVALS_MS: readonly number[] = [300_000, 900_000, 3_600_000] as const;
+
+export const CERT_WARN_DAYS: readonly CertWarnDays[] = [0, 7, 14, 30] as const;
 
 export interface UISettings {
   theme: Theme;
-  accent: Accent;
   density: Density;
   showSparklines: boolean;
-  /**
-   * Base interval for the fast polls (system / services / tunnel / network).
-   * Slower endpoints scale off this value. ``0`` disables auto-refresh
-   * outright (same effect as the header pause toggle).
-   */
+  reduceMotion: boolean;
+  /** Base interval for fast polls (services / system / network / tunnel). */
   refreshIntervalMs: number;
+  /** Interval for backup-summary polling. */
+  pollBackupMs: number;
+  /** Interval for cert / DNS polling. */
+  pollCertsMs: number;
+  notifyStatusChange: boolean;
+  notifyBackupFail: boolean;
+  /** Warn when any cert expires within N days (0 disables). */
+  certWarnDays: CertWarnDays;
 }
 
 const STORAGE_KEY = 'rxf-admin-ui';
 const DEFAULTS: UISettings = {
   theme: 'auto',
-  accent: 'peach',
   density: 'compact',
   showSparklines: true,
+  reduceMotion: false,
   refreshIntervalMs: 15_000,
+  pollBackupMs: 60_000,
+  pollCertsMs: 900_000,
+  notifyStatusChange: true,
+  notifyBackupFail: true,
+  certWarnDays: 14,
 };
+
+function sanitize(raw: unknown): UISettings {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
+  // Pick only known keys — drops legacy fields (e.g. `accent` from older versions)
+  // so they don't get re-persisted on the next save.
+  const p = raw as Record<string, unknown>;
+  const next: UISettings = {
+    theme: p.theme === 'dark' || p.theme === 'light' || p.theme === 'auto' ? p.theme : DEFAULTS.theme,
+    density: p.density === 'cozy' || p.density === 'compact' ? p.density : DEFAULTS.density,
+    showSparklines: typeof p.showSparklines === 'boolean' ? p.showSparklines : DEFAULTS.showSparklines,
+    reduceMotion: typeof p.reduceMotion === 'boolean' ? p.reduceMotion : DEFAULTS.reduceMotion,
+    refreshIntervalMs:
+      typeof p.refreshIntervalMs === 'number' && REFRESH_INTERVALS_MS.includes(p.refreshIntervalMs)
+        ? p.refreshIntervalMs
+        : DEFAULTS.refreshIntervalMs,
+    pollBackupMs:
+      typeof p.pollBackupMs === 'number' && BACKUP_INTERVALS_MS.includes(p.pollBackupMs)
+        ? p.pollBackupMs
+        : DEFAULTS.pollBackupMs,
+    pollCertsMs:
+      typeof p.pollCertsMs === 'number' && CERT_INTERVALS_MS.includes(p.pollCertsMs)
+        ? p.pollCertsMs
+        : DEFAULTS.pollCertsMs,
+    notifyStatusChange:
+      typeof p.notifyStatusChange === 'boolean' ? p.notifyStatusChange : DEFAULTS.notifyStatusChange,
+    notifyBackupFail:
+      typeof p.notifyBackupFail === 'boolean' ? p.notifyBackupFail : DEFAULTS.notifyBackupFail,
+    certWarnDays:
+      typeof p.certWarnDays === 'number' && (CERT_WARN_DAYS as readonly number[]).includes(p.certWarnDays)
+        ? (p.certWarnDays as CertWarnDays)
+        : DEFAULTS.certWarnDays,
+  };
+  return next;
+}
 
 function load(): UISettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULTS;
-    const parsed = { ...DEFAULTS, ...JSON.parse(raw) } as UISettings;
-    // Be defensive against stale values from older versions.
-    if (!REFRESH_INTERVALS_MS.includes(parsed.refreshIntervalMs)) {
-      parsed.refreshIntervalMs = DEFAULTS.refreshIntervalMs;
-    }
-    if (parsed.theme !== 'dark' && parsed.theme !== 'light' && parsed.theme !== 'auto') {
-      parsed.theme = DEFAULTS.theme;
-    }
-    return parsed;
+    if (!raw) return { ...DEFAULTS };
+    return sanitize(JSON.parse(raw));
   } catch {
-    return DEFAULTS;
+    return { ...DEFAULTS };
   }
 }
 
@@ -51,8 +94,26 @@ export function useUISettings() {
   const [s, setS] = useState<UISettings>(load);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    } catch {
+      // localStorage may be disabled — non-fatal.
+    }
   }, [s]);
+
+  // Cross-tab sync: re-load when another tab writes to our key.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || e.newValue === null) return;
+      try {
+        setS(sanitize(JSON.parse(e.newValue)));
+      } catch {
+        // ignore malformed payload
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const update = <K extends keyof UISettings>(key: K, value: UISettings[K]) =>
     setS((prev) => ({ ...prev, [key]: value }));

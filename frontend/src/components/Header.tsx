@@ -8,18 +8,10 @@ interface HeaderProps {
   lastRefresh: number;
   onRefresh: () => void;
   refreshing: boolean;
-  theme: 'dark' | 'light' | 'auto';
-  onCycleTheme: () => void;
-  resolvedTheme: 'dark' | 'light';
   email: string | null;
-  accent: 'peach' | 'indigo' | 'cyan' | 'green';
-  onAccent: (a: 'peach' | 'indigo' | 'cyan' | 'green') => void;
   onOpenPalette: () => void;
-  onOpenHelp: () => void;
   paused: boolean;
   onTogglePause: () => void;
-  density: 'compact' | 'cozy';
-  onToggleDensity: () => void;
   onSnapshot: () => void;
   refreshIntervalMs: number;
   onChangeRefreshInterval: (ms: number) => void;
@@ -29,17 +21,6 @@ function refreshLabel(ms: number): string {
   if (ms === 0) return 'aus';
   if (ms < 60_000) return `${ms / 1000}s`;
   return `${ms / 60_000}min`;
-}
-
-function themeIcon(theme: 'dark' | 'light' | 'auto', resolved: 'dark' | 'light') {
-  if (theme === 'auto') return ICONS.monitor;
-  return resolved === 'dark' ? ICONS.sun : ICONS.moon;
-}
-
-function themeTooltip(theme: 'dark' | 'light' | 'auto'): string {
-  if (theme === 'dark') return 'Theme: dunkel — klicken für hell';
-  if (theme === 'light') return 'Theme: hell — klicken für Auto';
-  return 'Theme: Auto (System-Präferenz) — klicken für dunkel';
 }
 
 export function Header(p: HeaderProps) {
@@ -162,46 +143,6 @@ export function Header(p: HeaderProps) {
           type="button"
         >
           {ICONS.download}
-        </button>
-        <button
-          className={`btn icon ${p.density === 'cozy' ? 'active' : ''}`}
-          onClick={p.onToggleDensity}
-          title={p.density === 'compact' ? 'Cozy-Modus (mehr Abstand)' : 'Compact-Modus (dichter)'}
-          aria-label="Dichte umschalten"
-          aria-pressed={p.density === 'cozy'}
-          type="button"
-        >
-          {ICONS.density}
-        </button>
-        <div className="accent-swatches" title="Accent">
-          {(['peach', 'indigo', 'cyan', 'green'] as const).map((a) => (
-            <button
-              key={a}
-              className={`swatch ${p.accent === a ? 'active' : ''}`}
-              data-a={a}
-              onClick={() => p.onAccent(a)}
-              aria-label={a}
-              type="button"
-            />
-          ))}
-        </div>
-        <button
-          className="btn icon"
-          onClick={p.onCycleTheme}
-          title={themeTooltip(p.theme)}
-          aria-label={themeTooltip(p.theme)}
-          type="button"
-        >
-          {themeIcon(p.theme, p.resolvedTheme)}
-        </button>
-        <button
-          className="btn icon"
-          onClick={p.onOpenHelp}
-          title="Tastenkürzel (?)"
-          aria-label="Tastenkürzel anzeigen"
-          type="button"
-        >
-          <span className="mono" style={{ fontSize: 14, fontWeight: 700 }}>?</span>
         </button>
         <div className="hdr-user">
           <div className="avatar">{initials}</div>

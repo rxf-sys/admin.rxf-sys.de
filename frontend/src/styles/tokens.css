@@ -29,7 +29,7 @@
   --peach-2:     #ffd6b1;
   --peach-press: #ff9d55;
 
-  /* Accent (default = peach, swappable via [data-accent]) */
+  /* Accent — baked-in brand peach (no longer user-selectable) */
   --accent:      var(--peach);
   --accent-2:    var(--peach-2);
   --accent-soft: rgba(255, 177, 122, 0.12);
@@ -93,25 +93,6 @@
   --row-h:   40px;
   --tile-pad: 18px;
   --card-pad: 22px;
-}
-
-[data-accent="indigo"] {
-  --accent:      #8b91c4;
-  --accent-2:    #a8aedb;
-  --accent-soft: rgba(139, 145, 196, 0.14);
-  --accent-ring: rgba(139, 145, 196, 0.35);
-}
-[data-accent="cyan"] {
-  --accent:      #4f9eff;
-  --accent-2:    #7ab6ff;
-  --accent-soft: rgba(79, 158, 255, 0.14);
-  --accent-ring: rgba(79, 158, 255, 0.35);
-}
-[data-accent="green"] {
-  --accent:      #00d97e;
-  --accent-2:    #4fe9a4;
-  --accent-soft: rgba(0, 217, 126, 0.14);
-  --accent-ring: rgba(0, 217, 126, 0.35);
 }
 
 [data-theme="light"] {

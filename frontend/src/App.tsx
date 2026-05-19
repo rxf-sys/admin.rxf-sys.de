@@ -11,6 +11,7 @@ import { NetworkPanel } from './components/NetworkPanel';
 import { OverviewCards } from './components/OverviewCards';
 import { SectionNav } from './components/SectionNav';
 import { ServiceGrid } from './components/ServiceGrid';
+import { SettingsPage } from './components/SettingsPage';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { Toasts, type Toast } from './components/Toasts';
 import { VMTable } from './components/VMTable';
@@ -18,6 +19,8 @@ import { usePoll } from './hooks/usePoll';
 import { type Section, useSection } from './hooks/useSection';
 import { useResolvedTheme, useUISettings } from './hooks/useTheme';
 import type { BackupSnapshot, Guest } from './types';
+
+const SECTION_KEYS: Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare', 'settings'];
 
 export function App() {
   const [ui, setUI] = useUISettings();
@@ -39,7 +42,7 @@ export function App() {
   }, []);
 
   // Cmd/Ctrl+K toggles the palette; "?" opens the keyboard cheatsheet;
-  // 1-5 jumps to sections (when not in an input).
+  // 1-6 jumps to sections (when not in an input).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -56,9 +59,8 @@ export function App() {
       if (e.key === '?') {
         e.preventDefault();
         setHelpOpen((o) => !o);
-      } else if (/^[1-5]$/.test(e.key)) {
-        const map: Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare'];
-        setSection(map[Number(e.key) - 1]);
+      } else if (/^[1-6]$/.test(e.key)) {
+        setSection(SECTION_KEYS[Number(e.key) - 1]);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -66,18 +68,17 @@ export function App() {
   }, [setSection]);
 
   // Pause swaps polling intervals to 0 (no auto-refresh) while keeping the
-  // last known state in memory. Manual refresh still works. The fast interval
-  // is the user-configured one; slow polls (backups, certs) scale off it.
+  // last known state in memory. Manual refresh still works.
   const pollFast = paused ? 0 : ui.refreshIntervalMs;
-  const pollSlow = paused || ui.refreshIntervalMs === 0 ? 0 : Math.max(ui.refreshIntervalMs * 4, 30_000);
+  const pollBackup = paused ? 0 : ui.pollBackupMs;
+  const pollCerts = paused ? 0 : ui.pollCertsMs;
   const me = usePoll((sig) => api.me(sig), 0);
   const sys = usePoll((sig) => api.system(sig), pollFast);
   const svc = usePoll((sig) => api.services(sig), pollFast);
   const tun = usePoll((sig) => api.tunnel(sig), pollFast);
-  const bkp = usePoll((sig) => api.backups(sig), pollSlow);
+  const bkp = usePoll((sig) => api.backups(sig), pollBackup);
   const net = usePoll((sig) => api.network(sig), pollFast);
-  // Certs change very rarely; clamp to at least 5 min when polling is enabled.
-  const cer = usePoll((sig) => api.certs(sig), pollSlow === 0 ? 0 : Math.max(pollSlow * 5, 300_000));
+  const cer = usePoll((sig) => api.certs(sig), pollCerts);
 
   const lastRefresh = Math.max(
     sys.lastFetched,
@@ -110,15 +111,20 @@ export function App() {
       tun.data && tun.data.status !== 'healthy' && tun.data.status !== 'unknown' ? 1 : 0;
     const netBad = net.data && net.data.reachable === false ? 1 : 0;
     const dnsBad = (cer.data?.dns ?? []).filter((d) => !d.ok).length;
-    const certBad = (cer.data?.certs ?? []).filter((c) => c.days_left < 14).length;
+    const warnDays = ui.certWarnDays || 0;
+    const certBad =
+      warnDays > 0
+        ? (cer.data?.certs ?? []).filter((c) => c.days_left < warnDays).length
+        : 0;
     return {
       overview: 0,
       server: hostBad + svcBad,
       network: netBad,
       backup: pbsDown + failedJobs,
       cloudflare: tunBad + dnsBad + certBad,
+      settings: 0,
     };
-  }, [services, sys.data, bkp.data, tun.data, net.data, cer.data]);
+  }, [services, sys.data, bkp.data, tun.data, net.data, cer.data, ui.certWarnDays]);
 
   const selectedSvcObj = useMemo(
     () => (selectedSvc ? services.find((s) => s.id === selectedSvc) ?? null : null),
@@ -163,7 +169,6 @@ export function App() {
           title: `Verify gestartet · ${snap.target}`,
           body: `UPID: ${r.upid.slice(0, 32)}…`,
         });
-        // Pull a fresh backup summary in a moment so verify status flips to pending.
         setTimeout(bkp.refresh, 2000);
       } catch (e) {
         pushToast({
@@ -231,8 +236,8 @@ export function App() {
       className="dashboard"
       data-theme={resolvedTheme}
       data-theme-pref={ui.theme}
-      data-accent={ui.accent}
       data-density={ui.density}
+      data-reduce-motion={ui.reduceMotion ? '1' : undefined}
       data-section={section}
     >
       <Header
@@ -241,22 +246,10 @@ export function App() {
         lastRefresh={lastRefresh}
         onRefresh={refreshAll}
         refreshing={sys.loading || svc.loading}
-        theme={ui.theme}
-        resolvedTheme={resolvedTheme}
-        onCycleTheme={() => {
-          const order: ('dark' | 'light' | 'auto')[] = ['dark', 'light', 'auto'];
-          const next = order[(order.indexOf(ui.theme) + 1) % order.length];
-          setUI('theme', next);
-        }}
         email={me.data?.email ?? null}
-        accent={ui.accent}
-        onAccent={(a) => setUI('accent', a)}
         onOpenPalette={() => setPaletteOpen(true)}
-        onOpenHelp={() => setHelpOpen(true)}
         paused={paused}
         onTogglePause={() => setPaused((p) => !p)}
-        density={ui.density}
-        onToggleDensity={() => setUI('density', ui.density === 'compact' ? 'cozy' : 'compact')}
         onSnapshot={onSnapshot}
         refreshIntervalMs={ui.refreshIntervalMs}
         onChangeRefreshInterval={(ms) => setUI('refreshIntervalMs', ms)}
@@ -341,6 +334,16 @@ export function App() {
             />
             <BackupsCerts backups={bkp.data} certs={cer.data} show="certs" />
           </>
+        )}
+        {section === 'settings' && (
+          <SettingsPage
+            settings={ui}
+            update={setUI}
+            email={me.data?.email ?? null}
+            onLogout={() => {
+              window.location.href = '/cdn-cgi/access/logout';
+            }}
+          />
         )}
       </main>
 
