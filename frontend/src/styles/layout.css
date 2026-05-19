@@ -1254,3 +1254,38 @@
   .trends-grid { grid-template-columns: 1fr; }
   .drawer { width: 100vw; }
 }
+
+/* ============================================================ */
+/* NETWORK SECTION — device cards + VLAN list                   */
+/* ============================================================ */
+.device-card { display: flex; flex-direction: column; gap: 12px; }
+.dev-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dev-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.dev-metric { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.vlan-list { display: flex; flex-direction: column; gap: 6px; }
+.vlan-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  transition: background var(--t-fast);
+}
+.vlan-row:hover { background: var(--surface-3); }
+.vlan-swatch {
+  width: 10px;
+  height: 22px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}

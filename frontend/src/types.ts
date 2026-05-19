@@ -213,3 +213,17 @@ export interface GuestBackups {
   error: string | null;
   jobs: BackupSnapshot[];
 }
+
+export interface NetworkThroughputSample {
+  ts: number;
+  down_mbit: number;
+  up_mbit: number;
+}
+
+export interface NetworkThroughput {
+  hours: number;
+  enabled: boolean;
+  peak_down_mbit: number;
+  peak_up_mbit: number;
+  samples: NetworkThroughputSample[];
+}

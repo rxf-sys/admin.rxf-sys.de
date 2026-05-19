@@ -6,6 +6,7 @@ import type {
   GuestTask,
   Identity,
   NetworkSnapshot,
+  NetworkThroughput,
   ServiceHistory,
   ServiceStatus,
   SystemSnapshot,
@@ -50,6 +51,8 @@ export const api = {
   tunnel: (signal?: AbortSignal) => get<TunnelStatus>('/api/tunnel', signal),
   backups: (signal?: AbortSignal) => get<BackupSummary>('/api/backups', signal),
   network: (signal?: AbortSignal) => get<NetworkSnapshot>('/api/network', signal),
+  networkThroughput: (hours = 1, signal?: AbortSignal) =>
+    get<NetworkThroughput>(`/api/network/throughput?hours=${hours}`, signal),
   certs: (signal?: AbortSignal) => get<CertsSnapshot>('/api/certs', signal),
   restartGuest: (vmid: number, type: 'lxc' | 'qemu') =>
     post<{ ok: boolean }>(`/api/system/guests/${vmid}/restart?type=${type}`),
