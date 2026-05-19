@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
-import type { Guest, GuestTask, ServiceHistory, ServiceStatus } from '../types';
+import type { Guest, GuestTask, ProbeSample, ServiceHistory, ServiceStatus } from '../types';
 import { Dot, ICONS, Num, Sparkline, fmtTimeAgo, fmtUptime } from './primitives';
 import { getServiceHistory } from './ServiceGrid';
 
@@ -9,6 +9,12 @@ interface Props {
   svc: ServiceStatus | null;
   guests: Guest[];
   onClose: () => void;
+}
+
+interface AuditEvent {
+  ts: number;
+  event: string;
+  [k: string]: unknown;
 }
 
 function badgeLabel(s: ServiceStatus['status']): string {
@@ -20,6 +26,7 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
   const [tasksError, setTasksError] = useState(false);
   const [history, setHistory] = useState<ServiceHistory | null>(null);
   const [historyHours, setHistoryHours] = useState<number>(24);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -77,6 +84,36 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
     return () => ctrl.abort();
   }, [open, svc, historyHours]);
 
+  // Recent events feed — filtered to ones referencing this service id.
+  useEffect(() => {
+    if (!open || !svc) {
+      setEvents([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    api
+      .events(50, ctrl.signal)
+      .then((r) => {
+        const all = r.events as unknown as AuditEvent[];
+        const filtered = all.filter((e) => {
+          if (typeof e !== 'object' || e === null) return false;
+          const blob = JSON.stringify(e).toLowerCase();
+          return blob.includes(svc.id.toLowerCase());
+        });
+        setEvents(filtered.slice(0, 8));
+      })
+      .catch(() => {
+        if (!ctrl.signal.aborted) setEvents([]);
+      });
+    return () => ctrl.abort();
+  }, [open, svc]);
+
+  // Pull the last 40 probe samples for the heatmap strip.
+  const probeStrip: ProbeSample[] = useMemo(() => {
+    if (!history?.samples) return [];
+    return history.samples.slice(-40);
+  }, [history]);
+
   if (!svc) return null;
 
   const data = getServiceHistory(svc.id);
@@ -86,7 +123,11 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
   const min = data.length ? Math.min(...data) : 0;
   const max = data.length ? Math.max(...data) : 0;
   const avg = data.length ? data.reduce((a, b) => a + b, 0) / data.length : 0;
-  const p95 = data.length ? sorted[Math.floor(data.length * 0.95)] ?? max : 0;
+  const p95Local = data.length ? sorted[Math.floor(data.length * 0.95)] ?? max : 0;
+  const uptimeStr =
+    svc.uptime_pct == null ? '—' : `${svc.uptime_pct.toFixed(2)}%`;
+  const p95Str = svc.p95_ms == null ? '—' : `${svc.p95_ms}ms`;
+  const lastIncidentStr = svc.last_incident_iso ? fmtTimeAgo(svc.last_incident_iso) : 'keiner';
 
   return (
     <>
@@ -128,18 +169,18 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
             </div>
             <div>
               <span className="dim" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                Uptime
+                p95 · 24h
               </span>
               <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>
-                {guest ? fmtUptime(guest.uptime_s) : '—'}
+                {p95Str}
               </div>
             </div>
             <div>
               <span className="dim" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                HTTP
+                Uptime · 30d
               </span>
               <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>
-                {svc.code_int ?? svc.code_ext ?? '—'}
+                {uptimeStr}
               </div>
             </div>
             <div>
@@ -159,22 +200,14 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
 
           <div className="drawer-section">
             <h3>Response time · live</h3>
-            <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 6, padding: 14 }}>
+            <div className="drawer-chart">
               {data.length > 1 ? (
                 <>
                   <Sparkline data={data} color={sparkColor} width={520} height={70} />
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      marginTop: 8,
-                      fontSize: 11,
-                      color: 'var(--text-3)',
-                    }}
-                  >
+                  <div className="drawer-chart-foot">
                     <span className="mono">min {Math.round(min)}ms</span>
                     <span className="mono">avg {Math.round(avg)}ms</span>
-                    <span className="mono">p95 {Math.round(p95)}ms</span>
+                    <span className="mono">p95 {Math.round(p95Local)}ms</span>
                     <span className="mono">max {Math.round(max)}ms</span>
                   </div>
                 </>
@@ -184,6 +217,11 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="drawer-section">
+            <h3>Probe-Verlauf · letzte 40 Checks</h3>
+            <ProbeStrip samples={probeStrip} />
           </div>
 
           <div className="drawer-section">
@@ -229,9 +267,38 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
             </div>
           )}
 
+          <div className="drawer-section">
+            <h3>Letzte Vorfälle</h3>
+            <div className="dimmer mono" style={{ fontSize: 11, marginBottom: 6 }}>
+              Letzter Vorfall: {lastIncidentStr}
+            </div>
+            {events.length === 0 ? (
+              <div className="dimmer" style={{ fontSize: 12 }}>
+                Keine passenden Events im Buffer.
+              </div>
+            ) : (
+              <div className="event-list">
+                {events.map((e, i) => (
+                  <div key={i} className="event-row">
+                    <span className="audit-tag">{e.event}</span>
+                    <span className="audit-fields">
+                      {Object.entries(e)
+                        .filter(([k]) => k !== 'ts' && k !== 'event')
+                        .map(([k, v]) => `${k}=${String(v)}`)
+                        .join(' · ')}
+                    </span>
+                    <span className="audit-time dim mono" style={{ fontSize: 11 }}>
+                      {fmtTimeAgo(new Date(e.ts * 1000).toISOString())}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {guest && (
             <div className="drawer-section">
-              <h3>Letzte Tasks</h3>
+              <h3>Letzte Tasks (PVE)</h3>
               {tasksError ? (
                 <div className="dimmer" style={{ fontSize: 12 }}>
                   Tasks konnten nicht geladen werden.
@@ -242,7 +309,7 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
                 </div>
               ) : (
                 <div className="event-list">
-                  {tasks.map((t) => (
+                  {tasks.slice(0, 5).map((t) => (
                     <TaskRow key={t.upid ?? `${t.starttime}-${t.type}`} task={t} />
                   ))}
                 </div>
@@ -259,12 +326,33 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
         </div>
 
         <div className="drawer-foot">
-          <a className="btn" href={`https://${svc.sub}`} target="_blank" rel="noopener noreferrer">
+          <a className="btn btn-primary" href={`https://${svc.sub}`} target="_blank" rel="noopener noreferrer">
             {ICONS.external} Service öffnen
           </a>
         </div>
       </aside>
     </>
+  );
+}
+
+function ProbeStrip({ samples }: { samples: ProbeSample[] }) {
+  if (samples.length === 0) {
+    return (
+      <div className="dimmer" style={{ fontSize: 12 }}>
+        Noch keine Probe-Daten.
+      </div>
+    );
+  }
+  return (
+    <div className="probe-history" role="img" aria-label="Letzte Probe-Ergebnisse">
+      {samples.map((s) => (
+        <span
+          key={s.ts}
+          className={`status-cell ${s.status}`}
+          title={`${new Date(s.ts * 1000).toLocaleTimeString()} · ${s.status} · ${s.ms}ms`}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -290,8 +378,6 @@ function HistoryView({ history }: { history: ServiceHistory | null }) {
       </div>
     );
   }
-  // Bucket samples into a fixed-width stripe so the same component scales
-  // across "1h" (≈ 240 samples) and "7d" (≈ 40k).
   const TARGET_BUCKETS = 60;
   const buckets: ('ok' | 'warn' | 'err' | 'idle')[] = new Array(TARGET_BUCKETS).fill('idle');
   const oldest = history.samples[0].ts;
@@ -299,7 +385,6 @@ function HistoryView({ history }: { history: ServiceHistory | null }) {
   const span = Math.max(1, newest - oldest);
   for (const s of history.samples) {
     const idx = Math.min(TARGET_BUCKETS - 1, Math.floor(((s.ts - oldest) / span) * TARGET_BUCKETS));
-    // Worst status wins within a bucket so a single err isn't masked by ok.
     const order = { ok: 0, idle: 1, warn: 2, err: 3 } as const;
     if (order[s.status] >= order[buckets[idx]]) buckets[idx] = s.status;
   }
@@ -333,6 +418,11 @@ function HistoryView({ history }: { history: ServiceHistory | null }) {
         <span className="mono">
           Ø Antwort <strong style={{ color: 'var(--text-1)' }}>{avg}ms</strong>
         </span>
+        {history.p95_ms != null && (
+          <span className="mono">
+            p95 <strong style={{ color: 'var(--text-1)' }}>{history.p95_ms}ms</strong>
+          </span>
+        )}
       </div>
     </>
   );

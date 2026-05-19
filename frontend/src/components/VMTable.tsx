@@ -112,8 +112,26 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
           <tbody>
             {sorted.map((v) => {
               const ramPct = v.ram_total_b ? (v.ram_used_b / v.ram_total_b) * 100 : 0;
+              const rowClass =
+                v.status === 'err' ? 'attn' : v.status === 'warn' ? 'warn-row' : '';
+              const onRowClick = () => onLogs(v);
+              const onRowKey = (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onLogs(v);
+                }
+              };
               return (
-                <tr key={v.id}>
+                <tr
+                  key={v.id}
+                  className={rowClass}
+                  onClick={onRowClick}
+                  onKeyDown={onRowKey}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Details für ${v.name} öffnen`}
+                  style={{ cursor: 'pointer' }}
+                >
                   <td>
                     <Dot status={v.status} />
                   </td>
@@ -160,7 +178,7 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
                   <td className="mono dim" style={{ textAlign: 'right' }}>
                     {fmtUptime(v.uptime_s)}
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <div className="row-actions">
                       <button
                         className="btn icon"
