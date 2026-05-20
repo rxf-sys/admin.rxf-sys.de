@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS guest_labels (
     updated_by TEXT,
     updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS registry_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 _db_path: str = ""
@@ -109,8 +114,47 @@ def _row_to_service(row: aiosqlite.Row) -> dict[str, Any]:
     }
 
 
+async def seed_builtin_services(
+    settings: Settings, catalogue: list[dict[str, str]]
+) -> None:
+    """One-time import of the built-in service catalogue into the registry.
+
+    Runs exactly once per database (guarded by a ``registry_meta`` marker).
+    After seeding, every service — built-in or admin-created — is a normal
+    registry row, so they are all editable and removable through the UI.
+    Built-in URLs are captured from the current settings at seed time.
+    """
+    if not _db_path:
+        return
+    now = int(time.time())
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT value FROM registry_meta WHERE key = 'builtins_seeded'"
+        ) as cur:
+            if await cur.fetchone():
+                return
+        for svc in catalogue:
+            sid = str(svc["id"])
+            ext = f"https://{sid}.{settings.cf_zone_name}"
+            internal = settings.probe_targets.get(sid, ext)
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO custom_services
+                    (id, name, icon, descr, internal_url, ext_url, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'system', ?)
+                """,
+                (sid, svc["name"], svc["icon"], svc["desc"], internal, ext, now),
+            )
+        await db.execute(
+            "INSERT OR REPLACE INTO registry_meta (key, value) VALUES ('builtins_seeded', ?)",
+            (str(now),),
+        )
+        await db.commit()
+    log.info("registry.builtins_seeded", count=len(catalogue))
+
+
 async def list_services() -> list[dict[str, Any]]:
-    """All admin-created services, oldest-first. Empty when no DB is set."""
+    """All registered services, oldest-first. Empty when no DB is set."""
     if not _db_path:
         return []
     async with _connect() as db:
