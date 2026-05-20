@@ -18,13 +18,23 @@ class Settings(BaseSettings):
     app_env: str = "production"
     log_level: str = "INFO"
     cors_origins: list[str] = Field(default_factory=lambda: ["https://admin.rxf-sys.de"])
+    # When False, all requests resolve to a synthetic admin identity (dev only).
     auth_enabled: bool = True
 
-    # ---- Cloudflare Access ----
-    # Team domain, e.g. "rxf-sys.cloudflareaccess.com"
-    cf_access_team_domain: str = "rxf-sys.cloudflareaccess.com"
-    # AUD tag of the Access Application (configured in CF dashboard)
-    cf_access_aud: str = ""
+    # ---- Account auth (session cookies, replaces Cloudflare Access) ----
+    # Lifetime of a login session before it expires and the user must
+    # re-authenticate.
+    session_ttl_hours: int = 168  # 7 days
+    # Name of the session cookie set on login.
+    session_cookie_name: str = "rxf_session"
+    # Set Secure on the session cookie — keep True in production (HTTPS only),
+    # flip to False for local http:// development.
+    session_cookie_secure: bool = True
+    # Bootstrap the first admin account on startup when the users table is
+    # empty. Leave the password empty to skip (then create the admin via the
+    # `manage.py create-admin` helper or another already-existing admin).
+    bootstrap_admin_user: str = "admin"
+    bootstrap_admin_password: str = ""
 
     # ---- Proxmox VE ----
     proxmox_host: str = "192.168.2.200"

@@ -1,5 +1,6 @@
 import type {
   AccessSessions,
+  Account,
   BackupHeatmap,
   BackupStorage,
   BackupSummary,
@@ -10,6 +11,7 @@ import type {
   Identity,
   NetworkSnapshot,
   NetworkThroughput,
+  Role,
   ServiceHistory,
   ServiceStatus,
   SystemSnapshot,
@@ -31,12 +33,12 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
+async function send<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, {
-    method: 'POST',
+    method,
     credentials: 'include',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!r.ok) {
     const text = await r.text().catch(() => '');
@@ -45,8 +47,51 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+const post = <T>(path: string, body?: unknown) => send<T>('POST', path, body);
+
+/** Pull a human-readable message out of an ApiError's JSON body. */
+export function apiErrorMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    try {
+      const parsed = JSON.parse(e.body) as { detail?: string };
+      if (parsed.detail) return parsed.detail;
+    } catch {
+      /* body wasn't JSON */
+    }
+    return e.body || `Fehler ${e.status}`;
+  }
+  return e instanceof Error ? e.message : 'Unbekannter Fehler';
+}
+
 export const api = {
   me: (signal?: AbortSignal) => get<Identity>('/api/me', signal),
+
+  // --- Authentication ---
+  authMe: (signal?: AbortSignal) => get<{ user: Account }>('/api/auth/me', signal),
+  login: (username: string, password: string) =>
+    post<{ user: Account }>('/api/auth/login', { username, password }),
+  logout: () => post<{ ok: boolean }>('/api/auth/logout'),
+
+  // --- Own account ---
+  getAccountSettings: (signal?: AbortSignal) =>
+    get<{ settings: Record<string, unknown> }>('/api/account/settings', signal),
+  putAccountSettings: (settings: Record<string, unknown>) =>
+    send<{ ok: boolean }>('PUT', '/api/account/settings', { settings }),
+  changePassword: (current_password: string, new_password: string) =>
+    post<{ ok: boolean }>('/api/account/password', { current_password, new_password }),
+
+  // --- Admin: user management ---
+  adminListUsers: (signal?: AbortSignal) =>
+    get<{ users: Account[] }>('/api/admin/users', signal),
+  adminCreateUser: (body: { username: string; password: string; role: Role; email?: string | null }) =>
+    post<{ user: Account }>('/api/admin/users', body),
+  adminUpdateUser: (id: number, body: { role?: Role; email?: string | null; disabled?: boolean }) =>
+    send<{ user: Account }>('PATCH', `/api/admin/users/${id}`, body),
+  adminResetPassword: (id: number, new_password: string) =>
+    post<{ ok: boolean }>(`/api/admin/users/${id}/password`, { new_password }),
+  adminDeleteUser: (id: number) =>
+    send<{ ok: boolean }>('DELETE', `/api/admin/users/${id}`),
+
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
   services: (signal?: AbortSignal) => get<ServiceStatus[]>('/api/services', signal),
   serviceHistory: (id: string, hours = 24, signal?: AbortSignal) =>

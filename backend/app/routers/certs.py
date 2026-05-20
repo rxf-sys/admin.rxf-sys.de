@@ -4,13 +4,13 @@ import asyncio
 
 from fastapi import APIRouter, Depends
 
-from ..auth import verify_cf_access
+from ..auth import verify_session
 from ..cache import cache
 from ..clients import cloudflare
 from ..config import Settings, get_settings
 from ..models import CertsSnapshot
 
-router = APIRouter(prefix="/api/certs", tags=["certs"], dependencies=[Depends(verify_cf_access)])
+router = APIRouter(prefix="/api/certs", tags=["certs"], dependencies=[Depends(verify_session)])
 
 
 @router.get("", response_model=CertsSnapshot)

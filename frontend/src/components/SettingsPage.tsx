@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { api, apiErrorMessage } from '../api/client';
 import {
   BACKUP_INTERVALS_MS,
   CERT_INTERVALS_MS,
@@ -6,16 +7,20 @@ import {
   REFRESH_INTERVALS_MS,
   type UISettings,
 } from '../hooks/useTheme';
+import type { Account } from '../types';
 import { ICONS } from './primitives';
 
 type SettingsSection = 'appearance' | 'polling' | 'notifications' | 'identity' | 'about';
 
+const MIN_PASSWORD_LEN = 8;
+
 interface Props {
   settings: UISettings;
   update: <K extends keyof UISettings>(key: K, value: UISettings[K]) => void;
-  email: string | null;
-  identitySession?: { iat?: number | null; exp?: number | null } | null;
-  onLogout?: () => void;
+  account: Account;
+  onLogout: () => void;
+  onPasswordChanged: () => void;
+  onError: (msg: string) => void;
   appVersion?: string;
 }
 
@@ -23,7 +28,7 @@ const NAV: { id: SettingsSection; label: string; icon: keyof typeof ICONS }[] = 
   { id: 'appearance', label: 'Appearance', icon: 'palette' },
   { id: 'polling', label: 'Polling', icon: 'refresh' },
   { id: 'notifications', label: 'Notifications', icon: 'bell' },
-  { id: 'identity', label: 'Identity', icon: 'user' },
+  { id: 'identity', label: 'Konto', icon: 'user' },
   { id: 'about', label: 'About', icon: 'info' },
 ];
 
@@ -32,17 +37,6 @@ function fmtInterval(ms: number): string {
   if (ms < 60_000) return `${ms / 1000}s`;
   if (ms < 3_600_000) return `${ms / 60_000}min`;
   return `${ms / 3_600_000}h`;
-}
-
-function fmtSessionExp(exp: number | null | undefined): string {
-  if (!exp) return '—';
-  const date = new Date(exp * 1000);
-  const diffMin = Math.round((date.getTime() - Date.now()) / 60_000);
-  if (diffMin <= 0) return 'abgelaufen';
-  if (diffMin < 60) return `in ${diffMin}min`;
-  const h = Math.floor(diffMin / 60);
-  const m = diffMin % 60;
-  return `in ${h}h ${m}min`;
 }
 
 function Row({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
@@ -106,7 +100,15 @@ function SectionHead({ title, desc }: { title: string; desc?: string }) {
   );
 }
 
-export function SettingsPage({ settings, update, email, identitySession, onLogout, appVersion }: Props) {
+export function SettingsPage({
+  settings,
+  update,
+  account,
+  onLogout,
+  onPasswordChanged,
+  onError,
+  appVersion,
+}: Props) {
   const [active, setActive] = useState<SettingsSection>('appearance');
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -289,18 +291,27 @@ export function SettingsPage({ settings, update, email, identitySession, onLogou
         )}
 
         {active === 'identity' && (
-          <div className="card">
-            <SectionHead title="Identity" desc="Eingeloggt via Cloudflare Access · Email-OTP." />
-            <Row title="Email" desc="Aus dem Cf-Access-Jwt-Assertion-Token.">
-              <span className="mono">{email ?? '—'}</span>
-            </Row>
-            <Row title="Session läuft ab" desc="Cloudflare Access Session-Dauer.">
-              <span className="mono dim">{fmtSessionExp(identitySession?.exp ?? null)}</span>
-            </Row>
-            <Row title="Logout" desc="Beendet die Cloudflare-Access-Session.">
-              <button type="button" className="btn danger" onClick={onLogout}>Logout</button>
-            </Row>
-          </div>
+          <>
+            <div className="card">
+              <SectionHead title="Konto" desc="Dein angemeldetes Konto in diesem Dashboard." />
+              <Row title="Benutzername">
+                <span className="mono">{account.username}</span>
+              </Row>
+              <Row title="E-Mail">
+                <span className="mono">{account.email || '—'}</span>
+              </Row>
+              <Row title="Rolle" desc="Admins können Konten verwalten.">
+                <span className={`role-pill ${account.role}`}>{account.role}</span>
+              </Row>
+              <Row title="Abmelden" desc="Beendet die aktuelle Sitzung.">
+                <button type="button" className="btn danger" onClick={onLogout}>Logout</button>
+              </Row>
+            </div>
+            <div className="card">
+              <SectionHead title="Passwort ändern" desc={`Mindestens ${MIN_PASSWORD_LEN} Zeichen.`} />
+              <PasswordChangeForm onChanged={onPasswordChanged} onError={onError} />
+            </div>
+          </>
         )}
 
         {active === 'about' && (
@@ -317,5 +328,63 @@ export function SettingsPage({ settings, update, email, identitySession, onLogou
         )}
       </div>
     </>
+  );
+}
+
+function PasswordChangeForm({
+  onChanged,
+  onError,
+}: {
+  onChanged: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    if (next.length < MIN_PASSWORD_LEN) {
+      onError(`Neues Passwort muss mindestens ${MIN_PASSWORD_LEN} Zeichen haben`);
+      return;
+    }
+    if (next !== confirm) {
+      onError('Die neuen Passwörter stimmen nicht überein');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.changePassword(current, next);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      onChanged();
+    } catch (err) {
+      onError(apiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <label className="login-field">
+        <span>Aktuelles Passwort</span>
+        <input className="input" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+      </label>
+      <label className="login-field">
+        <span>Neues Passwort</span>
+        <input className="input" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required />
+      </label>
+      <label className="login-field">
+        <span>Neues Passwort bestätigen</span>
+        <input className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+      </label>
+      <button className="btn primary" type="submit" disabled={busy} style={{ alignSelf: 'flex-start', height: 36 }}>
+        {busy ? 'Speichern…' : 'Passwort ändern'}
+      </button>
+    </form>
   );
 }

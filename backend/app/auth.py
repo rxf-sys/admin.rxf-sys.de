@@ -1,84 +1,60 @@
+"""Request authentication via local account sessions.
+
+Replaces the former Cloudflare-Access JWT gate. Every protected router
+depends on ``verify_session``; admin-only routes additionally depend on
+``require_admin``.
+
+When ``auth_enabled`` is False (local development) both dependencies resolve
+to a synthetic admin identity so the API can be exercised without a login.
+"""
+
 from __future__ import annotations
 
-import json
-import time
+from typing import Any
 
-import httpx
-import jwt
-from fastapi import HTTPException, Request, status
-from jwt.algorithms import RSAAlgorithm
+from fastapi import Depends, HTTPException, Request, status
 
+from . import accounts
 from .config import Settings, get_settings
 
-
-class _JWKSCache:
-    """Caches the Cloudflare Access JWKS for 1 hour."""
-
-    def __init__(self) -> None:
-        self._keys: dict | None = None
-        self._fetched_at: float = 0.0
-
-    async def get(self, team_domain: str) -> dict:
-        if self._keys is not None and (time.time() - self._fetched_at) < 3600:
-            return self._keys
-        url = f"https://{team_domain}/cdn-cgi/access/certs"
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            self._keys = r.json()
-            self._fetched_at = time.time()
-        return self._keys
+_DEV_USER: dict[str, Any] = {
+    "id": 0,
+    "username": "dev",
+    "email": "dev@local",
+    "role": "admin",
+    "disabled": False,
+    "created_at": 0,
+    "last_login_at": None,
+}
 
 
-_jwks = _JWKSCache()
+async def verify_session(request: Request) -> dict[str, Any]:
+    """Resolve the session cookie to a user dict, or raise 401.
 
-
-async def verify_cf_access(request: Request) -> dict:
-    """Verifies the Cf-Access-Jwt-Assertion header.
-
-    Returns the decoded claims. Raises 401 if invalid. If `auth_enabled`
-    is False (dev), returns a stub identity.
+    The decoded user is also stashed on ``request.state.user`` so downstream
+    code (e.g. audit logging) can read it without re-querying.
     """
     settings: Settings = get_settings()
     if not settings.auth_enabled:
-        return {"sub": "dev@local", "email": "dev@local", "aud": "dev"}
+        request.state.user = _DEV_USER
+        return _DEV_USER
 
-    token = request.headers.get("Cf-Access-Jwt-Assertion") or request.cookies.get("CF_Authorization")
-    if not token:
+    token = request.cookies.get(settings.session_cookie_name, "")
+    user = await accounts.resolve_session(token)
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing Cf-Access-Jwt-Assertion",
+            detail="not authenticated",
         )
-    if not settings.cf_access_aud:
+    request.state.user = user
+    return user
+
+
+async def require_admin(user: dict[str, Any] = Depends(verify_session)) -> dict[str, Any]:
+    """Like ``verify_session`` but additionally requires the admin role."""
+    if user.get("role") != "admin":
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="cf_access_aud not configured",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="admin privileges required",
         )
-
-    try:
-        jwks = await _jwks.get(settings.cf_access_team_domain)
-        unverified_header = jwt.get_unverified_header(token)
-        kid = unverified_header.get("kid")
-        key_jwk = next(
-            (k for k in jwks.get("keys", []) if k.get("kid") == kid), None
-        )
-        if key_jwk is None:
-            raise HTTPException(status_code=401, detail="unknown signing key")
-
-        public_key = RSAAlgorithm.from_jwk(json.dumps(key_jwk))
-
-        # Cloudflare Access signs exclusively with RS256. Pinning the algorithm
-        # prevents an alg-confusion attack where a forged token could declare
-        # e.g. HS256 in its header and trick the verifier into treating the
-        # RSA public key as a shared HMAC secret.
-        claims = jwt.decode(
-            token,
-            public_key,
-            algorithms=["RS256"],
-            audience=settings.cf_access_aud,
-            issuer=f"https://{settings.cf_access_team_domain}",
-        )
-    except jwt.PyJWTError as e:
-        raise HTTPException(status_code=401, detail=f"invalid token: {e}") from e
-
-    return claims
+    return user

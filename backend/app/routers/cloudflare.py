@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from ..auth import verify_cf_access
+from ..auth import verify_session
 from ..cache import cache
 from ..clients import cloudflare
 from ..config import Settings, get_settings
 
 router = APIRouter(
-    prefix="/api/cloudflare", tags=["cloudflare"], dependencies=[Depends(verify_cf_access)]
+    prefix="/api/cloudflare", tags=["cloudflare"], dependencies=[Depends(verify_session)]
 )
 
 

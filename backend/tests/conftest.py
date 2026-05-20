@@ -28,5 +28,4 @@ def settings() -> Settings:
         cf_zone_name="example.test",
         cf_api_token="cf-token",
         cf_tunnel_id="tun-test",
-        cf_access_aud="aud-test",
     )
