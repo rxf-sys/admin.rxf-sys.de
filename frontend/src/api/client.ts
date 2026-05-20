@@ -13,6 +13,7 @@ import type {
   NetworkThroughput,
   Role,
   ServiceHistory,
+  ServiceInput,
   ServiceStatus,
   SystemSnapshot,
   TunnelStatus,
@@ -94,6 +95,18 @@ export const api = {
 
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
   services: (signal?: AbortSignal) => get<ServiceStatus[]>('/api/services', signal),
+  createService: (body: ServiceInput) =>
+    post<{ service: Record<string, unknown> }>('/api/services', body),
+  updateService: (id: string, body: ServiceInput) =>
+    send<{ service: Record<string, unknown> }>('PATCH', `/api/services/${encodeURIComponent(id)}`, body),
+  deleteService: (id: string) =>
+    send<{ ok: boolean }>('DELETE', `/api/services/${encodeURIComponent(id)}`),
+  updateGuestService: (vmid: number, service: string | null) =>
+    send<{ ok: boolean; vmid: number; service: string | null }>(
+      'PATCH',
+      `/api/system/guests/${vmid}/service`,
+      { service },
+    ),
   serviceHistory: (id: string, hours = 24, signal?: AbortSignal) =>
     get<ServiceHistory>(`/api/services/${encodeURIComponent(id)}/history?hours=${hours}`, signal),
   tunnel: (signal?: AbortSignal) => get<TunnelStatus>('/api/tunnel', signal),

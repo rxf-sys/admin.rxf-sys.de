@@ -67,12 +67,27 @@ export interface ServiceStatus {
   code_ext: number | null;
   code_int: number | null;
   note: string | null;
+  /** True for admin-created services (registry), false for the built-in catalogue. */
+  custom: boolean;
+  /** False when no external endpoint is configured — the UI then hides the EXT pill. */
+  ext_monitored: boolean;
+  internal_url: string;
+  ext_url: string | null;
   /** 30-day rolling, percent. ``null`` when storage is disabled / no samples. */
   uptime_pct: number | null;
   /** 95th percentile response time over the last 24h, ms. */
   p95_ms: number | null;
   /** ISO 8601 timestamp of the most recent incident transition. */
   last_incident_iso: string | null;
+}
+
+/** Payload for creating / editing a custom service. */
+export interface ServiceInput {
+  name: string;
+  internal_url: string;
+  icon: string;
+  desc: string;
+  ext_url: string | null;
 }
 
 export interface TunnelStatus {

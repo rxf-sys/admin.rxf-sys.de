@@ -9,7 +9,7 @@ import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import accounts, storage
+from . import accounts, registry, storage
 from .auth import verify_session
 from .clients import cloudflare, pbs, probes, proxmox, unifi
 from .config import get_settings
@@ -150,6 +150,10 @@ async def lifespan(app: FastAPI):
     # before anything else so the API is never up without a way to log in.
     await accounts.ensure_schema(_settings)
     await accounts.bootstrap_admin(_settings)
+
+    # Admin-managed registry (custom services + guest labels) shares the
+    # mandatory account database, so its schema runs alongside accounts.
+    await registry.ensure_schema(_settings)
 
     await storage.ensure_schema(_settings)
     # The cleanup loop prunes expired sessions too, so it runs even when the

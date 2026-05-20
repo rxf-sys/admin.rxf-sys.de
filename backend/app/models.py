@@ -76,6 +76,13 @@ class ServiceStatus(BaseModel):
     code_ext: int | None = None
     code_int: int | None = None
     note: str | None = None
+    # True for admin-created services (registry), False for the built-in
+    # catalogue. ``ext_monitored`` is False when no external endpoint is
+    # configured, so the UI hides the EXT reachability pill.
+    custom: bool = False
+    ext_monitored: bool = True
+    internal_url: str = ""
+    ext_url: str | None = None
     # Persisted-history rollups (None when storage is disabled / no data yet).
     uptime_pct: float | None = None  # rolling 30-day, percent
     p95_ms: int | None = None  # 95th percentile of response_ms over 24h

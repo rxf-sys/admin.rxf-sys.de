@@ -30,7 +30,10 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
     void load();
   }, [load]);
 
-  const updateUser = async (id: number, body: { role?: Role; disabled?: boolean }) => {
+  const updateUser = async (
+    id: number,
+    body: { role?: Role; disabled?: boolean; email?: string | null },
+  ) => {
     try {
       await api.adminUpdateUser(id, body);
       await load();
@@ -103,7 +106,12 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
                         {u.username}
                         {isSelf && <span className="dim" style={{ fontWeight: 400 }}> · du</span>}
                       </td>
-                      <td className="dim">{u.email || '—'}</td>
+                      <td className="dim">
+                        <EmailCell
+                          user={u}
+                          onSave={(email) => updateUser(u.id, { email })}
+                        />
+                      </td>
                       <td>
                         <select
                           className="hours-select"
@@ -173,6 +181,55 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
         />
       )}
     </section>
+  );
+}
+
+/** E-Mail cell with an inline editor so an admin can add it after the fact. */
+function EmailCell({ user, onSave }: { user: Account; onSave: (email: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  if (editing) {
+    const commit = () => {
+      setEditing(false);
+      const next = draft.trim();
+      if (next !== (user.email ?? '')) onSave(next);
+    };
+    return (
+      <input
+        className="input svc-cell-input"
+        type="email"
+        value={draft}
+        autoFocus
+        placeholder="name@example.com"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="svc-cell-edit"
+      title="E-Mail-Adresse bearbeiten"
+      onClick={() => {
+        setDraft(user.email ?? '');
+        setEditing(true);
+      }}
+    >
+      <span>{user.email || '—'}</span>
+      {ICONS.edit}
+    </button>
   );
 }
 
