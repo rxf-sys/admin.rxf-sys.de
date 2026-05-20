@@ -9,6 +9,7 @@ interface Props {
   loading?: boolean;
   isAdmin?: boolean;
   onAddService?: () => void;
+  onDeleteService?: (svc: ServiceStatus) => void;
 }
 
 const HISTORY_LEN = 60;
@@ -21,7 +22,15 @@ function pushHistory(id: string, ms: number): number[] {
   return next;
 }
 
-export function ServiceGrid({ services, onSelect, showSpark, loading, isAdmin, onAddService }: Props) {
+export function ServiceGrid({
+  services,
+  onSelect,
+  showSpark,
+  loading,
+  isAdmin,
+  onAddService,
+  onDeleteService,
+}: Props) {
   const lastSig = useRef('');
   const sig = services.map((s) => `${s.id}:${s.ms}`).join('|');
   useEffect(() => {
@@ -57,9 +66,27 @@ export function ServiceGrid({ services, onSelect, showSpark, loading, isAdmin, o
                 <div className="skel" style={{ height: 16 }} />
               </div>
             ))
-          : services.map((s) => (
-              <ServiceTile key={s.id} svc={s} onClick={() => onSelect(s.id)} showSpark={showSpark} />
-            ))}
+          : services.map((s) =>
+              isAdmin && s.custom && onDeleteService ? (
+                <div className="svc-tile-wrap" key={s.id}>
+                  <ServiceTile svc={s} onClick={() => onSelect(s.id)} showSpark={showSpark} />
+                  <button
+                    className="svc-tile-del"
+                    type="button"
+                    title={`${s.name} entfernen`}
+                    aria-label={`Service ${s.name} entfernen`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteService(s);
+                    }}
+                  >
+                    {ICONS.trash}
+                  </button>
+                </div>
+              ) : (
+                <ServiceTile key={s.id} svc={s} onClick={() => onSelect(s.id)} showSpark={showSpark} />
+              ),
+            )}
       </div>
     </section>
   );
