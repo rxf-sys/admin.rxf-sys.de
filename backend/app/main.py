@@ -151,9 +151,11 @@ async def lifespan(app: FastAPI):
     await accounts.ensure_schema(_settings)
     await accounts.bootstrap_admin(_settings)
 
-    # Admin-managed registry (custom services + guest labels) shares the
-    # mandatory account database, so its schema runs alongside accounts.
+    # Admin-managed registry (services + guest labels) shares the mandatory
+    # account database, so its schema runs alongside accounts. The built-in
+    # service catalogue is seeded into it once so every service is editable.
     await registry.ensure_schema(_settings)
+    await registry.seed_builtin_services(_settings, probes.SERVICES)
 
     await storage.ensure_schema(_settings)
     # The cleanup loop prunes expired sessions too, so it runs even when the

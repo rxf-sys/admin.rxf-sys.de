@@ -10,8 +10,10 @@ from .. import registry, storage
 from ..config import Settings
 from ..models import ServiceStatus
 
-# Service catalogue mirrors the design mockup exactly. Admin-created services
-# (see ``registry.py``) are merged on top of this at probe time.
+# Built-in service catalogue. This is only a *seed*: on first start
+# ``registry.seed_builtin_services`` imports it into the registry, after which
+# every service (built-in or admin-created) lives in the database and is
+# editable / removable through the UI. ``probe_all`` reads only the registry.
 SERVICES: list[dict[str, str]] = [
     {"id": "vault",   "name": "vault",   "icon": "lock",    "desc": "Vaultwarden — Passwörter"},
     {"id": "cloud",   "name": "cloud",   "icon": "cloud",   "desc": "Nextcloud — Files & Sync"},
@@ -44,25 +46,10 @@ def _display_host(url: str) -> str:
     return url.split("://", 1)[-1].rstrip("/")
 
 
-async def _build_specs(settings: Settings) -> list[_ProbeSpec]:
-    """Built-in catalogue + admin-created services as a single probe list."""
+async def _build_specs() -> list[_ProbeSpec]:
+    """All registered services as a probe list. The built-in catalogue is
+    seeded into the registry on first start, so this is the single source."""
     specs: list[_ProbeSpec] = []
-    for svc in SERVICES:
-        sub_id = svc["id"]
-        ext_url = f"https://{sub_id}.{settings.cf_zone_name}"
-        int_url = settings.probe_targets.get(sub_id, ext_url)
-        specs.append(
-            _ProbeSpec(
-                id=sub_id,
-                name=svc["name"],
-                icon=svc["icon"],
-                desc=svc["desc"],
-                sub=f"{sub_id}.{settings.cf_zone_name}",
-                int_url=int_url,
-                ext_url=ext_url,
-                custom=False,
-            )
-        )
     for cs in await registry.list_services():
         internal = str(cs["internal_url"])
         ext = cs.get("ext_url") or None
@@ -99,7 +86,7 @@ async def _probe(client: httpx.AsyncClient, url: str, timeout: float) -> tuple[b
 async def probe_all(settings: Settings) -> list[ServiceStatus]:
     results: list[ServiceStatus] = []
     timeout = settings.probe_timeout_s
-    specs = await _build_specs(settings)
+    specs = await _build_specs()
     # External probes go through Cloudflare with a real cert chain — verify TLS
     # so a MITM/DNS-hijack against the public hostname shows up as down.
     # Internal probes hit LAN hosts with self-signed/private-CA certs, so TLS

@@ -8,11 +8,12 @@ from app.config import Settings
 
 @pytest.fixture
 async def db(tmp_path):
-    """Per-test SQLite file for the registry module."""
+    """Per-test SQLite file for the registry module. Yields the Settings."""
     db_path = tmp_path / "registry.db"
     registry.reset_for_tests(str(db_path))
-    await registry.ensure_schema(Settings(storage_db_path=str(db_path)))
-    yield
+    s = Settings(storage_db_path=str(db_path))
+    await registry.ensure_schema(s)
+    yield s
     registry.reset_for_tests()
 
 
@@ -61,6 +62,28 @@ async def test_service_rejects_bad_url(db):
 @pytest.mark.asyncio
 async def test_update_unknown_service_returns_none(db):
     assert await registry.update_service("custom-deadbeef", name="x") is None
+
+
+@pytest.mark.asyncio
+async def test_seed_builtin_services_runs_once(db):
+    catalogue = [
+        {"id": "vault", "name": "vault", "icon": "lock", "desc": "Vaultwarden"},
+        {"id": "pbs", "name": "pbs", "icon": "archive", "desc": "PBS"},
+    ]
+    await registry.seed_builtin_services(db, catalogue)
+    seeded = await registry.list_services()
+    assert {s["id"] for s in seeded} == {"vault", "pbs"}
+    # Seeded built-ins are normal registry rows — editable and removable.
+    assert all(s["custom"] is True for s in seeded)
+
+    # Idempotent: a second run must not duplicate.
+    await registry.seed_builtin_services(db, catalogue)
+    assert len(await registry.list_services()) == 2
+
+    # A removed built-in is not re-seeded on the next run.
+    await registry.delete_service("vault")
+    await registry.seed_builtin_services(db, catalogue)
+    assert {s["id"] for s in await registry.list_services()} == {"pbs"}
 
 
 @pytest.mark.asyncio

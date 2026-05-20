@@ -17,13 +17,8 @@ from ..models import ServiceStatus
 router = APIRouter(prefix="/api/services", tags=["services"], dependencies=[Depends(verify_session)])
 
 
-_BUILTIN_IDS = {s["id"] for s in probes.SERVICES}
-
-
 async def _is_known_service(service_id: str) -> bool:
-    """A service id is valid if it's a built-in or a registered custom one."""
-    if service_id in _BUILTIN_IDS:
-        return True
+    """A service id is valid if it maps to a registered service."""
     return await registry.get_service(service_id) is not None
 
 
@@ -109,12 +104,7 @@ async def update_service(
     body: ServiceUpdateBody,
     admin: dict = Depends(require_admin),
 ) -> dict:
-    """Edit a custom service (admin only). Built-in services are immutable."""
-    if service_id in _BUILTIN_IDS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="eingebaute Services können nicht bearbeitet werden",
-        )
+    """Edit a registered service (admin only)."""
     try:
         svc = await registry.update_service(
             service_id,
@@ -140,12 +130,7 @@ async def delete_service(
     service_id: str,
     admin: dict = Depends(require_admin),
 ) -> dict:
-    """Delete a custom service (admin only). Built-in services are immutable."""
-    if service_id in _BUILTIN_IDS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="eingebaute Services können nicht gelöscht werden",
-        )
+    """Delete a registered service (admin only)."""
     ok = await registry.delete_service(service_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service nicht gefunden")
