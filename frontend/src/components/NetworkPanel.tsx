@@ -1,19 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type {
-  NetworkSnapshot,
-  NetworkThroughput,
-  TunnelStatus,
-  UnifiDevice,
-} from '../types';
-import { Dot } from './primitives';
+import type { NetworkSnapshot, NetworkThroughput, TunnelStatus, UnifiDevice } from '../types';
+import { AreaChart, Dot, ICONS, Num, fmtUptime } from './primitives';
 
 interface Props {
   network: NetworkSnapshot | null;
   tunnel: TunnelStatus | null;
 }
 
-const COLORS = ['var(--info)', 'var(--warn)', 'var(--accent)', 'var(--text-3)', '#9b59ff'];
+// Stable swatch palette for VLAN rows.
+const VLAN_COLORS = ['#4f9eff', '#00d97e', '#ffb020', '#8a8f9d', '#ffb17a', '#9b59ff'];
 
 export function NetworkPanel({ network, tunnel }: Props) {
   const [throughput, setThroughput] = useState<NetworkThroughput | null>(null);
@@ -36,12 +32,34 @@ export function NetworkPanel({ network, tunnel }: Props) {
   }, []);
 
   const errored = network && network.reachable === false;
-  const isps = network?.isp ?? '—';
+  const devices = network?.devices ?? [];
+  const vlans = network?.networks ?? [];
+  const totalClients = vlans.reduce((a, v) => a + v.clients, 0);
+  const publicIp = tunnel?.wan_ip ?? network?.wan_ip ?? null;
   const linkStr =
     network?.link_down_mbit && network?.link_up_mbit
-      ? `${Math.round(network.link_down_mbit)} / ${Math.round(network.link_up_mbit)} Mbit`
-      : '—';
-  const devices = network?.devices ?? [];
+      ? `${Math.round(network.link_down_mbit)} / ${Math.round(network.link_up_mbit)}`
+      : null;
+  const gatewayIp = devices.find((d) => d.is_gateway)?.ip ?? null;
+
+  if (errored) {
+    return (
+      <section className="network-section" aria-labelledby="network-heading">
+        <div className="dash-section-head" style={{ marginBottom: 12 }}>
+          <h2 id="network-heading">Netzwerk</h2>
+        </div>
+        <div className="grid-12">
+          <div className="col-12 card">
+            <div className="card-h">
+              <h3>UniFi unerreichbar</h3>
+              <span className="badge err"><Dot status="err" /> ERROR</span>
+            </div>
+            <div className="dim" style={{ fontSize: 13 }}>{network?.error ?? 'Konfiguration prüfen.'}</div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="network-section" aria-labelledby="network-heading">
@@ -58,148 +76,85 @@ export function NetworkPanel({ network, tunnel }: Props) {
         </div>
       </div>
 
-      {errored ? (
-        <div className="card">
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        {/* WAN · DDNS */}
+        <div className="card col-4">
           <div className="card-h">
-            <h3>UniFi unerreichbar</h3>
-            <span className="badge err">
-              <span className="dot err" /> ERROR
+            <h3>WAN · DDNS</h3>
+            <span className={`badge ${publicIp ? 'ok' : 'warn'}`}>
+              <Dot status={publicIp ? 'ok' : 'warn'} /> {publicIp ? 'SYNC' : 'KEINE IP'}
             </span>
           </div>
-          <div className="dim" style={{ fontSize: 13 }}>
-            {network?.error ?? 'Konfiguration prüfen.'}
+          <div className="kv-stack">
+            <div className="kv-row"><span className="kv-k">Public IP</span><span className="kv-v mono">{publicIp ?? '—'}</span></div>
+            <div className="kv-row"><span className="kv-k">ISP</span><span className="kv-v">{network?.isp ?? '—'}</span></div>
+            <div className="kv-row">
+              <span className="kv-k">Link</span>
+              {linkStr ? <Num value={linkStr} unit="Mbit" size="md" /> : <span className="kv-v mono">—</span>}
+            </div>
+            <div className="kv-row"><span className="kv-k">Gateway</span><span className="kv-v mono">{gatewayIp ?? '—'}</span></div>
           </div>
         </div>
-      ) : (
+
+        {/* WAN Throughput */}
+        <div className="card col-8">
+          <ThroughputChart
+            throughput={throughput}
+            liveDown={network?.throughput_down_mbit ?? 0}
+            liveUp={network?.throughput_up_mbit ?? 0}
+            authMode={network?.auth_mode ?? 'none'}
+          />
+        </div>
+      </div>
+
+      {devices.length > 0 && (
         <>
-          <div className="grid-12" style={{ marginBottom: 14 }}>
-            <div className="col-4 card">
-              <div className="card-h">
-                <h3>WAN · DDNS</h3>
-                <span className="badge ok">
-                  <span className="dot ok" /> {tunnel?.wan_ip ? 'SYNC' : '—'}
-                </span>
-              </div>
-              <div className="ov-rows">
-                <div className="ov-row">
-                  <span className="dim">Public IP</span>
-                  <span className="mono" style={{ fontSize: 13 }}>
-                    {tunnel?.wan_ip ?? network?.wan_ip ?? '—'}
-                  </span>
-                </div>
-                <div className="ov-row">
-                  <span className="dim">ISP</span>
-                  <span style={{ fontSize: 13 }}>{isps}</span>
-                </div>
-                <div className="ov-row">
-                  <span className="dim">Link</span>
-                  <span className="mono" style={{ fontSize: 13 }}>
-                    {linkStr}
-                  </span>
-                </div>
-                <div className="ov-row">
-                  <span className="dim">Tunnel</span>
-                  <span className="mono" style={{ fontSize: 12, color: 'var(--ok)' }}>
-                    {tunnel?.status ?? '—'}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="col-8 card">
-              <ThroughputChart
-                throughput={throughput}
-                liveDown={network?.throughput_down_mbit ?? 0}
-                liveUp={network?.throughput_up_mbit ?? 0}
-                authMode={network?.auth_mode ?? 'none'}
-              />
-            </div>
+          <div className="dash-section-head">
+            <h2>UniFi Devices <span className="count">· {devices.length} online</span></h2>
           </div>
-
-          {devices.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <div className="dash-section-head">
-                <h2>UniFi Devices <span className="count">· {devices.length} online</span></h2>
+          <div className="grid-12" style={{ marginBottom: 16 }}>
+            {devices.map((d) => (
+              <div key={d.id} className="card device-card col-6">
+                <DeviceCard device={d} />
               </div>
-              <div className="grid-12">
-                {devices.map((d) => (
-                  <div key={d.id} className="col-6 card device-card">
-                    <DeviceCard device={d} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="grid-12" style={{ marginBottom: 14 }}>
-            <div className="col-5 card">
-              <div className="card-h">
-                <h3>VLANs</h3>
-                <span className="dimmer mono" style={{ fontSize: 11 }}>
-                  {network?.networks?.length ?? 0}
-                </span>
-              </div>
-              <div className="vlan-list">
-                {(network?.networks ?? []).length === 0 ? (
-                  <div className="dimmer" style={{ fontSize: 12 }}>
-                    Keine VLANs konfiguriert.
-                  </div>
-                ) : (
-                  (network?.networks ?? []).map((n, i) => (
-                    <div key={`${n.name}-${n.vlan ?? i}`} className="vlan-row">
-                      <span
-                        className="vlan-swatch"
-                        style={{ background: COLORS[i % COLORS.length] }}
-                      />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{n.name}</div>
-                        <div className="mono dim" style={{ fontSize: 11 }}>
-                          VLAN {n.vlan ?? '—'}
-                        </div>
-                      </div>
-                      <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>
-                        {n.clients}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-            <div className="col-7 card flat">
-              <div className="card-h">
-                <h3>Top Clients</h3>
-                <span className="dimmer mono" style={{ fontSize: 11 }}>
-                  Daten nicht verfügbar
-                </span>
-              </div>
-              <div className="dimmer" style={{ fontSize: 12, lineHeight: 1.55 }}>
-                Die UniFi Integration API (v10.x) gibt keine pro-Client-Bandbreite zurück;
-                die Legacy-Cookie-API hat dasselbe Limit. Wired/Wireless-Summen sind in der
-                WAN-Card oben sichtbar.
-                <div className="mono" style={{ marginTop: 6, fontSize: 11 }}>
-                  WIRED {network?.clients_wired ?? 0} · WIRELESS {network?.clients_wireless ?? 0}{' '}
-                  · TOTAL {network?.clients_total ?? 0}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid-12">
-            <div className="col-12 card flat">
-              <div className="card-h">
-                <h3>Network Events</h3>
-                <span className="dimmer mono" style={{ fontSize: 11 }}>
-                  Daten nicht verfügbar
-                </span>
-              </div>
-              <div className="dimmer" style={{ fontSize: 12, lineHeight: 1.55 }}>
-                UniFi exponiert keine Verbindungs-Events über die REST-APIs.
-                Ein Event-Stream wäre nur über MQTT oder das Site-Manager-WebSocket möglich
-                und ist nicht Teil dieser Integration.
-              </div>
-            </div>
+            ))}
           </div>
         </>
       )}
+
+      <div className="grid-12">
+        <div className="card col-12">
+          <div className="card-h">
+            <h3>VLANs <span className="h3-sub">· {totalClients} Clients total</span></h3>
+            <span className="dimmer mono" style={{ fontSize: 11 }}>{vlans.length} Netze</span>
+          </div>
+          {vlans.length === 0 ? (
+            <div className="dim" style={{ fontSize: 12 }}>Keine VLANs konfiguriert.</div>
+          ) : (
+            <div className="vlan-list">
+              {vlans.map((v, i) => {
+                const color = VLAN_COLORS[i % VLAN_COLORS.length];
+                const pct = totalClients > 0 ? (v.clients / totalClients) * 100 : 0;
+                return (
+                  <div key={`${v.name}-${v.vlan ?? i}`} className="vlan-row">
+                    <span className="vlan-swatch" style={{ background: color }} />
+                    <span className="vlan-name">{v.name}</span>
+                    <span className="mono dimmer" style={{ fontSize: 11 }}>
+                      VLAN {v.vlan ?? '—'}
+                    </span>
+                    <div className="vlan-bar">
+                      <div style={{ width: `${pct}%`, background: color }} />
+                    </div>
+                    <span className="mono" style={{ fontSize: 13, fontWeight: 600, width: 28, textAlign: 'right' }}>
+                      {v.clients}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
@@ -216,97 +171,47 @@ function ThroughputChart({
   authMode: string;
 }) {
   const samples = throughput?.samples ?? [];
-  const w = 600;
-  const h = 110;
   const downs = samples.map((s) => s.down_mbit);
   const ups = samples.map((s) => s.up_mbit);
-  const max = Math.max(...downs, ...ups, liveDown, liveUp, 1) * 1.15;
-  const stepX = samples.length > 1 ? w / (samples.length - 1) : w;
-
-  const renderArea = (data: number[], color: string, fill: string) => {
-    if (data.length === 0) return null;
-    const pts: [number, number][] = data.map((v, i) => [
-      i * stepX,
-      h - (v / max) * (h - 8) - 4,
-    ]);
-    const path = pts
-      .map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
-      .join(' ');
-    const area = `${path} L${w},${h} L0,${h} Z`;
-    return (
-      <>
-        <path d={area} fill={fill} />
-        <path d={path} fill="none" stroke={color} strokeWidth="1.4" />
-      </>
-    );
-  };
-
   const noHistory = samples.length < 2;
   const apiKeyNoThroughput = authMode === 'api-key' && liveDown === 0 && liveUp === 0;
+  const curDown = downs.length ? downs[downs.length - 1] : liveDown;
+  const curUp = ups.length ? ups[ups.length - 1] : liveUp;
 
   return (
     <>
       <div className="card-h">
-        <h3>WAN Throughput · 1h</h3>
-        <div style={{ display: 'flex', gap: 14, fontSize: 11 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--info)' }} />
-            DOWN{' '}
-            <span className="mono" style={{ color: 'var(--text-1)', marginLeft: 4 }}>
-              {liveDown.toFixed(1)} Mbit/s
-            </span>
+        <h3>WAN Throughput <span className="h3-sub">letzte 60 min · 1 min Auflösung</span></h3>
+        <div className="throughput-legend">
+          <span className="item">
+            <span className="dash" style={{ background: 'var(--info)' }} />
+            <span className="dim">DOWN</span>
+            <span className="mono" style={{ color: 'var(--text-1)' }}>{curDown.toFixed(1)}</span>
+            <span className="dimmer">Mbit/s</span>
           </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--accent)' }} />
-            UP{' '}
-            <span className="mono" style={{ color: 'var(--text-1)', marginLeft: 4 }}>
-              {liveUp.toFixed(1)} Mbit/s
-            </span>
+          <span className="item">
+            <span className="dash" style={{ background: 'var(--accent)' }} />
+            <span className="dim">UP</span>
+            <span className="mono" style={{ color: 'var(--text-1)' }}>{curUp.toFixed(1)}</span>
+            <span className="dimmer">Mbit/s</span>
           </span>
         </div>
       </div>
       {apiKeyNoThroughput ? (
-        <div className="dimmer" style={{ fontSize: 12, lineHeight: 1.55 }}>
-          UniFi Integration API liefert keinen Live-Durchsatz (nur Legacy-Cookie-Auth tut das).
-          Daher kein Chart.
+        <div className="dim" style={{ fontSize: 12, lineHeight: 1.55, padding: '20px 0' }}>
+          Die UniFi Integration API liefert keinen Live-Durchsatz — nur die Legacy-Cookie-Auth tut das.
+          Daher kein Verlaufs-Chart.
         </div>
       ) : noHistory ? (
-        <div className="dimmer" style={{ fontSize: 12 }}>
-          Sammle Verlauf — Sampling-Loop alle 60 s.
+        <div className="dim" style={{ fontSize: 12, padding: '20px 0' }}>
+          Sammle Verlauf — Sampling-Loop läuft alle 60 s.
         </div>
       ) : (
         <>
-          <svg
-            viewBox={`0 0 ${w} ${h}`}
-            preserveAspectRatio="none"
-            style={{ width: '100%', height: 120, display: 'block' }}
-            aria-label="WAN Throughput Verlauf"
-          >
-            {[0.25, 0.5, 0.75].map((f) => (
-              <line
-                key={f}
-                x1="0"
-                x2={w}
-                y1={h * f}
-                y2={h * f}
-                stroke="var(--border)"
-                strokeWidth="1"
-                strokeDasharray="2 4"
-              />
-            ))}
-            {renderArea(downs, 'var(--info)', 'var(--info-soft)')}
-            {renderArea(ups, 'var(--accent)', 'var(--accent-soft)')}
-          </svg>
-          <div
-            className="dimmer mono"
-            style={{ fontSize: 11, marginTop: 6, display: 'flex', gap: 14 }}
-          >
-            <span>
-              peak ↓ <strong style={{ color: 'var(--text-1)' }}>{throughput?.peak_down_mbit ?? 0} Mbit/s</strong>
-            </span>
-            <span>
-              peak ↑ <strong style={{ color: 'var(--text-1)' }}>{throughput?.peak_up_mbit ?? 0} Mbit/s</strong>
-            </span>
+          <AreaChart series={downs} secondary={ups} color="var(--info)" secondaryColor="var(--accent)" height={140} />
+          <div className="throughput-foot">
+            <span>peak ↓ {throughput?.peak_down_mbit ?? 0} Mbit · ↑ {throughput?.peak_up_mbit ?? 0} Mbit</span>
+            <span>−60 min<span style={{ margin: '0 20px' }}>−30 min</span>jetzt</span>
           </div>
         </>
       )}
@@ -315,52 +220,73 @@ function ThroughputChart({
 }
 
 function DeviceCard({ device }: { device: UnifiDevice }) {
-  const status =
-    device.state === 'ONLINE' ? 'ok' : device.state === 'OFFLINE' ? 'err' : 'warn';
+  const status = device.state === 'ONLINE' ? 'ok' : device.state === 'OFFLINE' ? 'err' : 'warn';
+  const role = device.is_gateway ? 'Router · GW' : 'Access Point';
   return (
     <>
-      <div className="dev-head">
-        <Dot status={status} />
+      <div className="device-head">
+        <span className="device-icon" aria-hidden="true">
+          {device.is_gateway ? ICONS.router : ICONS.wifi}
+        </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>{device.name}</div>
-          <div className="mono dim" style={{ fontSize: 11 }}>
-            {device.model ?? '—'} · {device.ip ?? '—'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>{device.name}</span>
+            <span className={`badge ${status}`}><Dot status={status} /> {device.state}</span>
           </div>
-        </div>
-        {device.is_gateway && <span className="badge ok">GW</span>}
-        {device.firmware && (
-          <span className="badge" title={`Firmware ${device.firmware}`} style={{ fontSize: 9 }}>
-            {device.firmware}
+          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+            <span className="mono">{device.model ?? '—'}</span> · {role}
+            {device.ip && <> · <span className="mono">{device.ip}</span></>}
           </span>
+        </div>
+        {device.uptime_s > 0 && (
+          <span className="mono dimmer" style={{ fontSize: 11 }}>up {fmtUptime(device.uptime_s)}</span>
         )}
       </div>
-      <div className="dev-metrics">
+      <div className="device-metrics">
         <div className="dev-metric">
-          <span className="dim" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-            State
-          </span>
-          <span className="mono" style={{ fontSize: 12 }}>
-            {device.state}
-          </span>
+          <span className="dev-metric-label">CPU</span>
+          <div className="cell-bar" style={{ justifyContent: 'flex-start' }}>
+            <div className="bar" style={{ flex: 1 }}>
+              <div className="bar-fill" style={{ width: `${device.cpu_pct ?? 0}%`, background: 'var(--accent)' }} />
+            </div>
+            <span className="mono" style={{ fontSize: 11.5, width: 36, textAlign: 'right' }}>
+              {device.cpu_pct == null ? '—' : `${Math.round(device.cpu_pct)}%`}
+            </span>
+          </div>
         </div>
         <div className="dev-metric">
-          <span className="dim" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-            Clients
-          </span>
-          <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>
-            {device.clients}
-          </span>
+          <span className="dev-metric-label">RAM</span>
+          <div className="cell-bar" style={{ justifyContent: 'flex-start' }}>
+            <div className="bar" style={{ flex: 1 }}>
+              <div className="bar-fill" style={{ width: `${device.mem_pct ?? 0}%`, background: 'var(--accent)' }} />
+            </div>
+            <span className="mono" style={{ fontSize: 11.5, width: 36, textAlign: 'right' }}>
+              {device.mem_pct == null ? '—' : `${Math.round(device.mem_pct)}%`}
+            </span>
+          </div>
         </div>
-        <div className="dev-metric">
-          <span className="dim" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-            Role
-          </span>
-          <span className="mono" style={{ fontSize: 12 }}>
-            {device.is_gateway ? 'Gateway' : 'Device'}
-          </span>
-        </div>
+        {device.is_gateway && device.ports_total != null && device.ports_total > 0 ? (
+          <div className="dev-metric">
+            <span className="dev-metric-label">Ports</span>
+            <div className="port-grid">
+              {Array.from({ length: device.ports_total }).map((_, i) => (
+                <span key={i} className={`port ${i < (device.ports_used ?? 0) ? 'on' : ''}`} />
+              ))}
+              <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 8 }}>
+                {device.ports_used ?? 0}/{device.ports_total}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="dev-metric">
+            <span className="dev-metric-label">Clients</span>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+              <span className="mono" style={{ fontSize: 16, fontWeight: 600 }}>{device.clients}</span>
+              <span className="dimmer" style={{ fontSize: 11 }}>verbunden</span>
+            </span>
+          </div>
+        )}
       </div>
     </>
   );
 }
-
