@@ -273,6 +273,10 @@
   width: 100%;
 }
 .alert-row:hover { background: var(--surface-3); }
+.alert-row-static { cursor: default; }
+.alert-row-static:hover { background: var(--surface-1); }
+.alert-chevron { display: inline-flex; color: var(--text-4); }
+.alert-chevron svg { width: 14px; height: 14px; }
 .alert-row.crit { border-left-color: var(--err); }
 .alert-row.warn { border-left-color: var(--warn); }
 .alert-row.info { border-left-color: var(--info); }

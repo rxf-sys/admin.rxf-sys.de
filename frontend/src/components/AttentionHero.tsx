@@ -1,4 +1,4 @@
-import type { Guest, ServiceStatus, CertInfo, BackupSummary } from '../types';
+import type { BackupSummary, CertInfo, Guest, ServiceStatus, TunnelStatus } from '../types';
 import { ICONS, fmtTimeAgo } from './primitives';
 
 export interface Alert {
@@ -18,12 +18,13 @@ interface Props {
   services: ServiceStatus[];
   certs: CertInfo[];
   backups: BackupSummary | null;
+  tunnel: TunnelStatus | null;
   certWarnDays: number;
   onInspectService?: (id: string) => void;
   onInspectGuest?: (id: number) => void;
 }
 
-const HEALTH_WEIGHTS = { svc_err: 15, svc_warn: 6, ram_crit: 12, ram_warn: 5, cert_crit: 10, cert_warn: 4, backup_fail: 8 } as const;
+const HEALTH_WEIGHTS = { svc_err: 15, svc_warn: 6, ram_crit: 12, ram_warn: 5, cert_crit: 10, cert_warn: 4, backup_fail: 8, tunnel_down: 15 } as const;
 
 function deriveAlerts(p: Props): Alert[] {
   const out: Alert[] = [];
@@ -96,6 +97,13 @@ function deriveAlerts(p: Props): Alert[] {
   if (p.backups && !p.backups.reachable) {
     out.push({ id: 'backup-unreach', level: 'crit', target: 'PBS', sub: 'backup', msg: p.backups.error ?? 'Datastore nicht erreichbar', iso: null, actions: ['inspect'] });
   }
+  // Only a real outage counts — `reachable === false` means Cloudflare is
+  // simply not configured, which is not an alert-worthy condition.
+  if (p.tunnel && p.tunnel.reachable && p.tunnel.status === 'down') {
+    out.push({ id: 'tunnel-down', level: 'crit', target: 'Tunnel', sub: 'cloudflare', msg: 'Cloudflare-Tunnel offline', iso: null, actions: ['inspect'] });
+  } else if (p.tunnel && p.tunnel.reachable && p.tunnel.status === 'degraded') {
+    out.push({ id: 'tunnel-degraded', level: 'warn', target: 'Tunnel', sub: 'cloudflare', msg: 'Cloudflare-Tunnel degraded', iso: null, actions: ['inspect'] });
+  }
   // Order: crit before warn before info, then alphabetical.
   out.sort((a, b) => {
     const order = { crit: 0, warn: 1, info: 2 } as const;
@@ -105,7 +113,7 @@ function deriveAlerts(p: Props): Alert[] {
   return out;
 }
 
-function computeHealth(p: Props, alerts: Alert[]): number {
+function computeHealth(alerts: Alert[]): number {
   let penalty = 0;
   for (const a of alerts) {
     if (a.id.startsWith('svc-')) penalty += a.level === 'crit' ? HEALTH_WEIGHTS.svc_err : HEALTH_WEIGHTS.svc_warn;
@@ -113,9 +121,46 @@ function computeHealth(p: Props, alerts: Alert[]): number {
     else if (a.id.startsWith('cpu-')) penalty += HEALTH_WEIGHTS.ram_warn;
     else if (a.id.startsWith('cert-')) penalty += a.level === 'crit' ? HEALTH_WEIGHTS.cert_crit : HEALTH_WEIGHTS.cert_warn;
     else if (a.id.startsWith('backup-')) penalty += HEALTH_WEIGHTS.backup_fail;
+    else if (a.id.startsWith('tunnel-')) penalty += a.level === 'crit' ? HEALTH_WEIGHTS.tunnel_down : HEALTH_WEIGHTS.cert_warn;
   }
-  void p;
   return Math.max(0, 100 - penalty);
+}
+
+function AlertRow({ alert }: { alert: Alert }) {
+  const color = alert.level === 'crit' ? 'var(--err)' : alert.level === 'warn' ? 'var(--warn)' : 'var(--info)';
+  const icon = (
+    <span className="alert-icon" style={{ color }}>
+      {alert.level === 'info' ? ICONS.info : ICONS.warn}
+    </span>
+  );
+  const body = (
+    <>
+      {icon}
+      <span className="alert-target">
+        {alert.target}
+        <span className="alert-sub">{alert.sub}</span>
+      </span>
+      <span className="alert-msg">{alert.msg}</span>
+      <span className="alert-time">{fmtTimeAgo(alert.iso)}</span>
+      <span className="alert-actions">
+        {alert.onClick && <span className="alert-chevron" aria-hidden="true">{ICONS.chevron}</span>}
+      </span>
+    </>
+  );
+  // Only render an interactive control when there's somewhere to go — a
+  // non-actionable alert is a plain row, not a button that does nothing.
+  if (alert.onClick) {
+    return (
+      <button type="button" className={`alert-row ${alert.level}`} onClick={alert.onClick} role="listitem">
+        {body}
+      </button>
+    );
+  }
+  return (
+    <div className={`alert-row alert-row-static ${alert.level}`} role="listitem">
+      {body}
+    </div>
+  );
 }
 
 export function AttentionHero(p: Props) {
@@ -123,7 +168,7 @@ export function AttentionHero(p: Props) {
   const crit = alerts.filter((a) => a.level === 'crit');
   const warn = alerts.filter((a) => a.level === 'warn');
   const visible = [...crit, ...warn].slice(0, 4);
-  const health = computeHealth(p, alerts);
+  const health = computeHealth(alerts);
   const scoreClass = health < 70 ? 'err' : health < 90 ? 'warn' : '';
   const desc = crit.length > 0
     ? `${crit.length} Service${crit.length === 1 ? '' : 's'} benötigen sofortige Aufmerksamkeit.${visible[0] ? ` Beginne mit ${visible[0].target}.` : ''}`
@@ -163,32 +208,9 @@ export function AttentionHero(p: Props) {
         </div>
         <div className="alerts-list" role="list">
           {visible.length === 0 ? (
-            <div className="empty">Keine offenen Alerts — wir machen weiter, ihr macht weiter.</div>
+            <div className="empty">Keine offenen Alerts — alle Systeme nominal.</div>
           ) : (
-            visible.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                className={`alert-row ${a.level}`}
-                onClick={a.onClick}
-                role="listitem"
-              >
-                <span className="alert-icon" style={{ color: a.level === 'crit' ? 'var(--err)' : a.level === 'warn' ? 'var(--warn)' : 'var(--info)' }}>
-                  {a.level === 'crit' ? ICONS.warn : a.level === 'warn' ? ICONS.warn : ICONS.info}
-                </span>
-                <span className="alert-target">
-                  {a.target}
-                  <span className="alert-sub">{a.sub}</span>
-                </span>
-                <span className="alert-msg">{a.msg}</span>
-                <span className="alert-time">{fmtTimeAgo(a.iso)}</span>
-                <span className="alert-actions">
-                  {a.actions.includes('inspect') && <span className="btn sm ghost" aria-hidden="true">Inspect</span>}
-                  {a.actions.includes('restart') && <span className="btn sm danger" aria-hidden="true">Restart</span>}
-                  {a.actions.includes('renew') && <span className="btn sm" aria-hidden="true">Renew</span>}
-                </span>
-              </button>
-            ))
+            visible.map((a) => <AlertRow key={a.id} alert={a} />)
           )}
         </div>
       </div>

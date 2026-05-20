@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { api } from '../api/client';
-import type { AccessSessions, CertsSnapshot, ServiceStatus, TunnelStatus } from '../types';
+import { usePoll } from '../hooks/usePoll';
+import type { CertsSnapshot, ServiceStatus, TunnelStatus } from '../types';
 import { Dot, ICONS, Num, fmtTimeAgo } from './primitives';
 
 interface Props {
@@ -9,16 +10,12 @@ interface Props {
   services: ServiceStatus[];
   zoneName: string;
   onSelectService?: (id: string) => void;
+  /** Poll interval in ms; 0 pauses (mirrors the global pause switch). */
+  pollMs: number;
 }
 
-export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectService }: Props) {
-  const [sessions, setSessions] = useState<AccessSessions | null>(null);
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    api.cfAccessSessions(24, ctrl.signal).then(setSessions).catch(() => {});
-    return () => ctrl.abort();
-  }, []);
+export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectService, pollMs }: Props) {
+  const sessions = usePoll((sig) => api.cfAccessSessions(24, sig), pollMs).data;
 
   const dnsStatuses = useMemo(() => {
     const byHost = new Map<string, ServiceStatus>();
@@ -34,6 +31,12 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
 
   const tunnelStatus =
     tunnel?.status === 'healthy' ? 'ok' : tunnel?.status === 'degraded' ? 'warn' : tunnel?.status === 'down' ? 'err' : 'idle';
+
+  // Distinct accounts seen across the 24h access-log window.
+  const uniqueUsers = useMemo(
+    () => new Set((sessions?.items ?? []).map((i) => i.email).filter(Boolean)).size,
+    [sessions],
+  );
 
   return (
     <section className="cloudflare-section" aria-labelledby="cloudflare-heading">
@@ -112,7 +115,9 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
               </div>
               <div className="kv-row">
                 <span className="kv-k">Policy</span>
-                <span className="kv-v">Email-OTP · {sessions.items[0]?.email ? '1 user' : '—'}</span>
+                <span className="kv-v">
+                  Email-OTP{uniqueUsers > 0 && ` · ${uniqueUsers} ${uniqueUsers === 1 ? 'user' : 'users'}`}
+                </span>
               </div>
               <div className="kv-row">
                 <span className="kv-k">Letzter Login</span>
@@ -139,9 +144,13 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
           </div>
           {!certs ? (
             <div className="dim" style={{ fontSize: 12 }}>Lade…</div>
+          ) : certs.reachable === false ? (
+            <div className="dim" style={{ fontSize: 12, color: 'var(--err)' }}>
+              {certs.error ?? 'Cloudflare-API nicht erreichbar.'}
+            </div>
           ) : certs.certs.length === 0 ? (
             <div className="dim mono" style={{ fontSize: 11 }}>
-              Keine Zertifikate gefunden — Cloudflare-Zone-ID &amp; API-Token prüfen.
+              Keine Zertifikate in der Zone gefunden.
             </div>
           ) : (
             <table className="mini-table">
@@ -149,7 +158,6 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
                 <tr>
                   <th>Domain</th>
                   <th>Issuer</th>
-                  <th>Auto-renew</th>
                   <th style={{ textAlign: 'right' }}>Days left</th>
                 </tr>
               </thead>
@@ -160,11 +168,6 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
                     <tr key={`${c.domain}-${c.issuer}`}>
                       <td className="mono" style={{ fontSize: 12.5 }}>{c.domain}</td>
                       <td className="dim" style={{ fontSize: 12 }}>{c.issuer}</td>
-                      <td className="dim" style={{ fontSize: 11 }}>
-                        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', color: 'var(--ok)' }}>
-                          {ICONS.check} on
-                        </span>
-                      </td>
                       <td style={{ textAlign: 'right' }}>
                         <span className="mono" style={{ color, fontWeight: 600 }}>{c.days_left}d</span>
                       </td>
@@ -182,9 +185,10 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
             <h3>DNS Records <span className="h3-sub">· {dnsStatuses.length} hostnames</span></h3>
             <a
               className="btn sm"
-              href={`https://dash.cloudflare.com/?to=/:account/${zoneName}/dns`}
+              href="https://dash.cloudflare.com/"
               target="_blank"
               rel="noreferrer"
+              title={`DNS-Zone ${zoneName} im Cloudflare-Dashboard`}
             >
               {ICONS.ext} Manage on Cloudflare
             </a>

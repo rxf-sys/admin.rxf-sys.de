@@ -367,21 +367,29 @@ async def restart_guest(settings: Settings, vmid: int, gtype: str) -> bool:
     the reboot call alone just means the task was queued — for VMs/CTs that
     fail to shut down cleanly the actual reboot can still error out, and we
     want the dashboard's success toast to reflect that.
+
+    Any transport-level failure (PVE unreachable, timeout) is swallowed and
+    reported as ``False`` so the API never 500s on a restart request.
     """
     path_type = "lxc" if gtype.lower() in ("lxc", "ct") else "qemu"
-    async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=10.0) as client:
-        r = await client.post(
-            f"{_base_url(settings)}/nodes/{settings.proxmox_node}/{path_type}/{vmid}/status/reboot",
-            headers=_auth_header(settings),
-        )
-        if r.status_code not in (200, 202):
-            return False
-        # PVE returns the UPID as the `data` field of a plain JSON envelope.
-        try:
-            upid = r.json().get("data")
-        except ValueError:
-            upid = None
-        if not isinstance(upid, str) or not upid.startswith("UPID:"):
-            # No UPID — fall back to the legacy "accepted == success" semantics.
-            return True
-        return await _wait_for_task(client, settings, upid)
+    try:
+        async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=10.0) as client:
+            r = await client.post(
+                f"{_base_url(settings)}/nodes/{settings.proxmox_node}/{path_type}/{vmid}/status/reboot",
+                headers=_auth_header(settings),
+            )
+            if r.status_code not in (200, 202):
+                log.info("proxmox.restart_rejected", vmid=vmid, status=r.status_code)
+                return False
+            # PVE returns the UPID as the `data` field of a plain JSON envelope.
+            try:
+                upid = r.json().get("data")
+            except ValueError:
+                upid = None
+            if not isinstance(upid, str) or not upid.startswith("UPID:"):
+                # No UPID — fall back to the legacy "accepted == success" semantics.
+                return True
+            return await _wait_for_task(client, settings, upid)
+    except httpx.HTTPError as e:
+        log.warning("proxmox.restart_failed", vmid=vmid, error=str(e), error_type=type(e).__name__)
+        return False

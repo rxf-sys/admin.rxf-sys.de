@@ -1,35 +1,20 @@
-import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { usePoll } from '../hooks/usePoll';
 import type { NetworkSnapshot, NetworkThroughput, TunnelStatus, UnifiDevice } from '../types';
 import { AreaChart, Dot, ICONS, Num, fmtUptime } from './primitives';
 
 interface Props {
   network: NetworkSnapshot | null;
   tunnel: TunnelStatus | null;
+  /** Poll interval in ms; 0 pauses (mirrors the global pause switch). */
+  pollMs: number;
 }
 
 // Stable swatch palette for VLAN rows.
 const VLAN_COLORS = ['#4f9eff', '#00d97e', '#ffb020', '#8a8f9d', '#ffb17a', '#9b59ff'];
 
-export function NetworkPanel({ network, tunnel }: Props) {
-  const [throughput, setThroughput] = useState<NetworkThroughput | null>(null);
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    const load = () =>
-      api
-        .networkThroughput(1, ctrl.signal)
-        .then(setThroughput)
-        .catch(() => {
-          /* keep stale data on error */
-        });
-    void load();
-    const t = setInterval(load, 30_000);
-    return () => {
-      ctrl.abort();
-      clearInterval(t);
-    };
-  }, []);
+export function NetworkPanel({ network, tunnel, pollMs }: Props) {
+  const throughput = usePoll((sig) => api.networkThroughput(1, sig), pollMs).data;
 
   const errored = network && network.reachable === false;
   const devices = network?.devices ?? [];

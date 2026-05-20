@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { Guest, GuestTask, ProbeSample, ServiceHistory, ServiceStatus } from '../types';
 import { Dot, ICONS, Num, Sparkline, fmtTimeAgo, fmtUptime } from './primitives';
@@ -28,6 +28,9 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
   const [historyHours, setHistoryHours] = useState<number>(24);
   const [events, setEvents] = useState<AuditEvent[]>([]);
 
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -36,6 +39,18 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // Focus management: on open, remember the trigger and move focus into the
+  // drawer; on close, restore focus to where it was.
+  useEffect(() => {
+    if (open) {
+      restoreFocusRef.current = document.activeElement as HTMLElement | null;
+      // Wait for the slide-in transition to start before focusing.
+      const t = setTimeout(() => closeBtnRef.current?.focus(), 60);
+      return () => clearTimeout(t);
+    }
+    restoreFocusRef.current?.focus?.();
+  }, [open]);
 
   // Heuristic: find the guest most likely backing this service.
   const guest = svc
@@ -130,14 +145,20 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
   return (
     <>
       <div className={`drawer-backdrop ${open ? 'open' : ''}`} onClick={onClose} />
-      <aside className={`drawer ${open ? 'open' : ''}`} aria-hidden={!open}>
+      <aside
+        className={`drawer ${open ? 'open' : ''}`}
+        aria-hidden={!open}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="service-drawer-title"
+      >
         <div className="drawer-h">
           <span className="svc-icon" style={{ width: 36, height: 36 }}>
             {ICONS[svc.icon] ?? ICONS.cloud}
           </span>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h2 style={{ margin: 0, fontSize: 20 }}>{svc.name}</h2>
+              <h2 id="service-drawer-title" style={{ margin: 0, fontSize: 20 }}>{svc.name}</h2>
               <Dot status={svc.status} />
               <span className={`badge ${svc.status}`}>{badgeLabel(svc.status)}</span>
             </div>
@@ -150,7 +171,14 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
               {svc.sub} {ICONS.external}
             </a>
           </div>
-          <button className="btn icon" onClick={onClose} title="Close" type="button">
+          <button
+            ref={closeBtnRef}
+            className="btn icon"
+            onClick={onClose}
+            title="Schließen"
+            aria-label="Drawer schließen"
+            type="button"
+          >
             {ICONS.close}
           </button>
         </div>

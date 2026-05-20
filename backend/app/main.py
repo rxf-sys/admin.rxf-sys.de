@@ -76,9 +76,10 @@ async def _gather_notify_snapshot() -> dict:
             if not isinstance(backup_summary, BaseException)
             else None
         ),
+        # fetch_certs returns a (certs, error) tuple; unwrap the list half.
         "certs": [
             {"domain": c.domain, "days_left": c.days_left}
-            for c in (certs_list if isinstance(certs_list, list) else [])
+            for c in (certs_list[0] if isinstance(certs_list, tuple) else [])
         ],
     }
 

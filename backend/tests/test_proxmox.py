@@ -294,3 +294,17 @@ async def test_restart_guest_lxc_without_upid_falls_back_to_http_status(settings
     ok = await proxmox.restart_guest(settings, 101, "lxc")
 
     assert ok is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_restart_guest_returns_false_when_pve_unreachable(settings):
+    """A transport error must degrade to False, not bubble up as a 500."""
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.post(f"{base}/nodes/{settings.proxmox_node}/lxc/101/status/reboot").mock(
+        side_effect=httpx.ConnectError("connection refused")
+    )
+
+    ok = await proxmox.restart_guest(settings, 101, "lxc")
+
+    assert ok is False

@@ -319,7 +319,7 @@ export function SettingsPage({
             <SectionHead title="About" />
             <div className="kv-stack">
               <div className="kv-row"><span className="kv-k">Version</span><span className="kv-v mono">{appVersion ?? 'dev'}</span></div>
-              <div className="kv-row"><span className="kv-k">Backend</span><span className="kv-v mono">FastAPI · Python 3.12</span></div>
+              <div className="kv-row"><span className="kv-k">Backend</span><span className="kv-v mono">FastAPI · Python 3.11+</span></div>
               <div className="kv-row"><span className="kv-k">Frontend</span><span className="kv-v mono">React 19 · Vite 8 · TypeScript 6</span></div>
               <div className="kv-row"><span className="kv-k">OpenAPI</span><a className="kv-v mono" style={{ color: 'var(--accent)' }} href="/api/docs" target="_blank" rel="noreferrer">/api/docs</a></div>
               <div className="kv-row"><span className="kv-k">Repository</span><a className="kv-v mono" style={{ color: 'var(--accent)' }} href="https://github.com/rxf-sys/admin.rxf-sys.de" target="_blank" rel="noreferrer">github.com/rxf-sys/admin.rxf-sys.de</a></div>

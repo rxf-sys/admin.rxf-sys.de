@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { usePoll } from '../hooks/usePoll';
 import { ICONS, fmtTimeAgo } from './primitives';
 
 type Event = Record<string, unknown> & { ts: number; event: string };
@@ -9,6 +9,13 @@ function level(event: string): 'ok' | 'warn' | 'err' | 'info' {
   if (event.endsWith('.warn') || event.includes('.degraded')) return 'warn';
   if (event.endsWith('.result') || event.endsWith('.success') || event.endsWith('.recovered')) return 'ok';
   return 'info';
+}
+
+/** Audit timestamps are epoch seconds; guard against a missing/bad value. */
+function eventIso(ts: unknown): string | null {
+  if (typeof ts !== 'number' || !Number.isFinite(ts)) return null;
+  const d = new Date(ts * 1000);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 function describe(e: Event): { strong?: string; tag?: string; text: string } {
@@ -22,39 +29,23 @@ function describe(e: Event): { strong?: string; tag?: string; text: string } {
   return { tag, text: action };
 }
 
-export function AuditLog() {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+interface Props {
+  /** Poll interval in ms; 0 pauses (mirrors the global pause switch). */
+  pollMs: number;
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const r = await api.audit();
-        if (cancelled) return;
-        setEvents(r.events as Event[]);
-        setError(false);
-      } catch {
-        if (!cancelled) setError(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    const t = setInterval(load, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, []);
+export function AuditLog({ pollMs }: Props) {
+  const poll = usePoll((sig) => api.audit(sig), pollMs);
+  const events = (poll.data?.events ?? []) as Event[];
+  const loading = poll.loading;
+  const error = poll.error;
 
   return (
     <div className="activity-card">
       <div className="card-h">
         <h3>Activity <span className="h3-sub">letzte 24h</span></h3>
         <span className="dimmer mono" style={{ fontSize: 11 }}>
-          {error ? 'Fehler beim Laden' : 'auto · 30s'}
+          {error ? 'Fehler beim Laden' : pollMs > 0 ? 'auto' : 'pausiert'}
         </span>
       </div>
       <div className="activity-list">
@@ -76,7 +67,7 @@ export function AuditLog() {
                   {d.tag && <span className="a-tag">{d.tag}</span>}
                   {d.text}
                 </span>
-                <span className="a-time">{fmtTimeAgo(new Date((e.ts as number) * 1000).toISOString())}</span>
+                <span className="a-time">{fmtTimeAgo(eventIso(e.ts))}</span>
               </div>
             );
           })
