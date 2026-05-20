@@ -133,6 +133,14 @@ class UnifiDevice(BaseModel):
     firmware: str | None = None
     is_gateway: bool = False
     clients: int = 0
+    # Per-device statistics — populated best-effort from the Integration API's
+    # /devices/{id} detail endpoint. ``None`` when the controller doesn't
+    # expose them for this device.
+    cpu_pct: float | None = None
+    mem_pct: float | None = None
+    uptime_s: int = 0
+    ports_used: int | None = None
+    ports_total: int | None = None
 
 
 class NetworkSnapshot(BaseModel):

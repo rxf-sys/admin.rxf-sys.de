@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
-import type {
-  AccessSessions,
-  CertsSnapshot,
-  ServiceStatus,
-  TunnelStatus,
-} from '../types';
-import { Dot, ICONS, fmtTimeAgo } from './primitives';
+import type { AccessSessions, CertsSnapshot, ServiceStatus, TunnelStatus } from '../types';
+import { Dot, ICONS, Num, fmtTimeAgo } from './primitives';
 
 interface Props {
   tunnel: TunnelStatus | null;
@@ -16,28 +11,15 @@ interface Props {
   onSelectService?: (id: string) => void;
 }
 
-export function CloudflareSection({
-  tunnel,
-  certs,
-  services,
-  zoneName,
-  onSelectService,
-}: Props) {
+export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectService }: Props) {
   const [sessions, setSessions] = useState<AccessSessions | null>(null);
 
   useEffect(() => {
     const ctrl = new AbortController();
-    api
-      .cfAccessSessions(24, ctrl.signal)
-      .then(setSessions)
-      .catch(() => {
-        /* leave null */
-      });
+    api.cfAccessSessions(24, ctrl.signal).then(setSessions).catch(() => {});
     return () => ctrl.abort();
   }, []);
 
-  // DNS-Record-Status: cross-reference each DNS hostname with the matching
-  // service probe so the dot mirrors the Services-Grid for the same host.
   const dnsStatuses = useMemo(() => {
     const byHost = new Map<string, ServiceStatus>();
     services.forEach((s) => byHost.set(s.sub, s));
@@ -50,85 +32,71 @@ export function CloudflareSection({
     });
   }, [certs, services]);
 
+  const tunnelStatus =
+    tunnel?.status === 'healthy' ? 'ok' : tunnel?.status === 'degraded' ? 'warn' : tunnel?.status === 'down' ? 'err' : 'idle';
+
   return (
     <section className="cloudflare-section" aria-labelledby="cloudflare-heading">
       <div className="dash-section-head" style={{ marginBottom: 12 }}>
         <h2 id="cloudflare-heading">Cloudflare</h2>
       </div>
 
-      <div className="grid-12" style={{ marginBottom: 14 }}>
-        <div className="col-5 card">
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        {/* Tunnel */}
+        <div className="card col-5">
           <div className="card-h">
             <h3>Cloudflare Tunnel</h3>
-            <span
-              className={`badge ${
-                tunnel?.status === 'healthy'
-                  ? 'ok'
-                  : tunnel?.status === 'degraded'
-                    ? 'warn'
-                    : tunnel?.status === 'down'
-                      ? 'err'
-                      : ''
-              }`}
-            >
-              {tunnel?.status?.toUpperCase() ?? '—'}
+            <span className={`badge ${tunnelStatus}`}>
+              <Dot status={tunnelStatus} /> {tunnel?.status?.toUpperCase() ?? 'UNKNOWN'}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
-            <span
-              className="mono"
-              style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-1)' }}
-            >
-              {tunnel?.connections ?? 0}
-            </span>
-            <span className="dim" style={{ fontSize: 12 }}>
-              aktive Verbindung{tunnel?.connections === 1 ? '' : 'en'}
+          <div style={{ marginBottom: 14 }}>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              {tunnel?.name ?? '—'}
             </span>
           </div>
-          <div className="ov-rows">
-            <div className="ov-row">
-              <span className="dim">Tunnel-ID</span>
-              <span className="mono" style={{ fontSize: 11 }} title={tunnel?.id ?? ''}>
-                {tunnel?.id ? `${tunnel.id.slice(0, 12)}…` : '—'}
+          <div className="kv-stack">
+            <div className="kv-row">
+              <span className="kv-k">Connections</span>
+              <Num value={tunnel?.connections ?? 0} unit="active" size="md" />
+            </div>
+            <div className="kv-row">
+              <span className="kv-k">Edge regions</span>
+              <span className="kv-v mono" style={{ fontSize: 12 }}>
+                {tunnel?.regions?.length ? tunnel.regions.join(' · ') : '—'}
               </span>
             </div>
-            <div className="ov-row">
-              <span className="dim">Edge regions</span>
-              <span className="mono" style={{ fontSize: 12 }}>
-                {tunnel?.regions?.length ? tunnel.regions.join(', ') : '—'}
-              </span>
+            <div className="kv-row">
+              <span className="kv-k">WAN-IP</span>
+              <span className="kv-v mono">{tunnel?.wan_ip ?? '—'}</span>
             </div>
-            <div className="ov-row">
-              <span className="dim">WAN IP</span>
-              <span className="mono" style={{ fontSize: 12 }}>
-                {tunnel?.wan_ip ?? '—'}
-              </span>
+            <div className="kv-row">
+              <span className="kv-k">cloudflared</span>
+              <span className="kv-v mono">{tunnel?.cloudflared_version ?? '—'}</span>
             </div>
-            <div className="ov-row">
-              <span className="dim">cloudflared</span>
-              <span className="mono" style={{ fontSize: 12 }}>
-                {tunnel?.cloudflared_version ?? '—'}
+            <div className="kv-row">
+              <span className="kv-k">Tunnel-ID</span>
+              <span className="kv-v mono" style={{ fontSize: 11 }} title={tunnel?.id ?? ''}>
+                {tunnel?.id ? `${tunnel.id.slice(0, 16)}…` : '—'}
               </span>
             </div>
           </div>
         </div>
 
-        <div className="col-7 card">
+        {/* Access */}
+        <div className="card col-7">
           <div className="card-h">
-            <h3>Cloudflare Access</h3>
-            <span
-              className={`badge ${sessions?.reachable === false ? 'warn' : 'ok'}`}
-            >
-              {sessions?.reachable === false ? 'NO ACCESS-LOG' : 'AUDIT OK'}
+            <h3>Cloudflare Access <span className="h3-sub">· Zero Trust Application</span></h3>
+            <span className={`badge ${sessions?.reachable === false ? 'warn' : 'info'}`}>
+              <Dot status={sessions?.reachable === false ? 'warn' : 'ok'} />
+              {sessions?.reachable === false ? 'NO ACCESS-LOG' : 'EMAIL OTP'}
             </span>
           </div>
           {sessions === null ? (
-            <div className="dimmer" style={{ fontSize: 12 }}>
-              Lade Access-Sessions…
-            </div>
+            <div className="dim" style={{ fontSize: 12 }}>Lade Access-Sessions…</div>
           ) : !sessions.reachable ? (
             <>
-              <div className="dimmer" style={{ fontSize: 12, lineHeight: 1.55 }}>
+              <div className="dim" style={{ fontSize: 12, lineHeight: 1.55 }}>
                 {sessions.error ?? 'Access-Audit-Log nicht erreichbar.'}
               </div>
               <div className="dimmer" style={{ fontSize: 11, marginTop: 8 }}>
@@ -137,101 +105,68 @@ export function CloudflareSection({
               </div>
             </>
           ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
-                <span
-                  className="mono"
-                  style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-1)' }}
-                >
-                  {sessions.sessions_24h}
-                </span>
-                <span className="dim" style={{ fontSize: 12 }}>
-                  Sessions · 24h
-                </span>
+            <div className="kv-stack">
+              <div className="kv-row">
+                <span className="kv-k">App</span>
+                <span className="kv-v mono">{window.location.hostname}</span>
               </div>
-              <div className="ov-rows">
-                <div className="ov-row">
-                  <span className="dim">Letzter Login</span>
-                  <span className="mono" style={{ fontSize: 12 }}>
-                    {sessions.last_login_iso ? fmtTimeAgo(sessions.last_login_iso) : '—'}
-                  </span>
-                </div>
-                <div className="ov-row">
-                  <span className="dim">Letzter Benutzer</span>
-                  <span className="mono" style={{ fontSize: 12 }}>
-                    {sessions.items[0]?.email ?? '—'}
-                  </span>
-                </div>
-                <div className="ov-row">
-                  <span className="dim">Letzte IP</span>
-                  <span className="mono" style={{ fontSize: 12 }}>
-                    {sessions.items[0]?.ip ?? '—'} {sessions.items[0]?.country ? `· ${sessions.items[0].country}` : ''}
-                  </span>
-                </div>
+              <div className="kv-row">
+                <span className="kv-k">Policy</span>
+                <span className="kv-v">Email-OTP · {sessions.items[0]?.email ? '1 user' : '—'}</span>
               </div>
-            </>
+              <div className="kv-row">
+                <span className="kv-k">Letzter Login</span>
+                <span className="kv-v mono">{sessions.last_login_iso ? fmtTimeAgo(sessions.last_login_iso) : '—'}</span>
+              </div>
+              <div className="kv-row">
+                <span className="kv-k">Letzter Benutzer</span>
+                <span className="kv-v mono" style={{ fontSize: 12 }}>{sessions.items[0]?.email ?? '—'}</span>
+              </div>
+              <div className="kv-row">
+                <span className="kv-k">Sessions · 24h</span>
+                <Num value={sessions.sessions_24h} size="md" />
+              </div>
+            </div>
           )}
         </div>
       </div>
 
       <div className="grid-12">
-        <div className="col-6 card">
+        {/* SSL certs */}
+        <div className="card col-6">
           <div className="card-h">
-            <h3>SSL Certs</h3>
-            <span className="dimmer mono" style={{ fontSize: 11 }}>
-              Cloudflare Edge · Zone {zoneName}
-            </span>
+            <h3>SSL Certs <span className="h3-sub">· Cloudflare Edge + Origin</span></h3>
           </div>
           {!certs ? (
-            <div className="dimmer" style={{ fontSize: 12 }}>
-              Lade…
-            </div>
+            <div className="dim" style={{ fontSize: 12 }}>Lade…</div>
           ) : certs.certs.length === 0 ? (
-            <div className="dimmer mono" style={{ fontSize: 11 }}>
-              Keine Zertifikate gefunden — Cloudflare-Zone-ID & API-Token prüfen.
+            <div className="dim mono" style={{ fontSize: 11 }}>
+              Keine Zertifikate gefunden — Cloudflare-Zone-ID &amp; API-Token prüfen.
             </div>
           ) : (
-            <table className="cert-table">
+            <table className="mini-table">
               <thead>
                 <tr>
                   <th>Domain</th>
                   <th>Issuer</th>
-                  <th style={{ textAlign: 'center' }}>Auto</th>
+                  <th>Auto-renew</th>
                   <th style={{ textAlign: 'right' }}>Days left</th>
                 </tr>
               </thead>
               <tbody>
                 {certs.certs.map((c) => {
-                  const color =
-                    c.days_left < 14
-                      ? 'var(--err)'
-                      : c.days_left < 30
-                        ? 'var(--warn)'
-                        : 'var(--ok)';
-                  // Cloudflare Edge certs are always auto-renewed; surface the
-                  // checkmark inline so the column carries weight visually.
+                  const color = c.days_left < 14 ? 'var(--err)' : c.days_left < 30 ? 'var(--warn)' : 'var(--ok)';
                   return (
                     <tr key={`${c.domain}-${c.issuer}`}>
-                      <td className="mono" style={{ fontSize: 13 }}>
-                        <a
-                          className="drawer-link"
-                          href={`https://dash.cloudflare.com/?to=/:account/${zoneName}/ssl-tls/edge-certificates`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {c.domain}
-                        </a>
-                      </td>
-                      <td className="dim" style={{ fontSize: 12 }}>
-                        {c.issuer}
-                      </td>
-                      <td style={{ textAlign: 'center', color: 'var(--ok)' }}>
-                        {ICONS.check}
+                      <td className="mono" style={{ fontSize: 12.5 }}>{c.domain}</td>
+                      <td className="dim" style={{ fontSize: 12 }}>{c.issuer}</td>
+                      <td className="dim" style={{ fontSize: 11 }}>
+                        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', color: 'var(--ok)' }}>
+                          {ICONS.check} on
+                        </span>
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <span className="mono" style={{ color, fontWeight: 600 }}>
-                          {c.days_left}d
-                        </span>
+                        <span className="mono" style={{ color, fontWeight: 600 }}>{c.days_left}d</span>
                       </td>
                     </tr>
                   );
@@ -241,24 +176,28 @@ export function CloudflareSection({
           )}
         </div>
 
-        <div className="col-6 card">
+        {/* DNS records */}
+        <div className="card col-6">
           <div className="card-h">
-            <h3>DNS Records</h3>
-            <span className="dimmer mono" style={{ fontSize: 11 }}>
-              {dnsStatuses.length} Records · CNAME → cfargotunnel
-            </span>
+            <h3>DNS Records <span className="h3-sub">· {dnsStatuses.length} hostnames</span></h3>
+            <a
+              className="btn sm"
+              href={`https://dash.cloudflare.com/?to=/:account/${zoneName}/dns`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {ICONS.ext} Manage on Cloudflare
+            </a>
           </div>
           {dnsStatuses.length === 0 ? (
-            <div className="dimmer mono" style={{ fontSize: 11 }}>
+            <div className="dim mono" style={{ fontSize: 11 }}>
               Keine DNS-Records — Tunnel-ID konfigurieren.
             </div>
           ) : (
             <div className="dns-list">
               {dnsStatuses.map((r) => {
                 const clickable = !!(onSelectService && r.svc);
-                const onRowClick = clickable
-                  ? () => onSelectService!(r.svc!.id)
-                  : undefined;
+                const onRowClick = clickable ? () => onSelectService!(r.svc!.id) : undefined;
                 return (
                   <div
                     key={r.name}
@@ -276,28 +215,16 @@ export function CloudflareSection({
                           }
                         : undefined
                     }
-                    style={onRowClick ? { cursor: 'pointer' } : undefined}
-                    aria-label={
-                      onRowClick ? `Service-Details für ${r.name} öffnen` : undefined
-                    }
+                    aria-label={onRowClick ? `Service-Details für ${r.name} öffnen` : undefined}
                   >
                     <Dot status={r.status} />
-                    <span className="mono" style={{ fontSize: 12, flex: 1, minWidth: 0 }}>
-                      {r.name}
-                    </span>
-                    <span
-                      className="type-pill"
-                      style={{ background: 'var(--surface-3)', color: 'var(--text-3)' }}
-                    >
-                      {r.type}
-                    </span>
-                    <span className="mono dim" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
+                    <span className="mono" style={{ fontSize: 12.5, flex: 1, minWidth: 0 }}>{r.name}</span>
+                    <span className="type-pill type-lxc" style={{ fontSize: 9 }}>{r.type}</span>
+                    <span className="mono dimmer" style={{ fontSize: 10.5, whiteSpace: 'nowrap' }}>
                       → {r.content.endsWith('cfargotunnel.com') ? 'cfargotunnel.com' : r.content}
                     </span>
                     {r.svc?.ext && r.svc?.internal && (
-                      <span className="badge ok" style={{ fontSize: 9, padding: '1px 6px' }}>
-                        PROXIED
-                      </span>
+                      <span className="badge info" style={{ fontSize: 9, padding: '1px 6px' }}>PROXIED</span>
                     )}
                   </div>
                 );

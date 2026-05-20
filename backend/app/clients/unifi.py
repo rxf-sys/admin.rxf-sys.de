@@ -140,6 +140,83 @@ def _unwrap(body: dict | list | None) -> list:
     return []
 
 
+def _num(value: object) -> float | None:
+    """Coerce an API value to a float, tolerating strings and None."""
+    if value is None:
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _device_stats(detail: dict) -> dict[str, object]:
+    """Extract CPU / memory / uptime / port counts from a device-detail object.
+
+    The Integration API nests these under ``statistics`` (v10.x), but field
+    naming has drifted across firmware revisions, so we probe a few aliases
+    and fall back to top-level keys. Everything is best-effort: a missing
+    field yields ``None`` / ``0`` rather than an error.
+    """
+    stats = detail.get("statistics")
+    stats = stats if isinstance(stats, dict) else {}
+
+    def pick(*keys: str) -> object:
+        for src in (stats, detail):
+            for k in keys:
+                if k in src and src[k] is not None:
+                    return src[k]
+        return None
+
+    cpu = _num(pick("cpuUtilizationPct", "cpuUtilization", "cpu"))
+    mem = _num(pick("memoryUtilizationPct", "memoryUtilization", "memory", "mem"))
+    uptime = _num(pick("uptimeSec", "uptime"))
+
+    # Ports live under interfaces.ports (Integration v10.x) or a bare `ports`.
+    ports: list = []
+    interfaces = detail.get("interfaces")
+    if isinstance(interfaces, dict) and isinstance(interfaces.get("ports"), list):
+        ports = interfaces["ports"]
+    elif isinstance(detail.get("ports"), list):
+        ports = detail["ports"]
+
+    ports_total = len(ports) if ports else None
+    ports_used: int | None = None
+    if ports:
+        ports_used = sum(
+            1
+            for p in ports
+            if isinstance(p, dict)
+            and (
+                p.get("connected") is True
+                or str(p.get("state") or "").upper() in ("UP", "CONNECTED", "ACTIVE")
+            )
+        )
+
+    return {
+        "cpu_pct": round(cpu, 1) if cpu is not None else None,
+        "mem_pct": round(mem, 1) if mem is not None else None,
+        "uptime_s": int(uptime) if uptime is not None else 0,
+        "ports_used": ports_used,
+        "ports_total": ports_total,
+    }
+
+
+async def _fetch_device_detail(
+    client: httpx.AsyncClient, settings: Settings, site_id: str, device_id: str
+) -> dict[str, object]:
+    """Fetch /devices/{id} and return parsed per-device stats (best-effort)."""
+    body = await _int_get(client, settings, f"/sites/{site_id}/devices/{device_id}")
+    if body is None:
+        return {}
+    detail = body
+    if isinstance(body, dict) and isinstance(body.get("data"), dict):
+        detail = body["data"]
+    if not isinstance(detail, dict):
+        return {}
+    return _device_stats(detail)
+
+
 _GATEWAY_HINTS = ("UCG", "UDM", "UDR", "USG", "GATEWAY", "DREAM")
 
 
@@ -243,17 +320,27 @@ async def _try_integration(
         if uplink:
             by_uplink[uplink] = by_uplink.get(uplink, 0) + 1
 
-    # Devices and gateway WAN IP.
+    # Devices and gateway WAN IP. The list endpoint omits per-device CPU/RAM,
+    # so we follow up with a /devices/{id} detail call per device (parallel,
+    # best-effort) to fill in the statistics block.
+    valid_devices = [d for d in devices_raw if isinstance(d, dict)]
+    detail_results = await asyncio.gather(
+        *(
+            _fetch_device_detail(client, settings, str(site_id), str(d.get("id") or ""))
+            for d in valid_devices
+        ),
+        return_exceptions=True,
+    )
+
     wan_ip: str | None = None
     devices: list[UnifiDevice] = []
-    for d in devices_raw:
-        if not isinstance(d, dict):
-            continue
+    for d, detail in zip(valid_devices, detail_results):
         is_gw = _is_gateway(d)
         # The gateway device's `ipAddress` is the public WAN IP on UCG/UDM.
         if is_gw and not wan_ip:
             wan_ip = d.get("ipAddress")
         dev_id = d.get("id") or ""
+        stats = detail if isinstance(detail, dict) else {}
         devices.append(
             UnifiDevice(
                 id=str(dev_id),
@@ -264,6 +351,11 @@ async def _try_integration(
                 firmware=d.get("firmwareVersion"),
                 is_gateway=is_gw,
                 clients=by_uplink.get(str(dev_id), 0),
+                cpu_pct=stats.get("cpu_pct"),  # type: ignore[arg-type]
+                mem_pct=stats.get("mem_pct"),  # type: ignore[arg-type]
+                uptime_s=int(stats.get("uptime_s") or 0),
+                ports_used=stats.get("ports_used"),  # type: ignore[arg-type]
+                ports_total=stats.get("ports_total"),  # type: ignore[arg-type]
             )
         )
 

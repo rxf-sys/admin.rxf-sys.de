@@ -123,6 +123,11 @@ export interface UnifiDevice {
   firmware: string | null;
   is_gateway: boolean;
   clients: number;
+  cpu_pct: number | null;
+  mem_pct: number | null;
+  uptime_s: number;
+  ports_used: number | null;
+  ports_total: number | null;
 }
 
 export interface NetworkSnapshot {

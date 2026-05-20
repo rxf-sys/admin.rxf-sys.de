@@ -121,6 +121,97 @@ async def test_integration_api_happy_path():
     assert by_dev[gw_id].model == "UCG Ultra"
 
 
+def test_device_stats_parses_nested_statistics():
+    """CPU/RAM/uptime live under `statistics`; ports under `interfaces.ports`."""
+    detail = {
+        "statistics": {
+            "cpuUtilizationPct": 18.4,
+            "memoryUtilizationPct": 42.1,
+            "uptimeSec": 1987200,
+        },
+        "interfaces": {
+            "ports": [
+                {"state": "UP"},
+                {"connected": True},
+                {"state": "DOWN"},
+                {"state": "DOWN"},
+            ]
+        },
+    }
+    stats = unifi._device_stats(detail)
+    assert stats["cpu_pct"] == 18.4
+    assert stats["mem_pct"] == 42.1
+    assert stats["uptime_s"] == 1987200
+    assert stats["ports_total"] == 4
+    assert stats["ports_used"] == 2
+
+
+def test_device_stats_tolerates_missing_fields():
+    """A bare device object yields None/0 instead of raising."""
+    stats = unifi._device_stats({})
+    assert stats["cpu_pct"] is None
+    assert stats["mem_pct"] is None
+    assert stats["uptime_s"] == 0
+    assert stats["ports_total"] is None
+    assert stats["ports_used"] is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_integration_enriches_devices_with_detail_stats():
+    """Device list is followed up with /devices/{id} detail calls for stats."""
+    s = Settings(
+        unifi_host="unifi.test",
+        unifi_port=443,
+        unifi_api_key="key123",
+        unifi_site="Default",
+    )
+    base = "https://unifi.test:443/proxy/network/integration/v1"
+    site_uuid = "44444444-4444-4444-4444-444444444444"
+    gw_id = "gw-uuid"
+
+    respx.get(f"{base}/sites").respond(
+        200, json={"data": [{"id": site_uuid, "name": "Default"}]}
+    )
+    respx.get(f"{base}/sites/{site_uuid}/networks").respond(200, json={"data": []})
+    respx.get(f"{base}/sites/{site_uuid}/clients").respond(200, json={"data": []})
+    respx.get(f"{base}/sites/{site_uuid}/devices").respond(
+        200,
+        json={
+            "data": [
+                {
+                    "id": gw_id,
+                    "name": "Cloud Gateway Ultra RX",
+                    "model": "UCG Ultra",
+                    "ipAddress": "192.168.2.1",
+                    "state": "ONLINE",
+                }
+            ]
+        },
+    )
+    respx.get(f"{base}/sites/{site_uuid}/devices/{gw_id}").respond(
+        200,
+        json={
+            "statistics": {
+                "cpuUtilizationPct": 12.0,
+                "memoryUtilizationPct": 40.0,
+                "uptimeSec": 3600,
+            },
+            "interfaces": {"ports": [{"state": "UP"}, {"state": "DOWN"}]},
+        },
+    )
+
+    snap = await unifi.fetch_network_snapshot(s)
+
+    assert snap.reachable is True
+    dev = snap.devices[0]
+    assert dev.cpu_pct == 12.0
+    assert dev.mem_pct == 40.0
+    assert dev.uptime_s == 3600
+    assert dev.ports_total == 2
+    assert dev.ports_used == 1
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_integration_falls_back_to_legacy_when_unavailable():

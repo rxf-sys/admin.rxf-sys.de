@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type {
   BackupHeatmap,
+  BackupHeatmapCell,
   BackupSnapshot,
   BackupStorage,
   BackupSummary,
   Guest,
 } from '../types';
-import { Dot, ICONS, fmtBytes, fmtTimeAgo } from './primitives';
+import { Dot, ICONS, StackedBar, fmtBytes, fmtTimeAgo, type StackedSegment } from './primitives';
 
 interface Props {
   backups: BackupSummary | null;
@@ -16,16 +17,15 @@ interface Props {
   onOpenGuest?: (guest: Guest) => void;
 }
 
-const PALETTE = [
-  'var(--accent)',
-  'var(--info)',
-  'var(--ok)',
-  'var(--warn)',
-  '#9b59ff',
-  '#e056a8',
-  '#5fd0d7',
-  '#c5cad6',
-];
+const PALETTE = ['#4fe9a4', '#4f9eff', '#ffb17a', '#7ab6ff', '#00d97e', '#5a608a', '#e056a8', '#5fd0d7'];
+
+// Maps the backend's heatmap label onto the design's day-cell variant class.
+const CELL_CLASS: Record<BackupHeatmapCell['label'], string> = {
+  ok: 'ok',
+  partial: 'half',
+  err: 'fail',
+  empty: '',
+};
 
 export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props) {
   const [heatmap, setHeatmap] = useState<BackupHeatmap | null>(null);
@@ -33,107 +33,79 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
 
   useEffect(() => {
     const ctrl = new AbortController();
-    api
-      .backupsHeatmap(30, ctrl.signal)
-      .then(setHeatmap)
-      .catch(() => {
-        /* leave null — render shows skeleton */
-      });
-    api
-      .backupsStorageByGuest(ctrl.signal)
-      .then(setStorage)
-      .catch(() => {
-        /* leave null */
-      });
+    api.backupsHeatmap(30, ctrl.signal).then(setHeatmap).catch(() => {});
+    api.backupsStorageByGuest(ctrl.signal).then(setStorage).catch(() => {});
     return () => ctrl.abort();
   }, [backups]);
 
   const ds = backups?.datastore;
   const usedPct = ds ? Math.min(100, ds.used_pct) : 0;
-  const barColor =
-    usedPct > 85 ? 'var(--err)' : usedPct > 70 ? 'var(--warn)' : 'var(--accent)';
+  const barColor = usedPct > 85 ? 'var(--err)' : usedPct > 70 ? 'var(--warn)' : 'var(--ok)';
 
   return (
     <section className="backup-section">
-      <div className="grid-12" style={{ marginBottom: 14 }}>
-        <div className="col-5 card">
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        {/* Datastore */}
+        <div className="card col-5">
           <div className="card-h">
-            <h3>Datastore</h3>
-            <span className="badge">
-              {backups?.reachable === false ? 'OFFLINE' : ds?.name ?? '—'}
+            <h3>Datastore {ds && <span className="h3-sub">· {ds.name}</span>}</h3>
+            <span className={`badge ${backups?.reachable === false ? 'err' : 'ok'}`}>
+              <Dot status={backups?.reachable === false ? 'err' : 'ok'} />
+              {backups?.reachable === false ? 'OFFLINE' : 'REACHABLE'}
             </span>
           </div>
           {!ds ? (
-            <div className="dimmer mono" style={{ fontSize: 12 }}>
+            <div className="dim" style={{ fontSize: 12 }}>
               {backups?.error ?? 'Keine Datastore-Daten — PBS-Token prüfen.'}
             </div>
           ) : (
             <>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
-                <span
-                  className="mono"
-                  style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-1)' }}
-                >
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 12 }}>
+                <span className="mono" style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--text-1)' }}>
                   {fmtBytes(ds.used_b)}
+                  <span style={{ fontSize: 14, color: 'var(--text-3)' }}> / {fmtBytes(ds.total_b)}</span>
                 </span>
-                <span className="dim mono" style={{ fontSize: 13 }}>
-                  / {fmtBytes(ds.total_b)}
-                </span>
-                <span className="mono dim" style={{ fontSize: 12, marginLeft: 'auto' }}>
+                <span className="mono" style={{ fontSize: 18, color: barColor, marginBottom: 4 }}>
                   {usedPct.toFixed(1)}%
                 </span>
               </div>
-              <div className="bar" style={{ height: 8, marginBottom: 14 }}>
-                <div
-                  className="bar-fill"
-                  style={{ width: `${usedPct}%`, background: barColor }}
-                />
+              <div className="bar thick">
+                <div className="bar-fill" style={{ width: `${usedPct}%`, background: barColor }} />
               </div>
-              <div className="ov-rows">
-                <div className="ov-row">
-                  <span className="dim">Frei</span>
-                  <span className="mono" style={{ fontSize: 13 }}>
-                    {fmtBytes(Math.max(0, ds.total_b - ds.used_b))}
-                  </span>
+              <div className="kv-stack" style={{ marginTop: 14 }}>
+                <div className="kv-row">
+                  <span className="kv-k">Frei</span>
+                  <span className="kv-v mono">{fmtBytes(Math.max(0, ds.total_b - ds.used_b))}</span>
                 </div>
-                <div className="ov-row">
-                  <span className="dim">Snapshots heute</span>
-                  <span className="mono" style={{ fontSize: 13 }}>
-                    {backups.success_today} / {backups.total_today}
-                  </span>
+                <div className="kv-row">
+                  <span className="kv-k">Snapshots heute</span>
+                  <span className="kv-v mono">{backups.success_today} / {backups.total_today}</span>
                 </div>
-                <div className="ov-row">
-                  <span className="dim">Letzter Erfolg</span>
-                  <span className="mono" style={{ fontSize: 12 }}>
-                    {backups.last_success_iso ? fmtTimeAgo(backups.last_success_iso) : '—'}
-                  </span>
+                <div className="kv-row">
+                  <span className="kv-k">Letzter Erfolg</span>
+                  <span className="kv-v mono">{backups.last_success_iso ? fmtTimeAgo(backups.last_success_iso) : '—'}</span>
                 </div>
-                <div className="ov-row">
-                  <span className="dim">Aufbewahrung</span>
-                  <span className="dim mono" style={{ fontSize: 11 }}>
-                    via PBS Retention-Job
-                  </span>
+                <div className="kv-row">
+                  <span className="kv-k">Aufbewahrung</span>
+                  <span className="kv-v mono" style={{ fontSize: 11 }}>via PBS Retention-Job</span>
                 </div>
               </div>
             </>
           )}
         </div>
 
-        <div className="col-7 card">
+        {/* 30-day heatmap */}
+        <div className="card col-7">
           <div className="card-h">
-            <h3>30-Tage Heatmap</h3>
+            <h3>30 Tage Trend <span className="h3-sub">· Snapshots pro Tag</span></h3>
             <span className="dimmer mono" style={{ fontSize: 11 }}>
-              {heatmap?.success_pct == null
-                ? '—'
-                : `success: ${heatmap.success_pct.toFixed(1)}%`}
+              {heatmap?.success_pct == null ? '—' : `success: ${heatmap.success_pct.toFixed(1)}%`}
             </span>
           </div>
           {heatmap === null ? (
-            <div className="dimmer" style={{ fontSize: 12 }}>
-              Lade…
-            </div>
+            <div className="dim" style={{ fontSize: 12, padding: '20px 0' }}>Lade…</div>
           ) : !heatmap.reachable ? (
-            <div className="dimmer" style={{ fontSize: 12, color: 'var(--err)' }}>
+            <div className="dim" style={{ fontSize: 12, color: 'var(--err)', padding: '20px 0' }}>
               {heatmap.error ?? 'PBS unerreichbar'}
             </div>
           ) : (
@@ -142,119 +114,75 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
                 {heatmap.cells.map((c) => (
                   <span
                     key={c.day}
-                    className={`day-cell day-${c.label}`}
+                    className={`day-cell ${CELL_CLASS[c.label]}`}
                     title={`${c.day} · ${c.total} Snapshots (ok: ${c.ok}, warn: ${c.warn}, err: ${c.err})`}
-                  />
+                  >
+                    {c.total > 0 ? c.total : ''}
+                  </span>
                 ))}
               </div>
-              <div className="heatmap-legend">
-                <LegendCell label="Vollständig" cls="day-ok" />
-                <LegendCell label="Teilweise" cls="day-partial" />
-                <LegendCell label="Fehler" cls="day-err" />
-                <LegendCell label="leer" cls="day-empty" />
+              <div className="day-legend">
+                <span><span className="swatch-inline day-cell ok" /> Vollständig</span>
+                <span><span className="swatch-inline day-cell half" /> Teilweise</span>
+                <span><span className="swatch-inline day-cell fail" /> Fehler</span>
+                <span><span className="swatch-inline day-cell" /> leer</span>
               </div>
             </>
           )}
         </div>
       </div>
 
-      <div className="grid-12" style={{ marginBottom: 14 }}>
-        <div className="col-12 card">
+      {/* Storage by guest */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-12">
           <div className="card-h">
-            <h3>Storage by Guest</h3>
+            <h3>Storage by Guest <span className="h3-sub">· Roh-Snapshot-Größe</span></h3>
             <span className="dimmer mono" style={{ fontSize: 11 }}>
               {storage?.total_b ? `total ${fmtBytes(storage.total_b)}` : '—'}
             </span>
           </div>
           {storage === null ? (
-            <div className="dimmer" style={{ fontSize: 12 }}>
-              Lade…
-            </div>
+            <div className="dim" style={{ fontSize: 12 }}>Lade…</div>
           ) : storage.items.length === 0 ? (
-            <div className="dimmer" style={{ fontSize: 12 }}>
-              Keine Snapshots im aktuellen Retention-Fenster.
-            </div>
+            <div className="dim" style={{ fontSize: 12 }}>Keine Snapshots im aktuellen Retention-Fenster.</div>
           ) : (
             <StackedStorage storage={storage} />
           )}
-          <div className="dimmer" style={{ fontSize: 11, marginTop: 8 }}>
-            Hinweis: Summe der Roh-Snapshot-Größen pro Guest. PBS bietet keine
-            Dedup-aware-Größe über die Snapshot-API.
-          </div>
         </div>
       </div>
 
+      {/* PBS jobs */}
       <div className="grid-12">
-        <div className="col-12 card">
-          <div className="card-h">
-            <h3>
-              PBS Jobs{' '}
-              <span className="dim" style={{ fontWeight: 400, textTransform: 'none' }}>
-                · letzte {Math.min(backups?.jobs.length ?? 0, 20)}
-              </span>
-            </h3>
+        <div className="card col-12" style={{ padding: 0 }}>
+          <div style={{ padding: '18px 20px' }}>
+            <div className="card-h" style={{ marginBottom: 0 }}>
+              <h3>PBS Jobs <span className="h3-sub">· letzte {Math.min(backups?.jobs.length ?? 0, 20)}</span></h3>
+            </div>
           </div>
-          <JobsTable
-            backups={backups}
-            guests={guests}
-            onVerify={onVerify}
-            onOpenGuest={onOpenGuest}
-          />
+          <JobsTable backups={backups} guests={guests} onVerify={onVerify} onOpenGuest={onOpenGuest} />
         </div>
       </div>
     </section>
   );
 }
 
-function LegendCell({ label, cls }: { label: string; cls: string }) {
-  return (
-    <span className="heatmap-legend-item">
-      <span className={`day-cell ${cls}`} style={{ width: 14, height: 10 }} />
-      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{label}</span>
-    </span>
-  );
-}
-
 function StackedStorage({ storage }: { storage: BackupStorage }) {
-  const total = storage.total_b || 1;
+  const segments: StackedSegment[] = storage.items.map((it, i) => ({
+    name: it.target,
+    gb: it.size_b / 1024 ** 3,
+    color: PALETTE[i % PALETTE.length],
+  }));
   return (
     <>
-      <div
-        className="stacked-bar"
-        role="img"
-        aria-label={`Speicher pro Guest · total ${fmtBytes(storage.total_b)}`}
-      >
-        {storage.items.map((it, i) => {
-          const pct = (it.size_b / total) * 100;
-          if (pct < 0.5) return null;
-          return (
-            <span
-              key={it.target}
-              className="stacked-seg"
-              style={{
-                width: `${pct}%`,
-                background: PALETTE[i % PALETTE.length],
-              }}
-              title={`${it.target} · ${fmtBytes(it.size_b)} (${pct.toFixed(1)}%)`}
-            />
-          );
-        })}
-      </div>
-      <div className="stacked-legend">
+      <StackedBar segments={segments} />
+      <div className="stacked-legend" style={{ marginTop: 12 }}>
         {storage.items.map((it, i) => (
-          <div key={it.target} className="stacked-legend-item">
-            <span
-              className="stacked-swatch"
-              style={{ background: PALETTE[i % PALETTE.length] }}
-            />
-            <span className="mono" style={{ fontSize: 12 }}>
-              {it.target}
-            </span>
-            <span className="dim mono" style={{ fontSize: 11, marginLeft: 'auto' }}>
-              {fmtBytes(it.size_b)}{' '}
-              <span className="dimmer">· {it.count}× </span>
-            </span>
-          </div>
+          <span key={it.target} className="item">
+            <span className="swatch-sm" style={{ background: PALETTE[i % PALETTE.length] }} />
+            <span>{it.target}</span>
+            <span className="item-val">{fmtBytes(it.size_b)}</span>
+            <span className="dimmer">· {it.count}×</span>
+          </span>
         ))}
       </div>
     </>
@@ -274,7 +202,7 @@ function JobsTable({
 }) {
   if (!backups || backups.jobs.length === 0) {
     return (
-      <div className="dimmer mono" style={{ fontSize: 11, padding: 12 }}>
+      <div className="dim mono" style={{ fontSize: 11, padding: 16 }}>
         Keine Backup-Daten verfügbar — PBS-Token prüfen.
       </div>
     );
@@ -291,7 +219,7 @@ function JobsTable({
           <th style={{ textAlign: 'right' }}>Größe</th>
           <th>Verify</th>
           <th style={{ textAlign: 'right' }}>Wann</th>
-          {onVerify && <th style={{ width: 40 }}></th>}
+          {onVerify && <th style={{ width: 44 }}></th>}
         </tr>
       </thead>
       <tbody>
@@ -300,20 +228,15 @@ function JobsTable({
           const vmid = Number(j.backup_id);
           const linkedGuest = Number.isFinite(vmid) ? guestByVmid.get(vmid) : undefined;
           const clickable = !!(onOpenGuest && linkedGuest);
-          const onRowClick = clickable
-            ? () => onOpenGuest!(linkedGuest!)
-            : undefined;
+          const onRowClick = clickable ? () => onOpenGuest!(linkedGuest!) : undefined;
           return (
             <tr
               key={j.id}
               className={rowCls}
               onClick={onRowClick}
-              style={onRowClick ? { cursor: 'pointer' } : undefined}
               tabIndex={onRowClick ? 0 : undefined}
               role={onRowClick ? 'button' : undefined}
-              aria-label={
-                onRowClick ? `Details für ${linkedGuest!.name} öffnen` : undefined
-              }
+              aria-label={onRowClick ? `Details für ${linkedGuest!.name} öffnen` : undefined}
               onKeyDown={
                 onRowClick
                   ? (e) => {
@@ -325,58 +248,34 @@ function JobsTable({
                   : undefined
               }
             >
+              <td><Dot status={j.status} /></td>
+              <td style={{ fontWeight: 600 }}>
+                {j.target}
+                {j.note && <div style={{ fontSize: 11, color: 'var(--err)' }}>{j.note}</div>}
+              </td>
+              <td className="mono dimmer" style={{ fontSize: 10.5 }}>
+                {j.id.split('/').slice(-1)[0]}
+              </td>
+              <td className="mono" style={{ textAlign: 'right' }}>{j.size_b > 0 ? fmtBytes(j.size_b) : '—'}</td>
               <td>
-                <Dot status={j.status} />
-              </td>
-              <td style={{ fontSize: 13, fontWeight: 500 }}>{j.target}</td>
-              <td className="mono dim" style={{ fontSize: 11 }}>
-                {j.id.length > 28 ? `${j.id.slice(0, 26)}…` : j.id}
-              </td>
-              <td className="mono" style={{ textAlign: 'right', fontSize: 12 }}>
-                {fmtBytes(j.size_b)}
-              </td>
-              <td>
-                <span
-                  className={`verify ${
-                    j.verify === 'ok'
-                      ? 'ok'
-                      : j.verify === 'pending'
-                        ? 'warn'
-                        : 'idle'
-                  }`}
-                >
-                  {j.verify === 'ok' && ICONS.check}
-                  <span style={{ fontSize: 11, marginLeft: 4 }}>
-                    {j.verify === 'ok'
-                      ? 'verified'
-                      : j.verify === 'pending'
-                        ? 'pending'
-                        : j.verify === 'failed'
-                          ? 'failed'
-                          : '—'}
+                <span className={`verify ${j.verify === 'ok' ? 'ok' : j.verify === 'pending' ? 'warn' : ''}`}>
+                  {j.verify === 'ok' ? ICONS.check : <span className="dimmer">—</span>}
+                  <span style={{ marginLeft: 4 }}>
+                    {j.verify === 'ok' ? 'verified' : j.verify === 'pending' ? 'pending' : j.verify === 'failed' ? 'failed' : '—'}
                   </span>
                 </span>
               </td>
-              <td
-                className="mono dim"
-                style={{ fontSize: 11, textAlign: 'right', whiteSpace: 'nowrap' }}
-              >
+              <td className="mono dim" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                 {fmtTimeAgo(j.when_iso)}
               </td>
               {onVerify && (
-                <td
-                  style={{ textAlign: 'right' }}
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                   <button
-                    className="btn icon-sm"
+                    className="btn icon"
+                    style={{ width: 26, height: 26 }}
                     onClick={() => onVerify(j)}
-                    title={
-                      j.verify === 'pending'
-                        ? 'Verifikation läuft / wurde angefordert'
-                        : 'Verify-Job für diesen Snapshot starten'
-                    }
-                    aria-label={`Verify ${j.target} ${j.backup_time}`}
+                    title={j.verify === 'pending' ? 'Verifikation läuft' : 'Verify-Job starten'}
+                    aria-label={`Verify ${j.target}`}
                     type="button"
                     disabled={j.verify === 'pending'}
                   >
