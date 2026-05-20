@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
-from .. import storage
-from ..auth import verify_session
+from .. import registry, storage
+from ..audit import record as audit_record
+from ..auth import require_admin, verify_session
 from ..cache import cache
 from ..clients import probes
 from ..config import Settings, get_settings
@@ -15,7 +17,30 @@ from ..models import ServiceStatus
 router = APIRouter(prefix="/api/services", tags=["services"], dependencies=[Depends(verify_session)])
 
 
-_KNOWN_IDS = {s["id"] for s in probes.SERVICES}
+_BUILTIN_IDS = {s["id"] for s in probes.SERVICES}
+
+
+async def _is_known_service(service_id: str) -> bool:
+    """A service id is valid if it's a built-in or a registered custom one."""
+    if service_id in _BUILTIN_IDS:
+        return True
+    return await registry.get_service(service_id) is not None
+
+
+class ServiceCreateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    internal_url: str = Field(min_length=1, max_length=500)
+    icon: str = Field(default="cloud", max_length=40)
+    desc: str = Field(default="", max_length=200)
+    ext_url: str | None = Field(default=None, max_length=500)
+
+
+class ServiceUpdateBody(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    internal_url: str | None = Field(default=None, max_length=500)
+    icon: str | None = Field(default=None, max_length=40)
+    desc: str | None = Field(default=None, max_length=200)
+    ext_url: str | None = Field(default=None, max_length=500)
 
 
 async def _enrich(s: ServiceStatus) -> ServiceStatus:
@@ -48,12 +73,95 @@ async def get_services(settings: Settings = Depends(get_settings)) -> list[Servi
     return await cache.get_or_set("services", settings.cache_ttl_services, loader)
 
 
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_service(
+    body: ServiceCreateBody,
+    request: Request,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    """Register a new custom service for monitoring (admin only)."""
+    actor = admin.get("email") or admin.get("username") or "unknown"
+    try:
+        svc = await registry.create_service(
+            name=body.name,
+            internal_url=body.internal_url,
+            icon=body.icon,
+            desc=body.desc,
+            ext_url=body.ext_url,
+            created_by=actor,
+        )
+    except registry.RegistryError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    audit_record(
+        "service.created",
+        actor=actor,
+        service_id=svc["id"],
+        name=svc["name"],
+        client_ip=request.client.host if request.client else None,
+    )
+    cache.invalidate("services")
+    return {"service": svc}
+
+
+@router.patch("/{service_id}")
+async def update_service(
+    service_id: str,
+    body: ServiceUpdateBody,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    """Edit a custom service (admin only). Built-in services are immutable."""
+    if service_id in _BUILTIN_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="eingebaute Services können nicht bearbeitet werden",
+        )
+    try:
+        svc = await registry.update_service(
+            service_id,
+            name=body.name,
+            internal_url=body.internal_url,
+            icon=body.icon,
+            desc=body.desc,
+            ext_url=body.ext_url,
+        )
+    except registry.RegistryError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    if svc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service nicht gefunden")
+    audit_record(
+        "service.updated", actor=admin["username"], service_id=service_id
+    )
+    cache.invalidate("services")
+    return {"service": svc}
+
+
+@router.delete("/{service_id}")
+async def delete_service(
+    service_id: str,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    """Delete a custom service (admin only). Built-in services are immutable."""
+    if service_id in _BUILTIN_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="eingebaute Services können nicht gelöscht werden",
+        )
+    ok = await registry.delete_service(service_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service nicht gefunden")
+    audit_record(
+        "service.deleted", actor=admin["username"], service_id=service_id
+    )
+    cache.invalidate("services")
+    return {"ok": True}
+
+
 @router.get("/{service_id}/history")
 async def get_service_history(service_id: str, hours: int = 24) -> dict:
     """Persisted probe samples for a single service. Returns ``samples``
     (oldest-first), an ``uptime_pct`` for the window, p95, and an ``enabled``
     flag so the UI can distinguish "history disabled" from "no data yet"."""
-    if service_id not in _KNOWN_IDS:
+    if not await _is_known_service(service_id):
         raise HTTPException(status_code=404, detail="unknown service id")
     hours = max(1, min(hours, 168))  # 7 days max
     samples, uptime, p95, last_ts = await asyncio.gather(

@@ -137,6 +137,83 @@ async def test_fetch_guests_maps_lxc_and_qemu(settings):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_fetch_guests_vm_mem_uses_status_current(settings):
+    """A running VM's memory comes from status/current, not the list endpoint.
+
+    The list endpoint's `mem` is the host-side KVM process footprint and can
+    exceed maxmem (>100%); status/current carries the guest-reported figure
+    the PVE UI shows.
+    """
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/lxc").respond(200, json={"data": []})
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/qemu").respond(
+        200,
+        json={
+            "data": [
+                {
+                    "vmid": 201,
+                    "name": "pbs",
+                    "status": "running",
+                    "cpu": 0.014,
+                    "mem": 8_500_000_000,  # list endpoint overcounts -> 106%
+                    "maxmem": 8_000_000_000,
+                    "uptime": 1000,
+                }
+            ]
+        },
+    )
+    respx.get(
+        f"{base}/nodes/{settings.proxmox_node}/qemu/201/agent/network-get-interfaces"
+    ).respond(200, json={"data": {"result": []}})
+    respx.get(
+        f"{base}/nodes/{settings.proxmox_node}/qemu/201/status/current"
+    ).respond(200, json={"data": {"mem": 6_400_000_000, "maxmem": 8_000_000_000}})
+
+    guests = await proxmox.fetch_guests(settings)
+
+    pbs = {g.id: g for g in guests}[201]
+    assert pbs.ram_used_b == 6_400_000_000  # guest-reported, not 8.5e9
+    assert pbs.ram_total_b == 8_000_000_000
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_guests_vm_mem_clamped_to_maxmem(settings):
+    """Even status/current is clamped to maxmem so RAM can never read >100%."""
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/lxc").respond(200, json={"data": []})
+    respx.get(f"{base}/nodes/{settings.proxmox_node}/qemu").respond(
+        200,
+        json={
+            "data": [
+                {
+                    "vmid": 201,
+                    "name": "pbs",
+                    "status": "running",
+                    "cpu": 0.0,
+                    "mem": 9_000_000_000,
+                    "maxmem": 8_000_000_000,
+                    "uptime": 1,
+                }
+            ]
+        },
+    )
+    respx.get(
+        f"{base}/nodes/{settings.proxmox_node}/qemu/201/agent/network-get-interfaces"
+    ).respond(200, json={"data": {"result": []}})
+    respx.get(
+        f"{base}/nodes/{settings.proxmox_node}/qemu/201/status/current"
+    ).respond(200, json={"data": {"mem": 8_900_000_000, "maxmem": 8_000_000_000}})
+
+    guests = await proxmox.fetch_guests(settings)
+
+    pbs = {g.id: g for g in guests}[201]
+    assert pbs.ram_used_b == 8_000_000_000  # clamped
+    assert pbs.ram_used_b <= pbs.ram_total_b
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_fetch_guest_tasks(settings):
     base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
     respx.get(f"{base}/nodes/{settings.proxmox_node}/tasks?vmid=101&limit=5").respond(

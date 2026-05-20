@@ -4,10 +4,11 @@ import asyncio
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
-from .. import storage
+from .. import registry, storage
 from ..audit import record as audit_record
-from ..auth import verify_session
+from ..auth import require_admin, verify_session
 from ..cache import cache
 from ..clients import pbs, proxmox
 from ..config import Settings, get_settings
@@ -24,9 +25,52 @@ async def get_system(settings: Settings = Depends(get_settings)) -> SystemSnapsh
             proxmox.fetch_guests(settings),
             proxmox.fetch_datastores(settings),
         )
+        # Apply admin-set service-label overrides on top of the built-in
+        # defaults baked into proxmox.GUEST_SERVICE_LABELS.
+        labels = await registry.list_guest_labels()
+        for g in guests:
+            override = labels.get(g.id)
+            if override:
+                g.service = override
         return SystemSnapshot(host=host, guests=guests, datastores=datastores, fetched_at=time.time())
 
     return await cache.get_or_set("system", settings.cache_ttl_system, loader)
+
+
+class GuestServiceBody(BaseModel):
+    service: str | None = Field(default=None, max_length=120)
+
+
+@router.patch("/guests/{vmid}/service")
+async def set_guest_service(
+    vmid: int,
+    body: GuestServiceBody,
+    request: Request,
+    admin: dict = Depends(require_admin),
+) -> dict:
+    """Set or clear the service label shown for a guest (admin only).
+
+    An empty/missing ``service`` removes the override so the built-in default
+    label applies again.
+    """
+    actor = admin.get("email") or admin.get("username") or "unknown"
+    name = (body.service or "").strip()
+    try:
+        if name:
+            await registry.set_guest_label(vmid, name, updated_by=actor)
+        else:
+            await registry.delete_guest_label(vmid)
+    except registry.RegistryError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    audit_record(
+        "guest.service_updated",
+        actor=actor,
+        vmid=vmid,
+        service=name or None,
+        client_ip=request.client.host if request.client else None,
+    )
+    cache.invalidate("system")
+    return {"ok": True, "vmid": vmid, "service": name or None}
 
 
 @router.post("/guests/{vmid}/restart")

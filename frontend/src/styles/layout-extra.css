@@ -443,3 +443,32 @@
   .vlan-row { grid-template-columns: 10px 1fr auto; }
   .vlan-row .vlan-bar, .vlan-row .mono { display: none; }
 }
+
+/* ============ PBS jobs pagination ============ */
+.pager {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* ============ inline label editor (VM service + admin e-mail) ============ */
+.svc-cell-edit {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 0;
+  padding: 2px 4px; margin: -2px -4px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  color: inherit; font: inherit; text-align: left;
+}
+.svc-cell-edit:hover { background: var(--surface-4); }
+.svc-cell-edit svg {
+  width: 11px; height: 11px;
+  color: var(--text-4);
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.svc-cell-edit:hover svg { opacity: 1; }
+.svc-cell-input { height: 26px; font-size: 12px; width: 100%; max-width: 220px; }

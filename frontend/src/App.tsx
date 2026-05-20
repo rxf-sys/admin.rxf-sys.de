@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api/client';
+import { api, apiErrorMessage } from './api/client';
 import { AdminPanel } from './components/AdminPanel';
 import { AttentionHero } from './components/AttentionHero';
 import { AuditLog } from './components/AuditLog';
@@ -15,6 +15,7 @@ import { KpiStrip } from './components/KpiStrip';
 import { LoginPage } from './components/LoginPage';
 import { NetworkPanel } from './components/NetworkPanel';
 import { SectionNav } from './components/SectionNav';
+import { ServiceFormModal } from './components/ServiceFormModal';
 import { ServiceGrid } from './components/ServiceGrid';
 import { SettingsPage } from './components/SettingsPage';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
@@ -24,7 +25,7 @@ import { useAuth } from './hooks/useAuth';
 import { usePoll } from './hooks/usePoll';
 import { type Section, useSection } from './hooks/useSection';
 import { useResolvedTheme, useUISettings } from './hooks/useTheme';
-import type { Account, BackupSnapshot, Guest } from './types';
+import type { Account, BackupSnapshot, Guest, ServiceInput, ServiceStatus } from './types';
 
 const SECTION_KEYS: Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare', 'settings'];
 
@@ -66,6 +67,12 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   const [logsGuest, setLogsGuest] = useState<Guest | null>(null);
   const [confirmGuest, setConfirmGuest] = useState<Guest | null>(null);
   const [verifyTarget, setVerifyTarget] = useState<BackupSnapshot | null>(null);
+  const [serviceModal, setServiceModal] = useState<{
+    mode: 'create' | 'edit';
+    editId?: string;
+    initial?: Partial<ServiceInput>;
+  } | null>(null);
+  const [deleteSvc, setDeleteSvc] = useState<ServiceStatus | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -217,6 +224,68 @@ function Dashboard({ user, onLogout }: DashboardProps) {
     }
   }, [verifyTarget, pushToast, bkp]);
 
+  // --- Custom services (admin) ---
+  const openAddService = useCallback(() => setServiceModal({ mode: 'create' }), []);
+
+  const openQuickAddService = useCallback((g: Guest) => {
+    setServiceModal({
+      mode: 'create',
+      initial: {
+        name: g.service || g.name,
+        desc: `${g.type} ${g.id}`,
+        icon: 'server',
+        internal_url: g.ip ? `http://${g.ip}` : 'http://',
+        ext_url: '',
+      },
+    });
+  }, []);
+
+  const openEditService = useCallback((svcToEdit: ServiceStatus) => {
+    setSelectedSvc(null);
+    setServiceModal({
+      mode: 'edit',
+      editId: svcToEdit.id,
+      initial: {
+        name: svcToEdit.name,
+        desc: svcToEdit.desc,
+        icon: svcToEdit.icon,
+        internal_url: svcToEdit.internal_url,
+        ext_url: svcToEdit.ext_url ?? '',
+      },
+    });
+  }, []);
+
+  const onServiceSaved = useCallback(() => {
+    setServiceModal(null);
+    svc.refresh();
+    pushToast({ level: 'ok', title: 'Service gespeichert', body: 'Die Service-Liste wurde aktualisiert.' });
+  }, [svc, pushToast]);
+
+  const confirmDeleteService = useCallback(async () => {
+    const target = deleteSvc;
+    if (!target) return;
+    setDeleteSvc(null);
+    try {
+      await api.deleteService(target.id);
+      pushToast({ level: 'ok', title: 'Service gelöscht', body: target.name });
+      svc.refresh();
+    } catch (e) {
+      pushToast({ level: 'err', title: 'Löschen fehlgeschlagen', body: apiErrorMessage(e) });
+    }
+  }, [deleteSvc, svc, pushToast]);
+
+  const onRenameGuestService = useCallback(
+    async (vmid: number, name: string) => {
+      try {
+        await api.updateGuestService(vmid, name || null);
+        sys.refresh();
+      } catch (e) {
+        pushToast({ level: 'err', title: 'Service-Name fehlgeschlagen', body: apiErrorMessage(e) });
+      }
+    },
+    [sys, pushToast],
+  );
+
   const onSnapshot = useCallback(async () => {
     const snapshot = {
       capturedAt: new Date().toISOString(),
@@ -342,6 +411,8 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               onSelect={setSelectedSvc}
               showSpark={ui.showSparklines}
               loading={svc.loading}
+              isAdmin={isAdmin}
+              onAddService={openAddService}
             />
           </>
         )}
@@ -352,12 +423,21 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               <KpiStrip guests={guests} services={services} />
               <AuditLog pollMs={pollFast} />
             </div>
-            <VMTable guests={guests} onLogs={onLogs} onRestart={onRestart} />
+            <VMTable
+              guests={guests}
+              onLogs={onLogs}
+              onRestart={onRestart}
+              isAdmin={isAdmin}
+              onRenameService={onRenameGuestService}
+              onQuickAddService={openQuickAddService}
+            />
             <ServiceGrid
               services={services}
               onSelect={setSelectedSvc}
               showSpark={ui.showSparklines}
               loading={svc.loading}
+              isAdmin={isAdmin}
+              onAddService={openAddService}
             />
           </>
         )}
@@ -406,6 +486,12 @@ function Dashboard({ user, onLogout }: DashboardProps) {
         svc={selectedSvcObj}
         guests={guests}
         onClose={() => setSelectedSvc(null)}
+        isAdmin={isAdmin}
+        onEdit={openEditService}
+        onDelete={(s) => {
+          setSelectedSvc(null);
+          setDeleteSvc(s);
+        }}
       />
       <GuestDrawer
         open={!!logsGuest}
@@ -451,6 +537,33 @@ function Dashboard({ user, onLogout }: DashboardProps) {
         confirmLabel="Verify starten"
         onConfirm={confirmVerify}
         onCancel={() => setVerifyTarget(null)}
+      />
+      {serviceModal && (
+        <ServiceFormModal
+          key={serviceModal.editId ?? serviceModal.mode}
+          mode={serviceModal.mode}
+          editId={serviceModal.editId}
+          initial={serviceModal.initial}
+          onClose={() => setServiceModal(null)}
+          onSaved={onServiceSaved}
+          onError={(msg) => pushToast({ level: 'err', title: 'Service-Fehler', body: msg })}
+        />
+      )}
+      <ConfirmModal
+        open={!!deleteSvc}
+        title="Service löschen?"
+        message={
+          deleteSvc && (
+            <p style={{ margin: 0 }}>
+              Service <strong>{deleteSvc.name}</strong> aus dem Monitoring entfernen? Die
+              Probe-Historie bleibt erhalten.
+            </p>
+          )
+        }
+        confirmLabel="Löschen"
+        danger
+        onConfirm={confirmDeleteService}
+        onCancel={() => setDeleteSvc(null)}
       />
       <CommandPalette
         open={paletteOpen}

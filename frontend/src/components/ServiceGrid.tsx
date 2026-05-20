@@ -7,6 +7,8 @@ interface Props {
   onSelect: (id: string) => void;
   showSpark: boolean;
   loading?: boolean;
+  isAdmin?: boolean;
+  onAddService?: () => void;
 }
 
 const HISTORY_LEN = 60;
@@ -19,7 +21,7 @@ function pushHistory(id: string, ms: number): number[] {
   return next;
 }
 
-export function ServiceGrid({ services, onSelect, showSpark, loading }: Props) {
+export function ServiceGrid({ services, onSelect, showSpark, loading, isAdmin, onAddService }: Props) {
   const lastSig = useRef('');
   const sig = services.map((s) => `${s.id}:${s.ms}`).join('|');
   useEffect(() => {
@@ -39,6 +41,11 @@ export function ServiceGrid({ services, onSelect, showSpark, loading }: Props) {
         </h2>
         <div className="section-tools">
           <span className="dimmer mono" style={{ fontSize: 11 }}>Antwortzeit · letzte 60 min</span>
+          {isAdmin && onAddService && (
+            <button className="btn sm" type="button" onClick={onAddService}>
+              {ICONS.plus} Service hinzufügen
+            </button>
+          )}
         </div>
       </div>
       <div className="svc-grid" aria-busy={isInitialLoad ? 'true' : undefined}>
@@ -117,7 +124,7 @@ export function ServiceTile({ svc, onClick, showSpark }: TileProps) {
       </div>
       <div className="svc-foot">
         <div className="svc-reach">
-          <Reach ok={svc.ext} label="EXT" />
+          {svc.ext_monitored && <Reach ok={svc.ext} label="EXT" />}
           <Reach ok={svc.internal} label="INT" />
         </div>
         <span className="svc-time">

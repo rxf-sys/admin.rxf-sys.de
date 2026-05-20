@@ -9,6 +9,9 @@ interface Props {
   svc: ServiceStatus | null;
   guests: Guest[];
   onClose: () => void;
+  isAdmin?: boolean;
+  onEdit?: (svc: ServiceStatus) => void;
+  onDelete?: (svc: ServiceStatus) => void;
 }
 
 interface AuditEvent {
@@ -21,7 +24,7 @@ function badgeLabel(s: ServiceStatus['status']): string {
   return s === 'ok' ? 'HEALTHY' : s === 'warn' ? 'DEGRADED' : s === 'err' ? 'DOWN' : 'IDLE';
 }
 
-export function Drawer({ open, svc, guests, onClose }: Props) {
+export function Drawer({ open, svc, guests, onClose, isAdmin, onEdit, onDelete }: Props) {
   const [tasks, setTasks] = useState<GuestTask[]>([]);
   const [tasksError, setTasksError] = useState(false);
   const [history, setHistory] = useState<ServiceHistory | null>(null);
@@ -129,6 +132,9 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
 
   if (!svc) return null;
 
+  // Built-in and custom services both carry internal_url/ext_url now; fall
+  // back to the legacy subdomain form only if neither is set.
+  const link = svc.ext_url || svc.internal_url || (svc.sub ? `https://${svc.sub}` : '#');
   const data = getServiceHistory(svc.id);
   const sparkColor =
     svc.status === 'warn' ? 'var(--warn)' : svc.status === 'err' ? 'var(--err)' : 'var(--accent)';
@@ -164,7 +170,7 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
             </div>
             <a
               className="mono drawer-link"
-              href={`https://${svc.sub}`}
+              href={link}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -214,9 +220,11 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
                 Reachability
               </span>
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                <span className={`reach ${svc.ext ? 'ok' : 'off'}`} style={{ padding: '3px 8px' }}>
-                  EXT
-                </span>
+                {svc.ext_monitored && (
+                  <span className={`reach ${svc.ext ? 'ok' : 'off'}`} style={{ padding: '3px 8px' }}>
+                    EXT
+                  </span>
+                )}
                 <span className={`reach ${svc.internal ? 'ok' : 'off'}`} style={{ padding: '3px 8px' }}>
                   INT
                 </span>
@@ -352,9 +360,19 @@ export function Drawer({ open, svc, guests, onClose }: Props) {
         </div>
 
         <div className="drawer-foot">
-          <a className="btn btn-primary" href={`https://${svc.sub}`} target="_blank" rel="noopener noreferrer">
+          <a className="btn btn-primary" href={link} target="_blank" rel="noopener noreferrer">
             {ICONS.external} Service öffnen
           </a>
+          {svc.custom && isAdmin && (
+            <>
+              <button className="btn" type="button" onClick={() => onEdit?.(svc)}>
+                {ICONS.edit} Bearbeiten
+              </button>
+              <button className="btn danger" type="button" onClick={() => onDelete?.(svc)}>
+                {ICONS.trash} Löschen
+              </button>
+            </>
+          )}
         </div>
       </aside>
     </>

@@ -6,11 +6,14 @@ interface Props {
   guests: Guest[];
   onLogs: (g: Guest) => void;
   onRestart: (g: Guest) => void;
+  isAdmin?: boolean;
+  onRenameService?: (vmid: number, name: string) => void;
+  onQuickAddService?: (g: Guest) => void;
 }
 
 type SortKey = 'id' | 'name' | 'ip' | 'cpu' | 'ram' | 'uptime';
 
-export function VMTable({ guests, onLogs, onRestart }: Props) {
+export function VMTable({ guests, onLogs, onRestart, isAdmin, onRenameService, onQuickAddService }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'id', dir: 'asc' });
   const [filter, setFilter] = useState('');
   const [runningOnly, setRunningOnly] = useState(false);
@@ -106,12 +109,13 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
               <Th k="uptime" align="right">
                 Uptime
               </Th>
-              <th style={{ width: 90, textAlign: 'right' }}>Actions</th>
+              <th style={{ width: isAdmin ? 122 : 90, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((v) => {
               const ramPct = v.ram_total_b ? (v.ram_used_b / v.ram_total_b) * 100 : 0;
+              const ramBar = Math.min(100, ramPct);
               const rowClass =
                 v.status === 'err' ? 'attn' : v.status === 'warn' ? 'warn-row' : '';
               const onRowClick = () => onLogs(v);
@@ -141,7 +145,16 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
                     <span className={`type-pill type-${v.type.toLowerCase()}`}>{v.type}</span>
                   </td>
                   <td className="mono">{v.ip ?? '—'}</td>
-                  <td className="dim">{v.service ?? '—'}</td>
+                  <td
+                    className="dim"
+                    onClick={isAdmin && onRenameService ? (e) => e.stopPropagation() : undefined}
+                  >
+                    <ServiceCell
+                      guest={v}
+                      editable={!!(isAdmin && onRenameService)}
+                      onRename={onRenameService}
+                    />
+                  </td>
                   <td style={{ textAlign: 'right' }}>
                     <div className="cell-bar">
                       <div className="bar">
@@ -165,7 +178,7 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
                         <div
                           className="bar-fill"
                           style={{
-                            width: `${ramPct}%`,
+                            width: `${ramBar}%`,
                             background: ramPct > 80 ? 'var(--err)' : ramPct > 60 ? 'var(--warn)' : 'var(--ok)',
                           }}
                         />
@@ -180,6 +193,17 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
                   </td>
                   <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <div className="row-actions">
+                      {isAdmin && onQuickAddService && (
+                        <button
+                          className="btn icon"
+                          title="Als Service-Monitoring hinzufügen"
+                          aria-label={`${v.name} als Service-Monitoring hinzufügen`}
+                          onClick={() => onQuickAddService(v)}
+                          type="button"
+                        >
+                          {ICONS.plus}
+                        </button>
+                      )}
                       <button
                         className="btn icon"
                         title="Logs"
@@ -208,5 +232,65 @@ export function VMTable({ guests, onLogs, onRestart }: Props) {
         </table>
       </div>
     </section>
+  );
+}
+
+/** Service-label cell — plain text, or an inline editor for admins. */
+function ServiceCell({
+  guest,
+  editable,
+  onRename,
+}: {
+  guest: Guest;
+  editable: boolean;
+  onRename?: (vmid: number, name: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  if (!editable) {
+    return <>{guest.service ?? '—'}</>;
+  }
+
+  if (editing) {
+    const commit = () => {
+      setEditing(false);
+      const next = draft.trim();
+      if (next !== (guest.service ?? '')) onRename?.(guest.id, next);
+    };
+    return (
+      <input
+        className="input svc-cell-input"
+        value={draft}
+        autoFocus
+        placeholder="Service-Name…"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="svc-cell-edit"
+      title="Service-Namen bearbeiten"
+      onClick={() => {
+        setDraft(guest.service ?? '');
+        setEditing(true);
+      }}
+    >
+      <span>{guest.service ?? '—'}</span>
+      {ICONS.edit}
+    </button>
   );
 }

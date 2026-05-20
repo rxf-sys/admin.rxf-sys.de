@@ -178,7 +178,7 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
         <div className="card col-12" style={{ padding: 0 }}>
           <div style={{ padding: '18px 20px' }}>
             <div className="card-h" style={{ marginBottom: 0 }}>
-              <h3>PBS Jobs <span className="h3-sub">· letzte {Math.min(backups?.jobs.length ?? 0, 20)}</span></h3>
+              <h3>PBS Jobs <span className="h3-sub">· {backups?.jobs.length ?? 0} Einträge</span></h3>
             </div>
           </div>
           <JobsTable backups={backups} guests={guests} onVerify={onVerify} onOpenGuest={onOpenGuest} />
@@ -232,6 +232,35 @@ function JobsTable({
   const guestByVmid = new Map<number, Guest>();
   guests.forEach((g) => guestByVmid.set(g.id, g));
   return (
+    <JobsTableBody
+      jobs={backups.jobs}
+      guestByVmid={guestByVmid}
+      onVerify={onVerify}
+      onOpenGuest={onOpenGuest}
+    />
+  );
+}
+
+const JOBS_PAGE_SIZE = 10;
+
+/** PBS jobs list with client-side pagination — pages of 10 above 10 entries. */
+function JobsTableBody({
+  jobs,
+  guestByVmid,
+  onVerify,
+  onOpenGuest,
+}: {
+  jobs: BackupSnapshot[];
+  guestByVmid: Map<number, Guest>;
+  onVerify?: (snapshot: BackupSnapshot) => void;
+  onOpenGuest?: (guest: Guest) => void;
+}) {
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(jobs.length / JOBS_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageJobs = jobs.slice(safePage * JOBS_PAGE_SIZE, safePage * JOBS_PAGE_SIZE + JOBS_PAGE_SIZE);
+  return (
+    <>
     <table className="job-table">
       <thead>
         <tr>
@@ -245,7 +274,7 @@ function JobsTable({
         </tr>
       </thead>
       <tbody>
-        {backups.jobs.slice(0, 20).map((j) => {
+        {pageJobs.map((j) => {
           const rowCls = j.status === 'err' ? 'attn' : '';
           const vmid = Number(j.backup_id);
           const linkedGuest = Number.isFinite(vmid) ? guestByVmid.get(vmid) : undefined;
@@ -310,5 +339,29 @@ function JobsTable({
         })}
       </tbody>
     </table>
+    {jobs.length > JOBS_PAGE_SIZE && (
+      <div className="pager">
+        <button
+          className="btn sm"
+          type="button"
+          disabled={safePage === 0}
+          onClick={() => setPage(safePage - 1)}
+        >
+          ‹ Zurück
+        </button>
+        <span className="mono">
+          Seite {safePage + 1} / {pageCount}
+        </span>
+        <button
+          className="btn sm"
+          type="button"
+          disabled={safePage >= pageCount - 1}
+          onClick={() => setPage(safePage + 1)}
+        >
+          Weiter ›
+        </button>
+      </div>
+    )}
+    </>
   );
 }

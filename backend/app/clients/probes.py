@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 
 import httpx
 
-from .. import storage
+from .. import registry, storage
 from ..config import Settings
 from ..models import ServiceStatus
 
-# Service catalogue mirrors the design mockup exactly.
+# Service catalogue mirrors the design mockup exactly. Admin-created services
+# (see ``registry.py``) are merged on top of this at probe time.
 SERVICES: list[dict[str, str]] = [
     {"id": "vault",   "name": "vault",   "icon": "lock",    "desc": "Vaultwarden — Passwörter"},
     {"id": "cloud",   "name": "cloud",   "icon": "cloud",   "desc": "Nextcloud — Files & Sync"},
@@ -20,6 +22,63 @@ SERVICES: list[dict[str, str]] = [
     {"id": "monitor", "name": "monitor", "icon": "monitor", "desc": "Uptime Kuma"},
     {"id": "pbs",     "name": "pbs",     "icon": "archive", "desc": "Proxmox Backup Server"},
 ]
+
+
+@dataclass(slots=True)
+class _ProbeSpec:
+    """A single thing to probe — unifies the built-in catalogue and the
+    admin-created custom services so ``probe_all`` has one code path."""
+
+    id: str
+    name: str
+    icon: str
+    desc: str
+    sub: str
+    int_url: str
+    ext_url: str | None
+    custom: bool
+
+
+def _display_host(url: str) -> str:
+    """Strip the scheme + trailing slash for a compact subtitle."""
+    return url.split("://", 1)[-1].rstrip("/")
+
+
+async def _build_specs(settings: Settings) -> list[_ProbeSpec]:
+    """Built-in catalogue + admin-created services as a single probe list."""
+    specs: list[_ProbeSpec] = []
+    for svc in SERVICES:
+        sub_id = svc["id"]
+        ext_url = f"https://{sub_id}.{settings.cf_zone_name}"
+        int_url = settings.probe_targets.get(sub_id, ext_url)
+        specs.append(
+            _ProbeSpec(
+                id=sub_id,
+                name=svc["name"],
+                icon=svc["icon"],
+                desc=svc["desc"],
+                sub=f"{sub_id}.{settings.cf_zone_name}",
+                int_url=int_url,
+                ext_url=ext_url,
+                custom=False,
+            )
+        )
+    for cs in await registry.list_services():
+        internal = str(cs["internal_url"])
+        ext = cs.get("ext_url") or None
+        specs.append(
+            _ProbeSpec(
+                id=str(cs["id"]),
+                name=str(cs["name"]),
+                icon=str(cs["icon"] or "cloud"),
+                desc=str(cs["desc"] or ""),
+                sub=_display_host(ext or internal),
+                int_url=internal,
+                ext_url=ext,
+                custom=True,
+            )
+        )
+    return specs
 
 
 async def _probe(client: httpx.AsyncClient, url: str, timeout: float) -> tuple[bool, int, int | None]:
@@ -40,6 +99,7 @@ async def _probe(client: httpx.AsyncClient, url: str, timeout: float) -> tuple[b
 async def probe_all(settings: Settings) -> list[ServiceStatus]:
     results: list[ServiceStatus] = []
     timeout = settings.probe_timeout_s
+    specs = await _build_specs(settings)
     # External probes go through Cloudflare with a real cert chain — verify TLS
     # so a MITM/DNS-hijack against the public hostname shows up as down.
     # Internal probes hit LAN hosts with self-signed/private-CA certs, so TLS
@@ -48,34 +108,40 @@ async def probe_all(settings: Settings) -> list[ServiceStatus]:
         httpx.AsyncClient(verify=True, timeout=timeout) as ext_client,
         httpx.AsyncClient(verify=False, timeout=timeout) as int_client,
     ):
-        async def run(svc: dict[str, str]) -> ServiceStatus:
-            sub_id = svc["id"]
-            ext_url = f"https://{sub_id}.{settings.cf_zone_name}"
-            int_url = settings.probe_targets.get(sub_id, ext_url)
-            (ext_ok, ext_ms, ext_code), (int_ok, int_ms, int_code) = await asyncio.gather(
-                _probe(ext_client, ext_url, timeout),
-                _probe(int_client, int_url, timeout),
-            )
-            ms = int_ms if int_ok else ext_ms
-            if not ext_ok and not int_ok:
-                status = "err"
-            elif not ext_ok or not int_ok:
-                status = "warn"
-            elif ms > 800:
-                status = "warn"
+        async def run(spec: _ProbeSpec) -> ServiceStatus:
+            int_ok, int_ms, int_code = await _probe(int_client, spec.int_url, timeout)
+            note: str | None = None
+            if spec.ext_url is not None:
+                ext_ok, ext_ms, ext_code = await _probe(ext_client, spec.ext_url, timeout)
+                ms = int_ms if int_ok else ext_ms
+                if not ext_ok and not int_ok:
+                    status = "err"
+                elif not ext_ok or not int_ok:
+                    status = "warn"
+                elif ms > 800:
+                    status = "warn"
+                else:
+                    status = "ok"
+                if not ext_ok and int_ok:
+                    note = "Cloudflare-Tunnel oder DNS-Konfiguration prüfen"
+                elif not int_ok and ext_ok:
+                    note = "Service intern nicht erreichbar"
             else:
-                status = "ok"
-            note = None
-            if not ext_ok and int_ok:
-                note = "Cloudflare-Tunnel oder DNS-Konfiguration prüfen"
-            elif not int_ok and ext_ok:
-                note = "Service intern nicht erreichbar"
+                # Internal-only service (e.g. quick-added from a guest IP).
+                ext_ok, ext_ms, ext_code = False, 0, None
+                ms = int_ms
+                if not int_ok:
+                    status = "err"
+                elif ms > 800:
+                    status = "warn"
+                else:
+                    status = "ok"
             return ServiceStatus(
-                id=sub_id,
-                name=svc["name"],
-                sub=f"{sub_id}.{settings.cf_zone_name}",
-                icon=svc["icon"],
-                desc=svc["desc"],
+                id=spec.id,
+                name=spec.name,
+                sub=spec.sub,
+                icon=spec.icon,
+                desc=spec.desc,
                 status=status,  # type: ignore[arg-type]
                 ms=ms,
                 ext=ext_ok,
@@ -83,9 +149,13 @@ async def probe_all(settings: Settings) -> list[ServiceStatus]:
                 code_ext=ext_code,
                 code_int=int_code,
                 note=note,
+                custom=spec.custom,
+                ext_monitored=spec.ext_url is not None,
+                internal_url=spec.int_url,
+                ext_url=spec.ext_url,
             )
 
-        results = await asyncio.gather(*(run(s) for s in SERVICES))
+        results = await asyncio.gather(*(run(s) for s in specs))
 
     # Persist a sample per service for the uptime view. Best-effort; if
     # storage is disabled or the write fails it's a no-op (see storage.py).

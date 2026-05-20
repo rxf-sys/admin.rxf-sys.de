@@ -175,6 +175,40 @@ async def _fetch_guest_ip(client: httpx.AsyncClient, settings: Settings, gtype: 
     return None
 
 
+async def _fetch_vm_mem(
+    client: httpx.AsyncClient, settings: Settings, vmid: int
+) -> tuple[int, int] | None:
+    """Accurate memory for a running QEMU VM, as a (used_b, total_b) pair.
+
+    The bulk list endpoint (``/nodes/{node}/qemu``) reports ``mem`` as the
+    host-side footprint of the KVM process — guest RAM *plus* QEMU emulation
+    overhead — which can exceed ``maxmem`` and never matches the figure shown
+    in the Proxmox web UI. The per-VM ``status/current`` endpoint carries the
+    guest-agent-reported usage that the PVE VM summary actually displays.
+
+    Returns ``None`` (caller keeps the list-endpoint value) when the status
+    endpoint is unreachable or doesn't carry usable memory fields. ``used`` is
+    clamped to ``total`` so a host-side overcount can never render as >100%.
+    """
+    try:
+        data = await _get(
+            client, settings, f"/nodes/{settings.proxmox_node}/qemu/{vmid}/status/current"
+        )
+    except httpx.HTTPError as e:
+        log.info("proxmox.vm_mem_unavailable", vmid=vmid, error=str(e))
+        return None
+    if not isinstance(data, dict):
+        return None
+    used = data.get("mem")
+    total = data.get("maxmem")
+    if not isinstance(used, (int, float)) or not isinstance(total, (int, float)):
+        return None
+    total_i = int(total)
+    if total_i <= 0:
+        return None
+    return min(int(used), total_i), total_i
+
+
 async def fetch_guests(settings: Settings) -> list[Guest]:
     async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=10.0) as client:
         try:
@@ -196,9 +230,16 @@ async def fetch_guests(settings: Settings) -> list[Guest]:
             running = entry.get("status") == "running"
             cpu = float(entry.get("cpu", 0.0))
             ram_used = int(entry.get("mem", 0))
-            ram_total = int(entry.get("maxmem", 0)) or 1
-            ram_pct = ram_used / ram_total
+            ram_total = int(entry.get("maxmem", 0))
             ip = await _fetch_guest_ip(client, settings, gtype, vmid) if running else None
+            # QEMU VMs: the list endpoint's `mem` is the host-side KVM process
+            # footprint and can read >100% of maxmem. Re-read the per-VM status
+            # endpoint for the guest-reported figure the PVE UI shows.
+            if running and gtype == "qemu":
+                vm_mem = await _fetch_vm_mem(client, settings, vmid)
+                if vm_mem is not None:
+                    ram_used, ram_total = vm_mem
+            ram_pct = ram_used / ram_total if ram_total else 0.0
             result.append(
                 Guest(
                     id=vmid,
@@ -210,7 +251,7 @@ async def fetch_guests(settings: Settings) -> list[Guest]:
                     service=GUEST_SERVICE_LABELS.get(vmid),
                     cpu_pct=cpu * 100.0,
                     ram_used_b=ram_used,
-                    ram_total_b=ram_total if ram_total > 1 else int(entry.get("maxmem", 0)),
+                    ram_total_b=ram_total,
                     uptime_s=int(entry.get("uptime", 0)),
                 )
             )
