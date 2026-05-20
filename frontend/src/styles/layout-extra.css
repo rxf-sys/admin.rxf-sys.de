@@ -472,3 +472,22 @@
 }
 .svc-cell-edit:hover svg { opacity: 1; }
 .svc-cell-input { height: 26px; font-size: 12px; width: 100%; max-width: 220px; }
+
+/* ============ custom service tile · remove badge ============ */
+.svc-tile-wrap { position: relative; display: grid; }
+.svc-tile-del {
+  position: absolute; top: -7px; right: -7px;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--surface-4);
+  border: 1px solid var(--border-2);
+  color: var(--text-3);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  z-index: 3;
+  opacity: 0.55;
+  transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.svc-tile-wrap:hover .svc-tile-del { opacity: 1; }
+.svc-tile-del:hover { background: var(--err); border-color: var(--err); color: #fff; }
+.svc-tile-del svg { width: 12px; height: 12px; }

@@ -413,6 +413,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               loading={svc.loading}
               isAdmin={isAdmin}
               onAddService={openAddService}
+              onDeleteService={setDeleteSvc}
             />
           </>
         )}
@@ -438,6 +439,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               loading={svc.loading}
               isAdmin={isAdmin}
               onAddService={openAddService}
+              onDeleteService={setDeleteSvc}
             />
           </>
         )}
