@@ -91,6 +91,11 @@ class TunnelStatus(BaseModel):
     regions: list[str] = Field(default_factory=list)
     cloudflared_version: str | None = None
     wan_ip: str | None = None
+    # ``reachable`` is False both when Cloudflare credentials are missing and
+    # when the API call fails — ``error`` carries the reason so the UI can
+    # tell "not configured" apart from a real outage.
+    reachable: bool = True
+    error: str | None = None
 
 
 # ---------- Backups ----------
@@ -178,3 +183,7 @@ class DNSRecordCheck(BaseModel):
 class CertsSnapshot(BaseModel):
     certs: list[CertInfo]
     dns: list[DNSRecordCheck]
+    # False when the Cloudflare API is unconfigured or unreachable, so the UI
+    # can tell "no certs" apart from "couldn't ask Cloudflare".
+    reachable: bool = True
+    error: str | None = None

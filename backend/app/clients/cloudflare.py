@@ -94,7 +94,10 @@ async def _get_paginated(
 
 async def fetch_tunnel_status(settings: Settings) -> TunnelStatus:
     if not (settings.cf_api_token and settings.cf_account_id and settings.cf_tunnel_id):
-        return TunnelStatus()
+        return TunnelStatus(
+            reachable=False,
+            error="CF_API_TOKEN, CF_ACCOUNT_ID oder CF_TUNNEL_ID nicht konfiguriert",
+        )
     async with httpx.AsyncClient(timeout=8.0) as client:
         try:
             tunnel = await _get(
@@ -114,7 +117,12 @@ async def fetch_tunnel_status(settings: Settings) -> TunnelStatus:
                 error=str(e),
                 error_type=type(e).__name__,
             )
-            return TunnelStatus(id=settings.cf_tunnel_id, status="unknown")
+            return TunnelStatus(
+                id=settings.cf_tunnel_id,
+                status="unknown",
+                reachable=False,
+                error=f"Cloudflare-API nicht erreichbar: {type(e).__name__}",
+            )
 
     raw_status = (tunnel.get("status") if isinstance(tunnel, dict) else None) or "unknown"
     mapped = {"healthy": "healthy", "degraded": "degraded", "down": "down", "inactive": "down"}.get(
@@ -150,15 +158,17 @@ async def fetch_wan_ip() -> str | None:
             return None
 
 
-async def fetch_certs(settings: Settings) -> list[CertInfo]:
+async def fetch_certs(settings: Settings) -> tuple[list[CertInfo], str | None]:
+    """Return ``(certs, error)``. ``error`` is None on success, otherwise a
+    human-readable reason (unconfigured / API unreachable)."""
     if not (settings.cf_api_token and settings.cf_zone_id):
-        return []
+        return [], "CF_API_TOKEN oder CF_ZONE_ID nicht konfiguriert"
     async with httpx.AsyncClient(timeout=8.0) as client:
         try:
             packs = await _get(client, settings, f"/zones/{settings.cf_zone_id}/ssl/certificate_packs")
         except httpx.HTTPError as e:
             log.warning("cloudflare.certs_failed", zone=settings.cf_zone_id, error=str(e))
-            return []
+            return [], f"Cloudflare-API nicht erreichbar: {type(e).__name__}"
     out: list[CertInfo] = []
     now = datetime.now(timezone.utc)
     if isinstance(packs, list):
@@ -188,7 +198,7 @@ async def fetch_certs(settings: Settings) -> list[CertInfo]:
         key = (c.domain, c.issuer)
         if key not in dedup or dedup[key].days_left > c.days_left:
             dedup[key] = c
-    return sorted(dedup.values(), key=lambda c: c.days_left)
+    return sorted(dedup.values(), key=lambda c: c.days_left), None
 
 
 async def fetch_access_sessions(settings: Settings, hours: int = 24, limit: int = 100) -> dict:

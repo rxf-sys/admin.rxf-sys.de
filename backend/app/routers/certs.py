@@ -16,10 +16,16 @@ router = APIRouter(prefix="/api/certs", tags=["certs"], dependencies=[Depends(ve
 @router.get("", response_model=CertsSnapshot)
 async def get_certs(settings: Settings = Depends(get_settings)) -> CertsSnapshot:
     async def loader() -> CertsSnapshot:
-        certs, dns = await asyncio.gather(
+        certs_result, dns = await asyncio.gather(
             cloudflare.fetch_certs(settings),
             cloudflare.fetch_dns_consistency(settings),
         )
-        return CertsSnapshot(certs=certs, dns=dns)
+        certs, cert_error = certs_result
+        return CertsSnapshot(
+            certs=certs,
+            dns=dns,
+            reachable=cert_error is None,
+            error=cert_error,
+        )
 
     return await cache.get_or_set("certs", settings.cache_ttl_certs, loader)

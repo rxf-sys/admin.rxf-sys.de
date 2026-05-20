@@ -28,6 +28,17 @@ import type { Account, BackupSnapshot, Guest } from './types';
 
 const SECTION_KEYS: Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare', 'settings'];
 
+// Human-readable section names for the tabpanel's aria-label.
+const SECTION_LABELS: Record<Section, string> = {
+  overview: 'Übersicht',
+  server: 'Server',
+  network: 'Netzwerk',
+  backup: 'Backup',
+  cloudflare: 'Cloudflare',
+  admin: 'Konten',
+  settings: 'Einstellungen',
+};
+
 export function App() {
   const auth = useAuth();
 
@@ -54,6 +65,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   const [selectedSvc, setSelectedSvc] = useState<string | null>(null);
   const [logsGuest, setLogsGuest] = useState<Guest | null>(null);
   const [confirmGuest, setConfirmGuest] = useState<Guest | null>(null);
+  const [verifyTarget, setVerifyTarget] = useState<BackupSnapshot | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -191,22 +203,19 @@ function Dashboard({ user, onLogout }: DashboardProps) {
     }
   };
 
-  const onVerifyBackup = useCallback(
-    async (snap: BackupSnapshot) => {
-      const ok = window.confirm(
-        `Verifikation für ${snap.target} (${new Date(snap.backup_time * 1000).toLocaleString()}) starten?`,
-      );
-      if (!ok) return;
-      try {
-        const r = await api.verifyBackup(snap.backup_type, snap.backup_id, snap.backup_time);
-        pushToast({ level: 'ok', title: `Verify gestartet · ${snap.target}`, body: `UPID: ${r.upid.slice(0, 32)}…` });
-        setTimeout(bkp.refresh, 2000);
-      } catch (e) {
-        pushToast({ level: 'err', title: 'Verify fehlgeschlagen', body: (e as Error).message });
-      }
-    },
-    [pushToast, bkp],
-  );
+  // Backup verification routes through the ConfirmModal (no native window.confirm).
+  const confirmVerify = useCallback(async () => {
+    const snap = verifyTarget;
+    if (!snap) return;
+    setVerifyTarget(null);
+    try {
+      const r = await api.verifyBackup(snap.backup_type, snap.backup_id, snap.backup_time);
+      pushToast({ level: 'ok', title: `Verify gestartet · ${snap.target}`, body: `UPID: ${r.upid.slice(0, 32)}…` });
+      setTimeout(bkp.refresh, 2000);
+    } catch (e) {
+      pushToast({ level: 'err', title: 'Verify fehlgeschlagen', body: (e as Error).message });
+    }
+  }, [verifyTarget, pushToast, bkp]);
 
   const onSnapshot = useCallback(async () => {
     const snapshot = {
@@ -234,15 +243,28 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   useEffect(() => {
     if (errSig === lastErrSig.current) return;
     lastErrSig.current = errSig;
-    const errs: { name: string; err: Error | null }[] = [
+    const failed = [
       { name: 'System', err: sys.error },
       { name: 'Services', err: svc.error },
       { name: 'Tunnel', err: tun.error },
       { name: 'Backups', err: bkp.error },
       { name: 'Netzwerk', err: net.error },
-    ];
-    for (const { name, err } of errs) {
-      if (err) pushToast({ level: 'err', title: `${name}-API Fehler`, body: err.message });
+    ].filter((e) => e.err);
+    if (failed.length === 0) return;
+    // Bundle simultaneous failures into a single toast instead of flooding
+    // the user with one per endpoint.
+    if (failed.length === 1) {
+      pushToast({
+        level: 'err',
+        title: `${failed[0].name}-API Fehler`,
+        body: failed[0].err!.message,
+      });
+    } else {
+      pushToast({
+        level: 'err',
+        title: `${failed.length} API-Endpunkte nicht erreichbar`,
+        body: failed.map((e) => e.name).join(', '),
+      });
     }
   }, [errSig, sys.error, svc.error, tun.error, bkp.error, net.error, pushToast]);
 
@@ -297,7 +319,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
           <button className="btn" type="button" onClick={() => setPaused(false)}>Fortsetzen</button>
         </div>
       )}
-      <main className="dash-main" id={`section-${section}`} role="tabpanel" aria-label={section}>
+      <main className="dash-main" id={`section-${section}`} role="tabpanel" aria-label={SECTION_LABELS[section]}>
         {section === 'overview' && (
           <>
             <AttentionHero
@@ -305,6 +327,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               services={services}
               certs={cer.data?.certs ?? []}
               backups={bkp.data}
+              tunnel={tun.data}
               certWarnDays={ui.certWarnDays}
               onInspectService={setSelectedSvc}
               onInspectGuest={onInspectGuest}
@@ -312,7 +335,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             <HostPanel host={sys.data?.host ?? null} guests={guests} />
             <div className="quick-stats">
               <KpiStrip guests={guests} services={services} />
-              <AuditLog />
+              <AuditLog pollMs={pollFast} />
             </div>
             <ServiceGrid
               services={services}
@@ -327,7 +350,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             <HostPanel host={sys.data?.host ?? null} guests={guests} />
             <div className="quick-stats">
               <KpiStrip guests={guests} services={services} />
-              <AuditLog />
+              <AuditLog pollMs={pollFast} />
             </div>
             <VMTable guests={guests} onLogs={onLogs} onRestart={onRestart} />
             <ServiceGrid
@@ -338,12 +361,14 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             />
           </>
         )}
-        {section === 'network' && <NetworkPanel network={net.data} tunnel={tun.data} />}
+        {section === 'network' && (
+          <NetworkPanel network={net.data} tunnel={tun.data} pollMs={pollFast} />
+        )}
         {section === 'backup' && (
           <BackupsSection
             backups={bkp.data}
             guests={guests}
-            onVerify={onVerifyBackup}
+            onVerify={setVerifyTarget}
             onOpenGuest={onLogs}
           />
         )}
@@ -354,6 +379,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             services={services}
             zoneName="rxf-sys.de"
             onSelectService={setSelectedSvc}
+            pollMs={pollCerts}
           />
         )}
         {section === 'admin' && isAdmin && (
@@ -392,9 +418,39 @@ function Dashboard({ user, onLogout }: DashboardProps) {
       />
       <ConfirmModal
         open={!!confirmGuest}
-        guest={confirmGuest}
+        title="Container neu starten?"
+        message={
+          confirmGuest && (
+            <>
+              <p style={{ margin: '0 0 8px' }}>
+                <strong>{confirmGuest.name}</strong> ({confirmGuest.type} {confirmGuest.id}) wird neu gestartet.
+              </p>
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--text-3)' }}>
+                Die zugehörigen Services sind dabei ca. 30–60 Sekunden nicht erreichbar.
+              </p>
+            </>
+          )
+        }
+        confirmLabel="Restart"
+        danger
         onConfirm={confirmRestart}
         onCancel={() => setConfirmGuest(null)}
+      />
+      <ConfirmModal
+        open={!!verifyTarget}
+        title="Backup verifizieren?"
+        message={
+          verifyTarget && (
+            <p style={{ margin: 0 }}>
+              Verifikation für <strong>{verifyTarget.target}</strong> (
+              {new Date(verifyTarget.backup_time * 1000).toLocaleString()}) starten? Der Job läuft
+              asynchron auf dem PBS.
+            </p>
+          )
+        }
+        confirmLabel="Verify starten"
+        onConfirm={confirmVerify}
+        onCancel={() => setVerifyTarget(null)}
       />
       <CommandPalette
         open={paletteOpen}

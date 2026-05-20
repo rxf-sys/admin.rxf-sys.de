@@ -107,8 +107,9 @@ async def test_certs_dedupes_and_sorts(settings):
         },
     )
 
-    certs = await cloudflare.fetch_certs(settings)
+    certs, error = await cloudflare.fetch_certs(settings)
 
+    assert error is None
     assert len(certs) == 1
     assert certs[0].domain == "example.test"
     assert certs[0].days_left <= 10

@@ -30,11 +30,25 @@ const CELL_CLASS: Record<BackupHeatmapCell['label'], string> = {
 export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props) {
   const [heatmap, setHeatmap] = useState<BackupHeatmap | null>(null);
   const [storage, setStorage] = useState<BackupStorage | null>(null);
+  const [heatmapError, setHeatmapError] = useState(false);
+  const [storageError, setStorageError] = useState(false);
 
   useEffect(() => {
     const ctrl = new AbortController();
-    api.backupsHeatmap(30, ctrl.signal).then(setHeatmap).catch(() => {});
-    api.backupsStorageByGuest(ctrl.signal).then(setStorage).catch(() => {});
+    setHeatmapError(false);
+    setStorageError(false);
+    api
+      .backupsHeatmap(30, ctrl.signal)
+      .then(setHeatmap)
+      .catch(() => {
+        if (!ctrl.signal.aborted) setHeatmapError(true);
+      });
+    api
+      .backupsStorageByGuest(ctrl.signal)
+      .then(setStorage)
+      .catch(() => {
+        if (!ctrl.signal.aborted) setStorageError(true);
+      });
     return () => ctrl.abort();
   }, [backups]);
 
@@ -102,7 +116,11 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
               {heatmap?.success_pct == null ? '—' : `success: ${heatmap.success_pct.toFixed(1)}%`}
             </span>
           </div>
-          {heatmap === null ? (
+          {heatmapError ? (
+            <div className="dim" style={{ fontSize: 12, color: 'var(--err)', padding: '20px 0' }}>
+              Heatmap konnte nicht geladen werden.
+            </div>
+          ) : heatmap === null ? (
             <div className="dim" style={{ fontSize: 12, padding: '20px 0' }}>Lade…</div>
           ) : !heatmap.reachable ? (
             <div className="dim" style={{ fontSize: 12, color: 'var(--err)', padding: '20px 0' }}>
@@ -141,7 +159,11 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
               {storage?.total_b ? `total ${fmtBytes(storage.total_b)}` : '—'}
             </span>
           </div>
-          {storage === null ? (
+          {storageError ? (
+            <div className="dim" style={{ fontSize: 12, color: 'var(--err)' }}>
+              Storage-Aufschlüsselung konnte nicht geladen werden.
+            </div>
+          ) : storage === null ? (
             <div className="dim" style={{ fontSize: 12 }}>Lade…</div>
           ) : storage.items.length === 0 ? (
             <div className="dim" style={{ fontSize: 12 }}>Keine Snapshots im aktuellen Retention-Fenster.</div>

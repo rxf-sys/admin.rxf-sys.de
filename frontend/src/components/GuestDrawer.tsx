@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { BackupSnapshot, Guest, GuestHistory, GuestTask } from '../types';
 import { Dot, ICONS, Sparkline, fmtBytes, fmtTimeAgo, fmtUptime } from './primitives';
@@ -30,6 +30,9 @@ export function GuestDrawer({ open, guest, onClose, onRestart }: Props) {
   const [backups, setBackups] = useState<BackupSnapshot[] | null>(null);
   const [backupsErr, setBackupsErr] = useState<string | null>(null);
 
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -38,6 +41,15 @@ export function GuestDrawer({ open, guest, onClose, onRestart }: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (open) {
+      restoreFocusRef.current = document.activeElement as HTMLElement | null;
+      const t = setTimeout(() => closeBtnRef.current?.focus(), 60);
+      return () => clearTimeout(t);
+    }
+    restoreFocusRef.current?.focus?.();
+  }, [open]);
 
   useEffect(() => {
     if (!open || !guest) {
@@ -128,12 +140,18 @@ export function GuestDrawer({ open, guest, onClose, onRestart }: Props) {
   return (
     <>
       <div className={`drawer-backdrop ${open ? 'open' : ''}`} onClick={onClose} />
-      <aside className={`drawer ${open ? 'open' : ''}`} aria-hidden={!open} aria-label={`Logs ${guest.name}`}>
+      <aside
+        className={`drawer ${open ? 'open' : ''}`}
+        aria-hidden={!open}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="guest-drawer-title"
+      >
         <div className="drawer-h">
           <span className="svc-icon" style={{ width: 36, height: 36 }}>{ICONS.server}</span>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h2 style={{ margin: 0, fontSize: 20 }}>{guest.name}</h2>
+              <h2 id="guest-drawer-title" style={{ margin: 0, fontSize: 20 }}>{guest.name}</h2>
               <Dot status={guest.status} />
               <span className={`type-pill type-${guest.type.toLowerCase()}`}>{guest.type}</span>
               <span className={`badge ${guest.running ? 'ok' : 'idle'}`}>
@@ -144,7 +162,14 @@ export function GuestDrawer({ open, guest, onClose, onRestart }: Props) {
               {guest.id} · {guest.ip ?? '—'} · {guest.service ?? 'no service tag'}
             </span>
           </div>
-          <button className="btn icon" onClick={onClose} title="Close" type="button">
+          <button
+            ref={closeBtnRef}
+            className="btn icon"
+            onClick={onClose}
+            title="Schließen"
+            aria-label="Drawer schließen"
+            type="button"
+          >
             {ICONS.close}
           </button>
         </div>

@@ -83,6 +83,8 @@ export interface TunnelStatus {
   regions: string[];
   cloudflared_version: string | null;
   wan_ip: string | null;
+  reachable: boolean;
+  error: string | null;
 }
 
 export interface BackupSnapshot {
@@ -164,6 +166,8 @@ export interface DNSRecordCheck {
 export interface CertsSnapshot {
   certs: CertInfo[];
   dns: DNSRecordCheck[];
+  reachable: boolean;
+  error: string | null;
 }
 
 export type Role = 'admin' | 'user';
