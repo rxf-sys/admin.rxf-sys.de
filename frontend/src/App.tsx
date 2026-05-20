@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api/client';
+import { AdminPanel } from './components/AdminPanel';
 import { AttentionHero } from './components/AttentionHero';
 import { AuditLog } from './components/AuditLog';
 import { BackupsSection } from './components/BackupsSection';
@@ -11,6 +12,7 @@ import { GuestDrawer } from './components/GuestDrawer';
 import { Header } from './components/Header';
 import { HostPanel } from './components/HostPanel';
 import { KpiStrip } from './components/KpiStrip';
+import { LoginPage } from './components/LoginPage';
 import { NetworkPanel } from './components/NetworkPanel';
 import { SectionNav } from './components/SectionNav';
 import { ServiceGrid } from './components/ServiceGrid';
@@ -18,15 +20,35 @@ import { SettingsPage } from './components/SettingsPage';
 import { ShortcutsHelp } from './components/ShortcutsHelp';
 import { Toasts, type Toast } from './components/Toasts';
 import { VMTable } from './components/VMTable';
+import { useAuth } from './hooks/useAuth';
 import { usePoll } from './hooks/usePoll';
 import { type Section, useSection } from './hooks/useSection';
 import { useResolvedTheme, useUISettings } from './hooks/useTheme';
-import type { BackupSnapshot, Guest } from './types';
+import type { Account, BackupSnapshot, Guest } from './types';
 
 const SECTION_KEYS: Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare', 'settings'];
 
 export function App() {
-  const [ui, setUI] = useUISettings();
+  const auth = useAuth();
+
+  if (auth.status === 'loading') {
+    return <div className="spinner-page">Lade…</div>;
+  }
+  if (auth.status === 'anon' || !auth.user) {
+    return <LoginPage onLogin={auth.login} />;
+  }
+  // Remount the dashboard per account so all per-user state (settings,
+  // polls, drawers) starts clean after a logout/login.
+  return <Dashboard key={auth.user.id} user={auth.user} onLogout={auth.logout} />;
+}
+
+interface DashboardProps {
+  user: Account;
+  onLogout: () => Promise<void>;
+}
+
+function Dashboard({ user, onLogout }: DashboardProps) {
+  const [ui, setUI, mergeUI] = useUISettings();
   const resolvedTheme = useResolvedTheme(ui.theme);
   const [section, setSection] = useSection();
   const [selectedSvc, setSelectedSvc] = useState<string | null>(null);
@@ -37,12 +59,43 @@ export function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [paused, setPaused] = useState(false);
   const toastIdRef = useRef(1);
+  const isAdmin = user.role === 'admin';
 
   const pushToast = useCallback((t: Omit<Toast, 'id'>) => {
     const id = toastIdRef.current++;
     setToasts((s) => [...s, { id, ...t }]);
     setTimeout(() => setToasts((s) => s.filter((x) => x.id !== id)), 4500);
   }, []);
+
+  // --- Per-user settings sync ---
+  // Hydrate from the server once after mount, then push debounced on change.
+  const settingsHydrated = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getAccountSettings()
+      .then((r) => {
+        if (cancelled) return;
+        if (r.settings && Object.keys(r.settings).length > 0) mergeUI(r.settings);
+      })
+      .catch(() => {
+        /* fall back to localStorage */
+      })
+      .finally(() => {
+        if (!cancelled) settingsHydrated.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mergeUI]);
+
+  useEffect(() => {
+    if (!settingsHydrated.current) return;
+    const t = setTimeout(() => {
+      api.putAccountSettings(ui as unknown as Record<string, unknown>).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [ui]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -71,7 +124,6 @@ export function App() {
   const pollFast = paused ? 0 : ui.refreshIntervalMs;
   const pollBackup = paused ? 0 : ui.pollBackupMs;
   const pollCerts = paused ? 0 : ui.pollCertsMs;
-  const me = usePoll((sig) => api.me(sig), 0);
   const sys = usePoll((sig) => api.system(sig), pollFast);
   const svc = usePoll((sig) => api.services(sig), pollFast);
   const tun = usePoll((sig) => api.tunnel(sig), pollFast);
@@ -113,6 +165,7 @@ export function App() {
       network: netBad,
       backup: pbsDown + failedJobs,
       cloudflare: tunBad + dnsBad + certBad,
+      admin: 0,
       settings: 0,
     };
   }, [services, sys.data, bkp.data, tun.data, net.data, cer.data, ui.certWarnDays]);
@@ -158,7 +211,7 @@ export function App() {
   const onSnapshot = useCallback(async () => {
     const snapshot = {
       capturedAt: new Date().toISOString(),
-      identity: me.data,
+      identity: user,
       system: sys.data,
       services: svc.data,
       tunnel: tun.data,
@@ -173,7 +226,7 @@ export function App() {
     } catch (e) {
       pushToast({ level: 'err', title: 'Snapshot fehlgeschlagen', body: (e as Error).message || 'Zwischenablage nicht verfügbar' });
     }
-  }, [me.data, sys.data, svc.data, tun.data, bkp.data, net.data, cer.data, pushToast]);
+  }, [user, sys.data, svc.data, tun.data, bkp.data, net.data, cer.data, pushToast]);
 
   const anyError = sys.error || svc.error || tun.error;
   const errSig = `${sys.error?.message ?? ''}|${svc.error?.message ?? ''}|${tun.error?.message ?? ''}|${bkp.error?.message ?? ''}|${net.error?.message ?? ''}`;
@@ -204,6 +257,10 @@ export function App() {
     setUI('theme', next);
   }, [ui.theme, setUI]);
 
+  const doLogout = useCallback(async () => {
+    await onLogout();
+  }, [onLogout]);
+
   return (
     <div
       className="dashboard"
@@ -219,7 +276,7 @@ export function App() {
         servicesCritical={servicesCritical}
         onRefresh={refreshAll}
         refreshing={sys.loading || svc.loading}
-        email={me.data?.email ?? null}
+        email={user.email ?? user.username}
         onOpenPalette={() => setPaletteOpen(true)}
         paused={paused}
         onTogglePause={() => setPaused((p) => !p)}
@@ -228,7 +285,7 @@ export function App() {
         onToggleTheme={onToggleTheme}
         isDarkTheme={resolvedTheme === 'dark'}
       />
-      <SectionNav active={section} onChange={setSection} alerts={alerts} />
+      <SectionNav active={section} onChange={setSection} alerts={alerts} isAdmin={isAdmin} />
       {anyError && (
         <div className="error-banner">
           <strong>API-Fehler:</strong> {anyError.message}
@@ -299,14 +356,21 @@ export function App() {
             onSelectService={setSelectedSvc}
           />
         )}
+        {section === 'admin' && isAdmin && (
+          <AdminPanel
+            currentUserId={user.id}
+            onError={(msg) => pushToast({ level: 'err', title: 'Konten-Fehler', body: msg })}
+            onInfo={(msg) => pushToast({ level: 'ok', title: 'Konten', body: msg })}
+          />
+        )}
         {section === 'settings' && (
           <SettingsPage
             settings={ui}
             update={setUI}
-            email={me.data?.email ?? null}
-            onLogout={() => {
-              window.location.href = '/cdn-cgi/access/logout';
-            }}
+            account={user}
+            onLogout={doLogout}
+            onPasswordChanged={() => pushToast({ level: 'ok', title: 'Passwort geändert', body: 'Dein Passwort wurde aktualisiert.' })}
+            onError={(msg) => pushToast({ level: 'err', title: 'Fehler', body: msg })}
           />
         )}
       </main>

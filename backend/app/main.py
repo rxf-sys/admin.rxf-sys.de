@@ -9,13 +9,16 @@ import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import storage
-from .auth import verify_cf_access
+from . import accounts, storage
+from .auth import verify_session
 from .clients import cloudflare, pbs, probes, proxmox, unifi
 from .config import get_settings
 from .notify import NotificationCenter, run_notification_loop
 from .routers import (
+    account as account_router,
+    admin as admin_router,
     audit,
+    auth as auth_router,
     backups,
     certs,
     cloudflare as cloudflare_router,
@@ -81,11 +84,12 @@ async def _gather_notify_snapshot() -> dict:
 
 
 async def _history_cleanup_loop() -> None:
-    """Periodically drop samples older than the retention window."""
+    """Periodically drop old metric samples and expired login sessions."""
     while True:
         try:
             await asyncio.sleep(_settings.history_cleanup_interval_s)
             await storage.cleanup_old(_settings.history_retention_days)
+            await accounts.cleanup_expired_sessions()
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001 - never let the loop die
@@ -141,11 +145,17 @@ async def lifespan(app: FastAPI):
     cleanup_task: asyncio.Task | None = None
     metrics_task: asyncio.Task | None = None
 
+    # Account auth is mandatory — its schema + first-admin bootstrap run
+    # before anything else so the API is never up without a way to log in.
+    await accounts.ensure_schema(_settings)
+    await accounts.bootstrap_admin(_settings)
+
     await storage.ensure_schema(_settings)
-    if storage.is_enabled():
-        cleanup_task = asyncio.create_task(_history_cleanup_loop())
-        if _settings.metrics_sample_interval_s > 0:
-            metrics_task = asyncio.create_task(_metrics_sample_loop())
+    # The cleanup loop prunes expired sessions too, so it runs even when the
+    # opt-in metrics storage is disabled.
+    cleanup_task = asyncio.create_task(_history_cleanup_loop())
+    if storage.is_enabled() and _settings.metrics_sample_interval_s > 0:
+        metrics_task = asyncio.create_task(_metrics_sample_loop())
 
     if _settings.notify_webhook_url:
         center = NotificationCenter(settings=_settings)
@@ -196,14 +206,19 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/api/me")
-async def me(claims: dict = Depends(verify_cf_access)) -> dict:
+async def me(user: dict = Depends(verify_session)) -> dict:
+    """Current account identity. Kept for the frontend's existing api.me()."""
     return {
-        "email": claims.get("email"),
-        "sub": claims.get("sub"),
-        "aud": claims.get("aud"),
+        "id": user["id"],
+        "username": user["username"],
+        "email": user.get("email"),
+        "role": user.get("role", "user"),
     }
 
 
+app.include_router(auth_router.router)
+app.include_router(account_router.router)
+app.include_router(admin_router.router)
 app.include_router(system.router)
 app.include_router(services.router)
 app.include_router(tunnel.router)

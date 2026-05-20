@@ -16,22 +16,26 @@ interface Props {
   active: Section;
   onChange: (s: Section) => void;
   alerts: Record<Section, number>;
+  /** When true, the admin-only "Konten" tab is shown. */
+  isAdmin: boolean;
 }
 
-const TABS: { id: Section; label: string; icon: keyof typeof ICONS }[] = [
+const TABS: { id: Section; label: string; icon: keyof typeof ICONS; adminOnly?: boolean }[] = [
   { id: 'overview', label: 'Übersicht', icon: 'grid' },
   { id: 'server', label: 'Server', icon: 'server' },
   { id: 'network', label: 'Netzwerk', icon: 'network' },
   { id: 'backup', label: 'Backup', icon: 'archive' },
   { id: 'cloudflare', label: 'Cloudflare', icon: 'cloud' },
+  { id: 'admin', label: 'Konten', icon: 'user', adminOnly: true },
   { id: 'settings', label: 'Einstellungen', icon: 'gear' },
 ];
 
-export function SectionNav({ active, onChange, alerts }: Props) {
+export function SectionNav({ active, onChange, alerts, isAdmin }: Props) {
+  const tabs = TABS.filter((t) => !t.adminOnly || isAdmin);
   return (
     <nav className="section-nav" aria-label="Dashboard-Bereich">
       <ul className="section-nav-list" role="tablist">
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const isActive = t.id === active;
           const meta: SectionMeta = { ...t, alerts: alerts[t.id] ?? 0 };
           return (

@@ -7,13 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import storage
 from ..audit import record as audit_record
-from ..auth import verify_cf_access
+from ..auth import verify_session
 from ..cache import cache
 from ..clients import pbs, proxmox
 from ..config import Settings, get_settings
 from ..models import SystemSnapshot
 
-router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(verify_cf_access)])
+router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(verify_session)])
 
 
 @router.get("", response_model=SystemSnapshot)
@@ -35,11 +35,11 @@ async def restart(
     request: Request,
     type: str = "lxc",
     settings: Settings = Depends(get_settings),
-    claims: dict = Depends(verify_cf_access),
+    claims: dict = Depends(verify_session),
 ) -> dict:
     if type not in ("lxc", "qemu", "ct", "vm"):
         raise HTTPException(status_code=400, detail="type must be lxc|qemu|ct|vm")
-    actor = claims.get("email") or claims.get("sub") or "unknown"
+    actor = claims.get("email") or claims.get("username") or "unknown"
     audit_record(
         "guest.restart",
         actor=actor,

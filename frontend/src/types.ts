@@ -166,10 +166,24 @@ export interface CertsSnapshot {
   dns: DNSRecordCheck[];
 }
 
-export interface Identity {
+export type Role = 'admin' | 'user';
+
+export interface Account {
+  id: number;
+  username: string;
   email: string | null;
-  sub: string | null;
-  aud: string | null;
+  role: Role;
+  disabled: boolean;
+  created_at: number;
+  last_login_at: number | null;
+}
+
+/** Shape returned by GET /api/me — the lightweight identity probe. */
+export interface Identity {
+  id: number;
+  username: string;
+  email: string | null;
+  role: Role;
 }
 
 export interface GuestTask {

@@ -3,12 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ..audit import recent
-from ..auth import verify_cf_access
+from ..auth import verify_session
 
-router = APIRouter(prefix="/api/audit", tags=["audit"], dependencies=[Depends(verify_cf_access)])
+router = APIRouter(prefix="/api/audit", tags=["audit"], dependencies=[Depends(verify_session)])
 
 events_router = APIRouter(
-    prefix="/api/events", tags=["events"], dependencies=[Depends(verify_cf_access)]
+    prefix="/api/events", tags=["events"], dependencies=[Depends(verify_session)]
 )
 
 

@@ -118,7 +118,12 @@ export function useUISettings() {
   const update = <K extends keyof UISettings>(key: K, value: UISettings[K]) =>
     setS((prev) => ({ ...prev, [key]: value }));
 
-  return [s, update] as const;
+  // Merge a (partial, untrusted) settings object — used to hydrate from the
+  // server after login. Runs through `sanitize` so unknown keys are dropped.
+  const merge = (partial: unknown) =>
+    setS((prev) => sanitize({ ...prev, ...(partial as Record<string, unknown>) }));
+
+  return [s, update, merge] as const;
 }
 
 /**

@@ -6,13 +6,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from .. import storage
-from ..auth import verify_cf_access
+from ..auth import verify_session
 from ..cache import cache
 from ..clients import probes
 from ..config import Settings, get_settings
 from ..models import ServiceStatus
 
-router = APIRouter(prefix="/api/services", tags=["services"], dependencies=[Depends(verify_cf_access)])
+router = APIRouter(prefix="/api/services", tags=["services"], dependencies=[Depends(verify_session)])
 
 
 _KNOWN_IDS = {s["id"] for s in probes.SERVICES}

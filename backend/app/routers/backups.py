@@ -6,13 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..audit import record as audit_record
-from ..auth import verify_cf_access
+from ..auth import verify_session
 from ..cache import cache
 from ..clients import pbs
 from ..config import Settings, get_settings
 from ..models import BackupSummary
 
-router = APIRouter(prefix="/api/backups", tags=["backups"], dependencies=[Depends(verify_cf_access)])
+router = APIRouter(prefix="/api/backups", tags=["backups"], dependencies=[Depends(verify_session)])
 
 
 @router.get("", response_model=BackupSummary)
@@ -34,7 +34,7 @@ async def verify_snapshot(
     body: VerifyRequest,
     request: Request,
     settings: Settings = Depends(get_settings),
-    claims: dict = Depends(verify_cf_access),
+    claims: dict = Depends(verify_session),
 ) -> dict:
     """Trigger a verify job for a single PBS snapshot.
 
@@ -48,7 +48,7 @@ async def verify_snapshot(
     if body.backup_time <= 0:
         raise HTTPException(status_code=400, detail="backup_time must be a positive epoch")
 
-    actor = claims.get("email") or claims.get("sub") or "unknown"
+    actor = claims.get("email") or claims.get("username") or "unknown"
     audit_record(
         "pbs.verify",
         actor=actor,

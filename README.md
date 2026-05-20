@@ -34,7 +34,7 @@ separate, Cloudflare-Access-protected subdomain
                   │   └────┬─────┘  │
                   │        │        │
                   │   ┌────▼─────┐  │
-                  │   │ FastAPI  │  │   verifies Cf-Access-Jwt-Assertion,
+                  │   │ FastAPI  │  │   session-cookie auth,
                   │   │ :8080    │  │   aggregates + caches all upstream APIs
                   │   └────┬─────┘  │
                   └────────┼────────┘
@@ -49,10 +49,10 @@ separate, Cloudflare-Access-protected subdomain
   single-flight de-duplication. All API secrets live server-side; the SPA
   only ever sees the aggregated JSON.
 - **Frontend** — Vite + React 18 + TypeScript SPA.
-- **Auth** — Cloudflare Access enforces login at the edge. The backend
-  re-validates `Cf-Access-Jwt-Assertion` against
-  `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` on every
-  request and refuses requests without a valid AUD-matching token.
+- **Auth** — the dashboard has its own login page and local accounts
+  (Argon2-hashed passwords, server-side session cookies stored in SQLite).
+  Roles are `admin` and `user`; admins manage accounts in the "Konten" tab.
+  The first admin is bootstrapped from `BOOTSTRAP_ADMIN_*` on first start.
 - **Polling** — frontend polls each section every 15 s (system, services,
   tunnel, network) or 60 s (backups), with a manual refresh button.
 
@@ -62,7 +62,8 @@ separate, Cloudflare-Access-protected subdomain
 backend/                FastAPI service
   app/
     main.py             app + routers
-    auth.py             Cloudflare Access JWT verification
+    auth.py             session-cookie auth dependencies
+    accounts.py         user + session storage (Argon2, SQLite)
     cache.py            single-flight TTL cache
     config.py           pydantic-settings env model
     models.py           pydantic schemas (used by FE via OpenAPI)
@@ -161,7 +162,7 @@ Pick a user with read-only role and put credentials into
 > **Cloud SSO accounts cannot be used here** — the LAN API requires a
 > proper local user.
 
-### 3. Cloudflare Tunnel + Access
+### 3. Cloudflare Tunnel
 
 In the Zero Trust dashboard:
 
@@ -170,27 +171,22 @@ In the Zero Trust dashboard:
    - Subdomain `admin`, domain `rxf-sys.de`
    - Service `HTTP` → `192.168.2.210:80`
 
-2. Access → Applications → **Add an application** → *Self-hosted*:
-   - Application domain `admin.rxf-sys.de`
-   - Identity providers → *One-time PIN* (Email-OTP)
-   - Policy: `Include → Emails → robin@rxf-sys.de` (or your team)
-
-3. Open the application's settings → **General** → copy the
-   **Application Audience (AUD) Tag** and put it into
-   `CF_ACCESS_AUD` in `.env`.
+The dashboard authenticates users itself (login page + local accounts), so
+no Cloudflare Access application is required.
 
 ### 4. Bring it up
 
 ```sh
 pct enter 110
 cd /opt/rxf-admin/infrastructure
-nano .env                    # paste tokens
+nano .env                    # paste tokens + set BOOTSTRAP_ADMIN_PASSWORD
 docker compose up -d --build
 docker compose logs -f       # watch the first probes
 ```
 
-Visit <https://admin.rxf-sys.de> → Cloudflare Access prompts for the
-email OTP → after authentication the dashboard loads.
+Visit <https://admin.rxf-sys.de> → the login page appears. Sign in with the
+bootstrapped admin account (`BOOTSTRAP_ADMIN_USER` / `BOOTSTRAP_ADMIN_PASSWORD`),
+then create further accounts in the **Konten** tab.
 
 ## Local development
 
@@ -208,8 +204,10 @@ npm install
 npm run dev    # http://localhost:5173, /api/* proxied to :8080
 ```
 
-With `AUTH_ENABLED=false` the backend stubs the identity as `dev@local`
-so you can iterate without Cloudflare in the loop.
+With `AUTH_ENABLED=false` the backend stubs every request as a synthetic
+admin identity, so you can iterate without logging in. With auth enabled,
+set `BOOTSTRAP_ADMIN_PASSWORD` and `SESSION_COOKIE_SECURE=false` for local
+http:// development.
 
 ## Operational notes
 

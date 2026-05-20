@@ -368,6 +368,71 @@
 }
 .job-row:hover { background: var(--surface-3); }
 
+/* ============ LOGIN PAGE ============ */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--bg-0);
+  background-image: var(--grad-hero);
+  padding: 24px;
+}
+.login-card {
+  width: min(380px, 100%);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-pop);
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.login-brand-text { display: flex; flex-direction: column; line-height: 1.05; }
+.login-title { font-weight: 700; font-size: 18px; letter-spacing: -0.3px; }
+.login-sub { font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 2px; font-weight: 700; }
+.login-heading { margin: 8px 0 0; font-size: 20px; font-weight: 700; }
+.login-desc { margin: 0 0 8px; font-size: 12.5px; color: var(--text-3); }
+.login-field { display: flex; flex-direction: column; gap: 5px; }
+.login-field span { font-size: 11px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-3); }
+.login-field .input { height: 38px; font-size: 13px; }
+.login-error {
+  background: var(--err-soft);
+  color: var(--err);
+  border: 1px solid color-mix(in srgb, var(--err) 30%, transparent);
+  border-radius: var(--r-2);
+  padding: 9px 12px;
+  font-size: 12.5px;
+}
+.login-submit { height: 40px; justify-content: center; font-size: 13px; margin-top: 4px; }
+.login-foot { font-size: 11px; color: var(--text-4); font-family: var(--font-mono); }
+
+/* ============ ADMIN · user management ============ */
+.admin-section { grid-column: span 12; }
+.user-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.user-table thead th {
+  text-align: left;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--text-3);
+  padding: 10px 14px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+.user-table tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.user-table tbody tr:last-child td { border-bottom: 0; }
+.user-table tbody tr:hover td { background: var(--surface-3); }
+.user-table tr.is-disabled td { opacity: 0.5; }
+.role-pill {
+  display: inline-block; padding: 1px 8px; border-radius: var(--r-pill);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+}
+.role-pill.admin { background: var(--accent-soft); color: var(--accent); }
+.role-pill.user  { background: var(--surface-4); color: var(--text-3); }
+
 @media (max-width: 700px) {
   .drawer { width: 100vw; }
   .drawer-summary { grid-template-columns: 1fr 1fr; }
