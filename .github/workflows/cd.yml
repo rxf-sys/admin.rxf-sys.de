@@ -1,0 +1,34 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to admin LXC (CT 110)
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: production
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: 22
+          script: /opt/rxf-admin/infrastructure/deploy.sh
+
+# Setup (einmalig):
+# GitHub → Settings → Secrets → Actions:
+#   DEPLOY_HOST  — IP des LXC (192.168.2.210) oder Cloudflare Tunnel SSH-Hostname
+#   DEPLOY_USER  — SSH-Nutzer (z.B. root)
+#   DEPLOY_SSH_KEY — privater SSH-Schlüssel (RSA/ED25519)
+#
+# SSH-Zugang via Cloudflare Tunnel:
+#   cloudflared tunnel route ssh admin.rxf-sys.de
+#   DEPLOY_HOST = admin.rxf-sys.de
+#   ProxyCommand in ~/.ssh/config auf dem Runner nicht nötig da appleboy direkt verbindet
