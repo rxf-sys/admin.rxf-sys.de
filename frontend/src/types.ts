@@ -314,3 +314,37 @@ export interface AccessSessions {
   sessions_24h: number;
   items: AccessSession[];
 }
+
+export interface AuditFinding {
+  id: string;
+  status: 'ok' | 'warn' | 'err' | 'skipped';
+  title: string;
+  detail: string;
+}
+
+export interface AuditSummary {
+  ok: number;
+  warn: number;
+  err: number;
+  skipped: number;
+}
+
+export interface AuditRun {
+  id: string;
+  started_at: number;
+  finished_at: number | null;
+  status: 'running' | 'ok' | 'warn' | 'err' | 'timeout';
+  exit_code: number | null;
+  started_by: string | null;
+  location: string;
+  summary: AuditSummary | null;
+  findings: AuditFinding[];
+  error: string | null;
+  /** Present only on the per-job endpoint. */
+  log_output?: string;
+}
+
+export interface AuditJobsList {
+  current_job_id: string | null;
+  jobs: AuditRun[];
+}

@@ -9,7 +9,7 @@ import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import accounts, registry, storage
+from . import accounts, auditor, registry, storage
 from .auth import verify_session
 from .clients import cloudflare, pbs, probes, proxmox, unifi
 from .config import get_settings
@@ -18,6 +18,7 @@ from .routers import (
     account as account_router,
     admin as admin_router,
     audit,
+    auditor as auditor_router,
     auth as auth_router,
     backups,
     certs,
@@ -157,6 +158,9 @@ async def lifespan(app: FastAPI):
     await registry.ensure_schema(_settings)
     await registry.seed_builtin_services(_settings, probes.SERVICES)
 
+    # Audit-runner state (audit_runs table) also lives in the account DB.
+    await auditor.ensure_schema(_settings)
+
     await storage.ensure_schema(_settings)
     # The cleanup loop prunes expired sessions too, so it runs even when the
     # opt-in metrics storage is disabled.
@@ -234,4 +238,5 @@ app.include_router(network.router)
 app.include_router(certs.router)
 app.include_router(audit.router)
 app.include_router(audit.events_router)
+app.include_router(auditor_router.router)
 app.include_router(cloudflare_router.router)

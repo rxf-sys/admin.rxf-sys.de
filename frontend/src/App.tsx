@@ -3,6 +3,7 @@ import { api, apiErrorMessage } from './api/client';
 import { AdminPanel } from './components/AdminPanel';
 import { AttentionHero } from './components/AttentionHero';
 import { AuditLog } from './components/AuditLog';
+import { AuditPanel } from './components/AuditPanel';
 import { BackupsSection } from './components/BackupsSection';
 import { CloudflareSection } from './components/CloudflareSection';
 import { CommandPalette } from './components/CommandPalette';
@@ -36,6 +37,7 @@ const SECTION_LABELS: Record<Section, string> = {
   network: 'Netzwerk',
   backup: 'Backup',
   cloudflare: 'Cloudflare',
+  audit: 'Audit',
   admin: 'Konten',
   settings: 'Einstellungen',
 };
@@ -184,6 +186,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
       network: netBad,
       backup: pbsDown + failedJobs,
       cloudflare: tunBad + dnsBad + certBad,
+      audit: 0,
       admin: 0,
       settings: 0,
     };
@@ -462,6 +465,12 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             zoneName="rxf-sys.de"
             onSelectService={setSelectedSvc}
             pollMs={pollCerts}
+          />
+        )}
+        {section === 'audit' && isAdmin && (
+          <AuditPanel
+            onError={(msg) => pushToast({ level: 'err', title: 'Audit-Fehler', body: msg })}
+            onInfo={(msg) => pushToast({ level: 'ok', title: 'Audit', body: msg })}
           />
         )}
         {section === 'admin' && isAdmin && (

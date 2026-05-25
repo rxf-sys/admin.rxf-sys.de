@@ -26,6 +26,7 @@ const TABS: { id: Section; label: string; icon: keyof typeof ICONS; adminOnly?: 
   { id: 'network', label: 'Netzwerk', icon: 'network' },
   { id: 'backup', label: 'Backup', icon: 'archive' },
   { id: 'cloudflare', label: 'Cloudflare', icon: 'cloud' },
+  { id: 'audit', label: 'Audit', icon: 'shield', adminOnly: true },
   { id: 'admin', label: 'Konten', icon: 'user', adminOnly: true },
   { id: 'settings', label: 'Einstellungen', icon: 'gear' },
 ];

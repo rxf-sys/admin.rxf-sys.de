@@ -1,6 +1,8 @@
 import type {
   AccessSessions,
   Account,
+  AuditJobsList,
+  AuditRun,
   BackupHeatmap,
   BackupStorage,
   BackupSummary,
@@ -149,6 +151,13 @@ export const api = {
       backup_id,
       backup_time,
     }),
+
+  // --- Audit script runner ---
+  auditRun: () => post<{ job_id: string }>('/api/audit/run'),
+  auditJobs: (limit = 20, signal?: AbortSignal) =>
+    get<AuditJobsList>(`/api/audit/jobs?limit=${limit}`, signal),
+  auditJob: (job_id: string, signal?: AbortSignal) =>
+    get<AuditRun>(`/api/audit/jobs/${encodeURIComponent(job_id)}`, signal),
 };
 
 export { ApiError };

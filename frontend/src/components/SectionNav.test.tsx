@@ -9,6 +9,7 @@ const ZERO_ALERTS: Record<Section, number> = {
   network: 0,
   backup: 0,
   cloudflare: 0,
+  audit: 0,
   admin: 0,
   settings: 0,
 };

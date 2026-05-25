@@ -413,6 +413,7 @@
 
 /* ============ ADMIN · user management ============ */
 .admin-section { grid-column: span 12; }
+.audit-section { grid-column: span 12; }
 .user-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .user-table thead th {
   text-align: left;
