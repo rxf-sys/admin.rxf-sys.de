@@ -1,0 +1,77 @@
+# admin.rxf-sys.de
+
+Admin-Dashboard für den Homeserver (rxf-sys.de). Überwacht Services, zeigt Probe-Historien.
+Zugang nur via Cloudflare Access geschützt.
+
+## Architektur
+
+```
+├── backend/                 # FastAPI (Python 3.11+) — REST API + SQLite
+│   ├── app/                 # Anwendungscode
+│   ├── tests/               # pytest Tests
+│   ├── tools/               # Hilfsskripte
+│   ├── Dockerfile
+│   └── pyproject.toml
+├── frontend/                # Vite + React + TypeScript
+│   ├── src/
+│   ├── Dockerfile           # Multi-stage: build → Caddy
+│   ├── Caddyfile
+│   └── package.json
+└── infrastructure/
+    ├── docker-compose.yml   # Backend + Frontend als Docker-Services
+    ├── .env.example         # Alle benötigten Umgebungsvariablen
+    ├── deploy.sh            # Deploy-Script (CD-Pipeline + manuell)
+    └── setup-lxc.sh        # Proxmox LXC Bootstrap (einmalig)
+```
+
+## Lokale Entwicklung
+
+```bash
+# Backend
+cd backend && pip install -e ".[dev]"
+uvicorn app.main:app --reload
+
+# Frontend
+cd frontend && npm ci && npm run dev
+```
+
+## Deployment (Proxmox LXC CT 110, 192.168.2.210)
+
+```bash
+# Einmalig: LXC aufsetzen (vom Proxmox Host)
+bash infrastructure/setup-lxc.sh
+
+# Manueller Deploy (im LXC)
+bash /opt/rxf-admin/infrastructure/deploy.sh
+```
+
+Automatisierter CD via `.github/workflows/cd.yml` — GitHub Secrets benötigt:
+| Secret | Beschreibung |
+|---|---|
+| `DEPLOY_HOST` | IP des LXC (`192.168.2.210`) oder Cloudflare Tunnel SSH-Hostname |
+| `DEPLOY_USER` | SSH-Nutzer (z.B. `root`) |
+| `DEPLOY_SSH_KEY` | Privater SSH-Schlüssel (ED25519 empfohlen) |
+
+## Wichtige Konventionen
+
+- **Backend**: FastAPI, strukturiertes Logging via `structlog`, Argon2 für Passwörter
+- **Auth**: Cloudflare Access schützt die gesamte Domain (JWT via `CF_ACCESS_AUD` validiert)
+- **Daten**: SQLite unter `/data/` (Docker Volume `rxf-admin-data`) — kein externer DB-Server
+- **Secrets**: Niemals `.env` committen — nur `.env.example` ist versioniert
+- **Tests**: `pytest -v --cov=app --cov-fail-under=70` — 70% Coverage als Mindestgrenze
+- **Kein direkter Port nach außen**: Cloudflare Tunnel → Port 80 (Docker `web`-Container)
+
+## CI/CD
+
+- **CI** (`.github/workflows/ci.yml`): Lint + Tests + Coverage + Build bei Push/PR auf `main`
+- **CD** (`.github/workflows/cd.yml`): Auto-Deploy per SSH nach erfolgreichem CI auf `main`
+
+## SQLite Backup
+
+Das Volume `rxf-admin-data` enthält die Probe-Historien-Datenbank.
+Empfehlung: täglicher Cronjob im LXC:
+```bash
+# /etc/cron.daily/backup-rxf-admin
+docker exec rxf-admin-backend sqlite3 /data/probes.db ".backup /data/probes.db.bak"
+cp /data/probes.db.bak /opt/backups/rxf-admin/probes-$(date +%Y%m%d).db
+```
