@@ -125,6 +125,19 @@ class Settings(BaseSettings):
     # Loop interval for the notification background task.
     notify_interval_s: int = 60
 
+    # ---- Audit script ----
+    # Path to the bundled audit shell script. Empty = use the default path
+    # relative to the backend package (scripts/audit.sh).
+    audit_script_path: str = ""
+    # Hard ceiling on a single audit run.
+    audit_timeout_s: int = 180
+    # When set, the audit is executed on this host via SSH instead of locally.
+    # Requires key-based, BatchMode=yes-compatible access from the backend.
+    audit_ssh_host: str = ""
+    audit_ssh_user: str = "root"
+    # Optional explicit private-key path; leave empty to use the SSH default.
+    audit_ssh_key_path: str = ""
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
