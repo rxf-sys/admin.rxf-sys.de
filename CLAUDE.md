@@ -1,7 +1,7 @@
 # admin.rxf-sys.de
 
 Admin-Dashboard für den Homeserver (rxf-sys.de). Überwacht Services, zeigt Probe-Historien.
-Zugang nur via Cloudflare Access geschützt.
+Zugang über eigene Account-Auth (Argon2id + Session-Cookies); Bootstrap-Admin beim ersten Start.
 
 ## Architektur
 
@@ -55,7 +55,7 @@ Automatisierter CD via `.github/workflows/cd.yml` — GitHub Secrets benötigt:
 ## Wichtige Konventionen
 
 - **Backend**: FastAPI, strukturiertes Logging via `structlog`, Argon2 für Passwörter
-- **Auth**: Cloudflare Access schützt die gesamte Domain (JWT via `CF_ACCESS_AUD` validiert)
+- **Auth**: Eigene Sessions — Cookie `rxf_session` (httpOnly + Secure + SameSite=Lax), Passwörter mit Argon2id, RBAC `admin`/`user` via `accounts.role`, Brute-Force-Throttle pro IP (5 Fehlversuche / 5 min). Bootstrap des ersten Admins über `BOOTSTRAP_ADMIN_USER` / `BOOTSTRAP_ADMIN_PASSWORD`.
 - **Daten**: SQLite unter `/data/` (Docker Volume `rxf-admin-data`) — kein externer DB-Server
 - **Secrets**: Niemals `.env` committen — nur `.env.example` ist versioniert
 - **Tests**: `pytest -v --cov=app --cov-fail-under=70` — 70% Coverage als Mindestgrenze
