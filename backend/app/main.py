@@ -14,6 +14,7 @@ from .auth import verify_session
 from .clients import cloudflare, pbs, probes, proxmox, unifi
 from .config import get_settings
 from .notify import NotificationCenter, run_notification_loop
+from .state import service_snapshot
 from .routers import (
     account as account_router,
     admin as admin_router,
@@ -53,10 +54,15 @@ structlog.configure(
 
 async def _gather_notify_snapshot() -> dict:
     """Pull current state for the notification loop. Best-effort: any exception
-    in a sub-call yields its empty default rather than killing the loop."""
+    in a sub-call yields its empty default rather than killing the loop.
+
+    Services come from the in-memory probe snapshot — the dedicated probe loop
+    is the single source of truth, so we don't fan out a second parallel probe
+    pass from here. If the snapshot is empty yet (cold start), services are
+    skipped this tick rather than fetched ad-hoc."""
     s = get_settings()
-    services_list, tunnel_status, backup_summary, certs_list = await asyncio.gather(
-        probes.probe_all(s),
+    services_snap, _ = await service_snapshot.get()
+    tunnel_status, backup_summary, certs_list = await asyncio.gather(
         cloudflare.fetch_tunnel_status(s),
         pbs.fetch_backup_summary(s),
         cloudflare.fetch_certs(s),
@@ -65,7 +71,7 @@ async def _gather_notify_snapshot() -> dict:
     return {
         "services": [
             {"id": x.id, "status": x.status, "ms": x.ms}
-            for x in (services_list if isinstance(services_list, list) else [])
+            for x in (services_snap or [])
         ],
         "tunnel": (
             {"status": tunnel_status.status}
@@ -98,6 +104,29 @@ async def _history_cleanup_loop() -> None:
             structlog.get_logger().error(
                 "history.cleanup_error", error=str(e), error_type=type(e).__name__
             )
+
+
+async def _service_probe_loop() -> None:
+    """Probe every registered service on a fixed cadence and publish the
+    result into ``service_snapshot``. Single source of truth for both the
+    /api/services handler and the notification loop, so multiple open
+    dashboards or a parallel notify tick never multiply upstream load.
+
+    Wakes early when CRUD on the service registry calls
+    ``service_snapshot.request_refresh()``.
+    """
+    log_ = structlog.get_logger("probes")
+    while True:
+        try:
+            results = await probes.probe_all(_settings)
+            await service_snapshot.set(results)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - never let the loop die
+            log_.error(
+                "probe.loop_error", error=str(e), error_type=type(e).__name__
+            )
+        await service_snapshot.wait_for_tick(_settings.probe_interval_s)
 
 
 async def _metrics_sample_loop() -> None:
@@ -146,6 +175,7 @@ async def lifespan(app: FastAPI):
     notify_task: asyncio.Task | None = None
     cleanup_task: asyncio.Task | None = None
     metrics_task: asyncio.Task | None = None
+    probe_task: asyncio.Task | None = None
 
     # Account auth is mandatory — its schema + first-admin bootstrap run
     # before anything else so the API is never up without a way to log in.
@@ -168,6 +198,19 @@ async def lifespan(app: FastAPI):
     if storage.is_enabled() and _settings.metrics_sample_interval_s > 0:
         metrics_task = asyncio.create_task(_metrics_sample_loop())
 
+    # Seed the service snapshot synchronously so the first /api/services call
+    # never sees an empty snapshot. Best-effort: if any upstream fails the
+    # background loop will retry on its next tick.
+    if _settings.probe_interval_s > 0:
+        try:
+            initial = await probes.probe_all(_settings)
+            await service_snapshot.set(initial)
+        except Exception as e:  # noqa: BLE001 - never block startup on probes
+            structlog.get_logger().warning(
+                "probe.initial_seed_failed", error=str(e), error_type=type(e).__name__
+            )
+        probe_task = asyncio.create_task(_service_probe_loop())
+
     if _settings.notify_webhook_url:
         center = NotificationCenter(settings=_settings)
         notify_task = asyncio.create_task(
@@ -181,7 +224,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        for task in (notify_task, cleanup_task, metrics_task):
+        for task in (notify_task, cleanup_task, metrics_task, probe_task):
             if task is None:
                 continue
             task.cancel()

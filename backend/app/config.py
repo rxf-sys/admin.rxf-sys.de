@@ -87,6 +87,14 @@ class Settings(BaseSettings):
         }
     )
     probe_timeout_s: float = 4.0
+    # Background probe loop tick. A dedicated task probes every registered
+    # service on this cadence and publishes the result into the in-memory
+    # snapshot, which both the /api/services handler and the notification
+    # loop then read. Decouples probing from HTTP request rate so multiple
+    # open dashboards do not multiply upstream load. Set to 0 to disable
+    # the loop (handlers will then return 503 until the snapshot is seeded
+    # — primarily useful in tests).
+    probe_interval_s: int = 30
 
     # ---- Cache TTLs (seconds) ----
     cache_ttl_system: int = 15
