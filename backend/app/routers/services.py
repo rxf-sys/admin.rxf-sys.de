@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field
 from .. import registry, storage
 from ..audit import record as audit_record
 from ..auth import require_admin, verify_session
-from ..cache import cache
 from ..clients import probes
 from ..config import Settings, get_settings
 from ..models import ServiceStatus
+from ..state import service_snapshot
 
 router = APIRouter(prefix="/api/services", tags=["services"], dependencies=[Depends(verify_session)])
 
@@ -61,11 +61,18 @@ async def _enrich(s: ServiceStatus) -> ServiceStatus:
 
 @router.get("", response_model=list[ServiceStatus])
 async def get_services(settings: Settings = Depends(get_settings)) -> list[ServiceStatus]:
-    async def loader() -> list[ServiceStatus]:
-        base = await probes.probe_all(settings)
-        return list(await asyncio.gather(*(_enrich(s) for s in base)))
+    """Return the latest probe snapshot, enriched with persisted rollups.
 
-    return await cache.get_or_set("services", settings.cache_ttl_services, loader)
+    Reads only the in-memory snapshot maintained by the background probe
+    loop in main.py — never triggers an inline probe. If the snapshot is
+    cold (loop disabled, or first tick still running) we fall back to a
+    one-shot probe so the API stays useful in tests and during the very
+    first request after startup."""
+    results, _ = await service_snapshot.get()
+    if results is None:
+        results = await probes.probe_all(settings)
+        await service_snapshot.set(results)
+    return list(await asyncio.gather(*(_enrich(s) for s in results)))
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -94,7 +101,7 @@ async def create_service(
         name=svc["name"],
         client_ip=request.client.host if request.client else None,
     )
-    cache.invalidate("services")
+    service_snapshot.request_refresh()
     return {"service": svc}
 
 
@@ -121,7 +128,7 @@ async def update_service(
     audit_record(
         "service.updated", actor=admin["username"], service_id=service_id
     )
-    cache.invalidate("services")
+    service_snapshot.request_refresh()
     return {"service": svc}
 
 
@@ -137,7 +144,7 @@ async def delete_service(
     audit_record(
         "service.deleted", actor=admin["username"], service_id=service_id
     )
-    cache.invalidate("services")
+    service_snapshot.request_refresh()
     return {"ok": True}
 
 
