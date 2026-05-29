@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { api, apiErrorMessage } from '../api/client';
 import { usePoll } from '../hooks/usePoll';
 import type { AuditFinding, AuditRun } from '../types';
@@ -17,27 +18,37 @@ const STATUS_LABEL: Record<AuditRun['status'], string> = {
   timeout: 'Timeout',
 };
 
-const FINDING_GLYPH: Record<AuditFinding['status'], string> = {
-  ok: '✓',
-  warn: '!',
-  err: '✕',
-  skipped: '–',
+const FINDING_ICON: Record<AuditFinding['status'], ReactNode> = {
+  ok: ICONS.check,
+  warn: ICONS.warn,
+  err: ICONS.x,
+  skipped: ICONS.chevron,
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  updates: 'Updates',
-  hardening: 'Hardening',
-  storage: 'Storage',
-  backup: 'Backup',
-  network: 'Netzwerk',
-  zfs: 'ZFS',
-  proxmox: 'Proxmox',
-  kernel: 'Kernel',
-  services: 'Services',
-  firewall: 'Firewall',
-  ssh: 'SSH',
-  apt: 'Updates',
-  systemd: 'Services',
+// Category metadata for the findings grid. ``label`` is the human-readable
+// header, ``icon`` is the small badge that sits left of the title. Lookups
+// are case-insensitive; ``catFor`` falls back to the leading dot-segment
+// of the finding id when no entry matches.
+interface CatInfo { label: string; icon: ReactNode; }
+const CATEGORY_INFO: Record<string, CatInfo> = {
+  updates:  { label: 'System & Updates',     icon: ICONS.refresh },
+  apt:      { label: 'System & Updates',     icon: ICONS.refresh },
+  system:   { label: 'System & Updates',     icon: ICONS.server },
+  kernel:   { label: 'System & Updates',     icon: ICONS.cpu },
+  packages: { label: 'System & Updates',     icon: ICONS.refresh },
+  hardening:{ label: 'Sicherheit & Härtung', icon: ICONS.shield },
+  ssh:      { label: 'Sicherheit & Härtung', icon: ICONS.shield },
+  firewall: { label: 'Sicherheit & Härtung', icon: ICONS.shield },
+  ports:    { label: 'Sicherheit & Härtung', icon: ICONS.shield },
+  storage:  { label: 'Storage & ZFS',        icon: ICONS.disk },
+  zfs:      { label: 'Storage & ZFS',        icon: ICONS.disk },
+  disks:    { label: 'Storage & ZFS',        icon: ICONS.disk },
+  backup:   { label: 'Backup & Recovery',    icon: ICONS.archive },
+  network:  { label: 'Netzwerk & Zertifikate', icon: ICONS.network },
+  certs:    { label: 'Netzwerk & Zertifikate', icon: ICONS.lock },
+  ntp:      { label: 'Netzwerk & Zertifikate', icon: ICONS.network },
+  systemd:  { label: 'Services',             icon: ICONS.zap },
+  services: { label: 'Services',             icon: ICONS.zap },
 };
 
 type Filter = 'all' | 'err' | 'warn' | 'ok';
@@ -81,12 +92,18 @@ function scoreTone(score: number): 'ok' | 'warn' | 'err' {
 
 /** Resolve a category for a finding — explicit ``category`` wins, otherwise
  * derive from the leading dot-segment of ``id`` (e.g. ``updates`` from
- * ``updates.security_pending``). Falls back to ``Allgemein``. */
-function categoryOf(f: AuditFinding): string {
-  if (f.category && f.category.trim()) return f.category.trim();
+ * ``updates.security_pending``). Returns label + matching icon. */
+function categoryOf(f: AuditFinding): CatInfo {
+  const explicit = f.category?.trim().toLowerCase();
+  if (explicit && CATEGORY_INFO[explicit]) return CATEGORY_INFO[explicit];
+  if (explicit) return { label: titleCase(explicit), icon: ICONS.info };
   const head = f.id.split(/[.:_/-]/)[0]?.toLowerCase();
-  if (!head) return 'Allgemein';
-  return CATEGORY_LABEL[head] ?? head.charAt(0).toUpperCase() + head.slice(1);
+  if (head && CATEGORY_INFO[head]) return CATEGORY_INFO[head];
+  return { label: head ? titleCase(head) : 'Allgemein', icon: ICONS.info };
+}
+
+function titleCase(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export function AuditPanel({ onError, onInfo }: Props) {
@@ -154,6 +171,20 @@ export function AuditPanel({ onError, onInfo }: Props) {
   const isRunning = !!currentJobId;
   const startDisabled = busy || isRunning;
 
+  const downloadReport = useCallback(() => {
+    if (!selectedRun) return;
+    const data = JSON.stringify(selectedRun, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedRun.id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [selectedRun]);
+
   return (
     <section className="audit-section">
       <div className="dash-section-head" style={{ marginBottom: 12 }}>
@@ -163,47 +194,60 @@ export function AuditPanel({ onError, onInfo }: Props) {
             <span className="count">· {jobs.length} {jobs.length === 1 ? 'Lauf' : 'Läufe'}</span>
           )}
         </h2>
-        <div className="section-tools">
-          <button
-            className="btn primary"
-            type="button"
-            onClick={startAudit}
-            disabled={startDisabled}
-            title={isRunning ? 'Es läuft bereits ein Audit' : undefined}
-          >
-            {ICONS.zap} {isRunning ? 'Audit läuft…' : busy ? 'Starte…' : 'Audit starten'}
-          </button>
-        </div>
       </div>
 
-      {selectedRun && (
-        <div className="grid-12" style={{ marginBottom: 16 }}>
-          <div className="col-12">
-            <AuditSummaryBand run={selectedRun} />
+      {selectedRun ? (
+        <>
+          <div className="grid-12" style={{ marginBottom: 16 }}>
+            <div className="col-12">
+              <AuditSummaryBand run={selectedRun} />
+            </div>
           </div>
-        </div>
-      )}
 
-      <div className="grid-12" style={{ marginBottom: 16 }}>
-        <div className="card col-12">
-          {selectedRun ? (
-            <RunSummary
-              run={selectedRun}
-              onShowLog={loadLog}
-              logLoading={logLoading}
-              expandedLog={expandedLog}
-              onHideLog={() => setExpandedLog(null)}
+          {selectedRun.findings.length > 0 ? (
+            <FindingsByCategory
+              findings={selectedRun.findings}
+              onRerun={startAudit}
+              rerunDisabled={startDisabled}
+              rerunLabel={isRunning ? 'Audit läuft…' : busy ? 'Starte…' : 'Neu prüfen'}
+              onDownload={downloadReport}
             />
           ) : (
-            <div className="dim" style={{ fontSize: 13 }}>
-              {'Noch kein Audit ausgeführt. Klicke „Audit starten", um den ersten Lauf anzustoßen.'}
+            <div className="grid-12" style={{ marginBottom: 16 }}>
+              <div className="card col-12 dim" style={{ fontSize: 13 }}>
+                Audit lief, lieferte aber keine Findings — Logfile prüfen.
+              </div>
             </div>
           )}
-        </div>
-      </div>
 
-      {selectedRun && selectedRun.findings.length > 0 && (
-        <FindingsByCategory findings={selectedRun.findings} />
+          <div className="grid-12" style={{ marginBottom: 16 }}>
+            <div className="card col-12">
+              <RunSummary
+                run={selectedRun}
+                onShowLog={loadLog}
+                logLoading={logLoading}
+                expandedLog={expandedLog}
+                onHideLog={() => setExpandedLog(null)}
+              />
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="grid-12" style={{ marginBottom: 16 }}>
+          <div className="card col-12" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div className="dim" style={{ fontSize: 13 }}>
+              Noch kein Audit ausgeführt.
+            </div>
+            <button
+              className="btn primary"
+              type="button"
+              onClick={startAudit}
+              disabled={startDisabled}
+            >
+              {ICONS.zap} {busy ? 'Starte…' : 'Audit starten'}
+            </button>
+          </div>
+        </div>
       )}
 
       {jobs.length > 1 && (
@@ -398,7 +442,21 @@ const FILTER_OPTIONS: { id: Filter; label: string }[] = [
   { id: 'ok', label: 'Bestanden' },
 ];
 
-function FindingsByCategory({ findings }: { findings: AuditFinding[] }) {
+interface FindingsByCategoryProps {
+  findings: AuditFinding[];
+  onRerun: () => void;
+  rerunDisabled: boolean;
+  rerunLabel: string;
+  onDownload: () => void;
+}
+
+function FindingsByCategory({
+  findings,
+  onRerun,
+  rerunDisabled,
+  rerunLabel,
+  onDownload,
+}: FindingsByCategoryProps) {
   const [filter, setFilter] = useState<Filter>('all');
 
   // err first, then warn, ok, skipped — most important on top.
@@ -408,25 +466,29 @@ function FindingsByCategory({ findings }: { findings: AuditFinding[] }) {
 
   const filtered = findings.filter(passesFilter);
 
-  // Group by category, preserve original order within a group, sort groups by
-  // worst-status (err first) then by name.
+  // Group by category info object. Within a group we sort by status severity
+  // (err first); between groups we sort by worst-status then alphabetically by
+  // label so the worst categories rise to the top of the grid.
   const groups = useMemo(() => {
-    const byCat = new Map<string, AuditFinding[]>();
+    const byCat = new Map<string, { info: CatInfo; items: AuditFinding[] }>();
     for (const f of filtered) {
-      const cat = categoryOf(f);
-      const bucket = byCat.get(cat) ?? [];
-      bucket.push(f);
-      byCat.set(cat, bucket);
+      const info = categoryOf(f);
+      const bucket = byCat.get(info.label) ?? { info, items: [] };
+      bucket.items.push(f);
+      byCat.set(info.label, bucket);
     }
-    const arr = Array.from(byCat.entries()).map(([name, items]) => ({
-      name,
-      items: [...items].sort((a, b) => order[a.status] - order[b.status]),
-      worst: items.reduce(
+    const arr = Array.from(byCat.values()).map((g) => ({
+      info: g.info,
+      items: [...g.items].sort((a, b) => order[a.status] - order[b.status]),
+      worst: g.items.reduce(
         (acc, f) => Math.min(acc, order[f.status]),
         order.skipped,
       ),
     }));
-    arr.sort((a, b) => a.worst - b.worst || a.name.localeCompare(b.name, 'de'));
+    arr.sort(
+      (a, b) =>
+        a.worst - b.worst || a.info.label.localeCompare(b.info.label, 'de'),
+    );
     return arr;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered.length, filter]);
@@ -438,29 +500,55 @@ function FindingsByCategory({ findings }: { findings: AuditFinding[] }) {
     ok: findings.filter((f) => f.status === 'ok').length,
   };
 
+  // Worst status of a category drives the tint of its header badge.
+  const catTone = (items: AuditFinding[]): 'ok' | 'warn' | 'err' | 'skipped' => {
+    if (items.some((f) => f.status === 'err')) return 'err';
+    if (items.some((f) => f.status === 'warn')) return 'warn';
+    if (items.some((f) => f.status === 'ok')) return 'ok';
+    return 'skipped';
+  };
+
   return (
     <div className="grid-12" style={{ marginBottom: 16 }}>
       <div className="col-12">
         <div className="dash-section-head" style={{ marginBottom: 12 }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
-            Findings <span className="h3-sub">· {findings.length}</span>
+            Prüfergebnisse <span className="h3-sub">· {findings.length}</span>
           </h3>
-          <div className="seg-control" role="tablist" aria-label="Findings filtern">
-            {FILTER_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                role="tab"
-                aria-selected={filter === opt.id}
-                className={`seg-btn ${filter === opt.id ? 'active' : ''}`}
-                onClick={() => setFilter(opt.id)}
-              >
-                {opt.label}
-                <span className="dimmer" style={{ marginLeft: 4 }}>
-                  ({counts[opt.id]})
-                </span>
-              </button>
-            ))}
+          <div className="section-tools" style={{ gap: 10 }}>
+            <div className="seg-control" role="tablist" aria-label="Findings filtern">
+              {FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={filter === opt.id}
+                  className={`seg-btn ${filter === opt.id ? 'active' : ''}`}
+                  onClick={() => setFilter(opt.id)}
+                >
+                  {opt.label}
+                  <span className="dimmer" style={{ marginLeft: 4 }}>
+                    ({counts[opt.id]})
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button
+              className="btn sm ghost"
+              type="button"
+              onClick={onRerun}
+              disabled={rerunDisabled}
+            >
+              {ICONS.refresh} {rerunLabel}
+            </button>
+            <button
+              className="btn sm"
+              type="button"
+              onClick={onDownload}
+              title="Findings als JSON herunterladen"
+            >
+              {ICONS.download} Report
+            </button>
           </div>
         </div>
 
@@ -470,20 +558,29 @@ function FindingsByCategory({ findings }: { findings: AuditFinding[] }) {
           </div>
         ) : (
           <div className="cat-grid">
-            {groups.map((g) => (
-              <div key={g.name} className="card">
-                <div className="card-h">
-                  <h3>
-                    {g.name} <span className="h3-sub">· {g.items.length}</span>
-                  </h3>
+            {groups.map((g) => {
+              const tone = catTone(g.items);
+              return (
+                <div key={g.info.label} className="card">
+                  <div className="card-h">
+                    <h3 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <span className={`cat-ico tone-${tone}`} aria-hidden="true">
+                        {g.info.icon}
+                      </span>
+                      {g.info.label}
+                    </h3>
+                    <span className="badge info" style={{ fontSize: 10 }}>
+                      {g.items.length}
+                    </span>
+                  </div>
+                  <div className="acheck-list">
+                    {g.items.map((f) => (
+                      <AuditCheck key={f.id} f={f} />
+                    ))}
+                  </div>
                 </div>
-                <div className="acheck-list">
-                  {g.items.map((f) => (
-                    <AuditCheck key={f.id} f={f} />
-                  ))}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -495,12 +592,11 @@ function AuditCheck({ f }: { f: AuditFinding }) {
   return (
     <div className={`acheck tone-${f.status}`}>
       <div className={`acheck-ico tone-${f.status}`} aria-hidden="true">
-        {FINDING_GLYPH[f.status]}
+        {FINDING_ICON[f.status]}
       </div>
       <div className="acheck-body">
         <div className="acheck-title">{f.title}</div>
         {f.detail && <div className="acheck-detail">{f.detail}</div>}
-        <div className="acheck-id">{f.id}</div>
         {f.fix && (
           <div className="acheck-fix">
             <span className="fix-tag">FIX</span>
