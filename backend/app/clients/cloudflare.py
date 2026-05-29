@@ -234,9 +234,21 @@ async def fetch_zone_analytics(settings: Settings, minutes: int = 60) -> dict:
         try:
             result = await _get(client, settings, path)
         except httpx.HTTPError as e:
+            # Free + Pro plans for older zones return 404 on this legacy
+            # endpoint — Cloudflare retired it for low-tier zones years ago.
+            # Surface a short, actionable message instead of the raw httpx
+            # error URL, which is too long to render in the card.
+            msg = str(e)
+            short = msg
+            if "404" in msg or "Not Found" in msg:
+                short = "Analytics-Dashboard-API für diese Zone nicht verfügbar (Free Plan?)."
+            elif "403" in msg or "Forbidden" in msg:
+                short = "Token-Scope unzureichend — 'Zone · Analytics: Read' fehlt."
+            elif len(msg) > 140:
+                short = msg[:140] + "…"
             return {
                 "reachable": False,
-                "error": str(e),
+                "error": short,
                 "minutes": minutes,
                 "requests_total": 0,
                 "requests_per_min": 0.0,

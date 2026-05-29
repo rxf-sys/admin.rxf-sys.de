@@ -422,9 +422,9 @@ function Dashboard({ user, onLogout }: DashboardProps) {
           </>
         )}
         {section === 'server' && (
-          <>
+          <section className="server-section" aria-labelledby="server-heading">
             <div className="dash-section-head">
-              <h2>Live-Status</h2>
+              <h2 id="server-heading">Live-Status</h2>
               <span className="dimmer mono" style={{ fontSize: 11 }}>
                 {sys.data?.host?.node ? `${sys.data.host.node} · Echtzeit` : 'Echtzeit'}
               </span>
@@ -457,7 +457,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               onAddService={openAddService}
               onDeleteService={setDeleteSvc}
             />
-          </>
+          </section>
         )}
         {section === 'network' && (
           <NetworkPanel network={net.data} tunnel={tun.data} pollMs={pollFast} />
