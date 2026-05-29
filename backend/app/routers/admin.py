@@ -38,6 +38,35 @@ async def list_users() -> dict:
     return {"users": await accounts.list_users()}
 
 
+@router.get("/sessions")
+async def list_active_sessions() -> dict:
+    """All non-expired sessions across all users.
+
+    Drives the 'Aktive Sessions' card in the admin tab. Tokens are returned
+    truncated to a short prefix — sufficient for the UI to identify a row
+    for revocation, never enough to reconstruct the real token."""
+    return {"sessions": await accounts.list_active_sessions()}
+
+
+@router.delete("/sessions/{token_prefix}")
+async def revoke_session(
+    token_prefix: str, admin: dict = Depends(require_admin)
+) -> dict:
+    """Revoke (delete) sessions whose token starts with ``token_prefix``.
+
+    8-char prefixes are unique in practice; we still return ``revoked`` so
+    the caller can detect a zero-match (already expired) or a multi-match
+    (extremely unlikely collision)."""
+    revoked = await accounts.revoke_session(token_prefix)
+    audit_record(
+        "admin.session_revoked",
+        actor=admin["username"],
+        token_prefix=token_prefix,
+        revoked=revoked,
+    )
+    return {"revoked": revoked}
+
+
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: CreateUserBody, admin: dict = Depends(require_admin)

@@ -1,6 +1,7 @@
 import type {
   AccessSessions,
   Account,
+  AdminSession,
   AuditJobsList,
   AuditRun,
   BackupHeatmap,
@@ -96,6 +97,10 @@ export const api = {
     post<{ ok: boolean }>(`/api/admin/users/${id}/password`, { new_password }),
   adminDeleteUser: (id: number) =>
     send<{ ok: boolean }>('DELETE', `/api/admin/users/${id}`),
+  adminListSessions: (signal?: AbortSignal) =>
+    get<{ sessions: AdminSession[] }>('/api/admin/sessions', signal),
+  adminRevokeSession: (token_prefix: string) =>
+    send<{ revoked: number }>('DELETE', `/api/admin/sessions/${encodeURIComponent(token_prefix)}`),
 
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
   services: (signal?: AbortSignal) => get<ServiceStatus[]>('/api/services', signal),

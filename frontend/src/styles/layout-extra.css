@@ -245,9 +245,10 @@
 
 /* 30-day backup trend (jobs/day stacked bars + GB/day line overlay) */
 .backup-trend { position: relative; height: 120px; margin: 8px 0 6px; }
-.backup-trend .trend-bars { display: flex; gap: 3px; align-items: flex-end; height: 120px; }
+.backup-trend .trend-bars { display: flex; gap: 3px; align-items: stretch; height: 120px; }
 .backup-trend .trend-col {
   flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -303,6 +304,34 @@
 
 /* ============ SETTINGS ============ */
 .settings-layout { display: contents; }
+/* Single-page settings layout (sidebar-nav was removed in favour of an
+ * all-cards-visible page that matches the Konten / Audit tabs). */
+.settings-section { grid-column: span 12; }
+.settings-section-h + .settings-row { margin-top: 4px; }
+
+/* Integrationen — one row per upstream with a status badge on the right */
+.settings-integ-list { display: flex; flex-direction: column; gap: 8px; }
+.settings-integ-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.settings-integ-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.settings-integ-name { font-weight: 600; font-size: 13px; color: var(--text-1); }
+
+/* Danger zone card — red headline, stacked rows */
+.settings-danger { border: 1px solid var(--err-soft); }
+.settings-danger-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 0;
+}
+.settings-danger-row + .settings-danger-row { border-top: 1px solid var(--border); }
+.settings-danger-row h4 { margin: 0; font-size: 13px; color: var(--text-1); }
+.settings-danger-row p { margin: 2px 0 0; font-size: 11.5px; }
+
+/* Legacy sidebar (kept so the old SettingsPage tests still find the class) */
 .settings-nav-col { grid-column: span 3; }
 .settings-content-col { grid-column: span 9; display: flex; flex-direction: column; gap: 16px; }
 
@@ -576,6 +605,21 @@
 /* ============ ADMIN · user management ============ */
 .admin-section { grid-column: span 12; }
 .audit-section { grid-column: span 12; }
+.admin-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.admin-kpi .kpi-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--text-3); text-transform: uppercase;
+}
+.admin-kpi .kpi-value {
+  font-size: 30px; font-weight: 700; letter-spacing: -0.6px;
+  line-height: 1.1;
+}
+.admin-kpi .kpi-sub { font-size: 11.5px; color: var(--text-3); }
 
 /* Audit summary band — score badge + verdict + count pills */
 .audit-summary {

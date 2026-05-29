@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, apiErrorMessage } from '../api/client';
-import type { Account, Role } from '../types';
+import type { Account, AdminSession, Role } from '../types';
 import { ICONS, fmtTimeAgo } from './primitives';
 
 interface Props {
@@ -14,13 +14,18 @@ const MIN_PW = 8;
 
 export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
   const [users, setUsers] = useState<Account[] | null>(null);
+  const [sessions, setSessions] = useState<AdminSession[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [pwTarget, setPwTarget] = useState<Account | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await api.adminListUsers();
-      setUsers(r.users);
+      const [u, s] = await Promise.all([
+        api.adminListUsers(),
+        api.adminListSessions(),
+      ]);
+      setUsers(u.users);
+      setSessions(s.sessions);
     } catch (e) {
       onError(apiErrorMessage(e));
     }
@@ -29,6 +34,26 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const revokeSession = async (s: AdminSession) => {
+    const isSelf = s.user_id === currentUserId;
+    const confirmMsg = isSelf
+      ? `Eigene Session „${s.token_prefix}…" beenden? Du wirst sofort ausgeloggt.`
+      : `Session von „${s.username}" (${s.token_prefix}…) revoken?`;
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      await api.adminRevokeSession(s.token_prefix);
+      onInfo(`Session ${s.token_prefix}… revoked`);
+      await load();
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    }
+  };
+
+  const userCount = users?.length ?? 0;
+  const adminCount = users?.filter((u) => u.role === 'admin' && !u.disabled).length ?? 0;
+  const disabledCount = users?.filter((u) => u.disabled).length ?? 0;
+  const sessionCount = sessions?.length ?? 0;
 
   const updateUser = async (
     id: number,
@@ -58,12 +83,20 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
   return (
     <section className="admin-section">
       <div className="dash-section-head" style={{ marginBottom: 12 }}>
-        <h2>Konten-Verwaltung <span className="count">· {users?.length ?? '…'}</span></h2>
+        <h2>Kontenverwaltung</h2>
         <div className="section-tools">
-          <button className="btn sm" type="button" onClick={() => setCreating((v) => !v)}>
-            {ICONS.user} {creating ? 'Abbrechen' : 'Neues Konto'}
+          <button className="btn sm primary" type="button" onClick={() => setCreating((v) => !v)}>
+            {ICONS.user} {creating ? 'Abbrechen' : 'Benutzer anlegen'}
           </button>
         </div>
+      </div>
+
+      {/* KPI strip — 4 admin overview tiles */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <KpiTile label="Benutzer" value={userCount} sub={`${userCount - disabledCount} aktiv`} tone="info" />
+        <KpiTile label="Administratoren" value={adminCount} sub="volle Rechte" tone="ok" />
+        <KpiTile label="Deaktiviert" value={disabledCount} sub={disabledCount ? 'gesperrt' : 'keine'} tone={disabledCount > 0 ? 'warn' : 'info'} />
+        <KpiTile label="Aktive Sessions" value={sessionCount} sub="laufende Logins" tone="info" />
       </div>
 
       {creating && (
@@ -81,7 +114,13 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
         </div>
       )}
 
-      <div className="grid-12">
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+          Benutzer <span className="h3-sub">· {userCount}</span>
+        </h3>
+      </div>
+
+      <div className="grid-12" style={{ marginBottom: 16 }}>
         <div className="card col-12" style={{ padding: 0 }}>
           {users === null ? (
             <div className="dim" style={{ fontSize: 12, padding: 18 }}>Lade Konten…</div>
@@ -169,6 +208,61 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
         </div>
       </div>
 
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+          Aktive Sessions <span className="h3-sub">· {sessionCount}</span>
+        </h3>
+      </div>
+
+      <div className="grid-12">
+        <div className="card col-12" style={{ padding: 0 }}>
+          {sessions === null ? (
+            <div className="dim" style={{ fontSize: 12, padding: 18 }}>Lade Sessions…</div>
+          ) : sessions.length === 0 ? (
+            <div className="dim" style={{ fontSize: 12, padding: 18 }}>Keine aktiven Sessions.</div>
+          ) : (
+            <table className="user-table">
+              <thead>
+                <tr>
+                  <th>Benutzer</th>
+                  <th>Token</th>
+                  <th>Letzte Aktivität</th>
+                  <th>Gültig bis</th>
+                  <th style={{ textAlign: 'right' }}>Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((s) => (
+                  <tr key={s.token_prefix}>
+                    <td style={{ fontWeight: 600 }}>
+                      {s.username}
+                      {s.user_id === currentUserId && <span className="dim" style={{ fontWeight: 400 }}> · du</span>}
+                      <div className="dim mono" style={{ fontSize: 11, fontWeight: 400 }}>{s.email ?? '—'}</div>
+                    </td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>{s.token_prefix}…</td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>
+                      {fmtTimeAgo(new Date(s.last_seen_at * 1000).toISOString())}
+                    </td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>
+                      {fmtTimeAgo(new Date(s.expires_at * 1000).toISOString())}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button
+                        className="btn sm danger"
+                        type="button"
+                        onClick={() => revokeSession(s)}
+                      >
+                        Revoken
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
       {pwTarget && (
         <PasswordModal
           user={pwTarget}
@@ -181,6 +275,30 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
         />
       )}
     </section>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: number;
+  sub: string;
+  tone: 'ok' | 'warn' | 'err' | 'info';
+}) {
+  const color =
+    tone === 'ok' ? 'var(--ok)' : tone === 'warn' ? 'var(--warn)' : tone === 'err' ? 'var(--err)' : 'var(--text-1)';
+  return (
+    <div className="card col-3 admin-kpi">
+      <span className="kpi-label">{label}</span>
+      <span className="kpi-value mono" style={{ color }}>
+        {value}
+      </span>
+      <span className="kpi-sub">{sub}</span>
+    </div>
   );
 }
 

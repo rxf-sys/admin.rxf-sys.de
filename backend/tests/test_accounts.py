@@ -118,3 +118,45 @@ async def test_cleanup_expired_sessions(db):
     removed = await accounts.cleanup_expired_sessions()
     assert removed == 1
     _ = time.time()
+
+
+async def test_list_active_sessions_excludes_expired_and_joins_user(db):
+    alice = await accounts.create_user("alice", "supersecret", role="admin")
+    bob = await accounts.create_user("bob", "supersecret")
+    # Two live sessions and one already-expired session.
+    await accounts.create_session(alice["id"], ttl_hours=24)
+    await accounts.create_session(bob["id"], ttl_hours=24)
+    await accounts.create_session(bob["id"], ttl_hours=-1)
+
+    rows = await accounts.list_active_sessions()
+
+    assert len(rows) == 2
+    usernames = {r["username"] for r in rows}
+    assert usernames == {"alice", "bob"}
+    # User identity must be attached to each row.
+    alice_row = next(r for r in rows if r["username"] == "alice")
+    assert alice_row["role"] == "admin"
+    assert alice_row["email"] is None
+    # Token is never returned in full — only the short prefix.
+    assert all(len(r["token_prefix"]) == 8 for r in rows)
+
+
+async def test_revoke_session_matches_prefix(db):
+    user = await accounts.create_user("robin", "supersecret")
+    token1 = await accounts.create_session(user["id"], ttl_hours=24)
+    await accounts.create_session(user["id"], ttl_hours=24)
+
+    revoked = await accounts.revoke_session(token1[:8])
+    assert revoked == 1
+    # The other session is still live.
+    assert len(await accounts.list_active_sessions()) == 1
+
+
+async def test_revoke_session_rejects_short_prefix(db):
+    user = await accounts.create_user("robin", "supersecret")
+    await accounts.create_session(user["id"], ttl_hours=24)
+    # Guard against accidentally revoking every session with an empty/very
+    # short prefix.
+    assert await accounts.revoke_session("") == 0
+    assert await accounts.revoke_session("ab") == 0
+    assert len(await accounts.list_active_sessions()) == 1
