@@ -435,6 +435,93 @@
 /* ============ ADMIN · user management ============ */
 .admin-section { grid-column: span 12; }
 .audit-section { grid-column: span 12; }
+
+/* Audit summary band — score badge + verdict + count pills */
+.audit-summary {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.audit-summary.tone-ok { border-left: 5px solid var(--ok); }
+.audit-summary.tone-warn { border-left: 5px solid var(--warn); }
+.audit-summary.tone-err { border-left: 5px solid var(--err); }
+.audit-score {
+  width: 58px; height: 58px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 16px;
+  border: 2.5px solid currentColor;
+  font-size: 30px; font-weight: 800;
+  background: transparent;
+  font-feature-settings: "tnum";
+}
+.audit-score.tone-ok { color: var(--ok); }
+.audit-score.tone-warn { color: var(--warn); }
+.audit-score.tone-err { color: var(--err); }
+.verdict-main { min-width: 0; }
+.verdict-main h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--text-1); }
+.verdict-main p { margin: 4px 0 0; font-size: 12.5px; color: var(--text-3); }
+.verdict-pills { display: flex; gap: 14px; }
+
+/* Audit findings — grouped by category */
+.cat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .cat-grid { grid-template-columns: 1fr; } }
+.acheck-list { display: flex; flex-direction: column; gap: 6px; }
+.acheck {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.acheck.tone-ok { border-left: 3px solid var(--ok); }
+.acheck.tone-warn { border-left: 3px solid var(--warn); }
+.acheck.tone-err { border-left: 3px solid var(--err); }
+.acheck.tone-skipped { border-left: 3px solid var(--text-4); opacity: 0.72; }
+.acheck-ico {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  font-size: 10px; font-weight: 700;
+  flex-shrink: 0;
+}
+.acheck-ico.tone-ok { background: var(--ok-soft); color: var(--ok); }
+.acheck-ico.tone-warn { background: var(--warn-soft); color: var(--warn); }
+.acheck-ico.tone-err { background: var(--err-soft); color: var(--err); }
+.acheck-ico.tone-skipped { background: var(--surface-3); color: var(--text-4); }
+.acheck-body { min-width: 0; }
+.acheck-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.acheck-detail { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.acheck-id { font-size: 10px; color: var(--text-4); margin-top: 2px; font-family: var(--mono); }
+.acheck-fix {
+  margin-top: 6px;
+  display: flex; align-items: flex-start; gap: 6px;
+  flex-wrap: wrap;
+}
+.fix-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: var(--r-pill);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.acheck-fix code {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--surface-3);
+  border-radius: 4px;
+  font-size: 11.5px;
+  word-break: break-all;
+  color: var(--text-2);
+}
+
 .user-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .user-table thead th {
   text-align: left;

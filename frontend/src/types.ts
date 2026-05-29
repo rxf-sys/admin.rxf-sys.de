@@ -321,6 +321,13 @@ export interface AuditFinding {
   status: 'ok' | 'warn' | 'err' | 'skipped';
   title: string;
   detail: string;
+  /** Optional category for grouping in the UI. When absent the frontend
+   * derives one from the leading dot-segment of ``id`` (e.g. ``updates`` from
+   * ``updates.security_pending``). */
+  category?: string;
+  /** Optional remediation snippet — typically a shell command — shown inline
+   * under the finding when present. */
+  fix?: string;
 }
 
 export interface AuditSummary {
