@@ -102,6 +102,66 @@
 .day-legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
 .day-legend .swatch-inline { width: 10px; height: 10px; display: inline-block; margin-right: 4px; vertical-align: middle; border-radius: 2px; }
 
+/* Host rings card (Server tab) */
+.host-rings-card { display: flex; flex-direction: column; gap: 12px; }
+.host-rings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  padding: 6px 0;
+}
+.host-rings .ring-tile:first-child { grid-column: 1; }
+.host-rings .ring-tile:nth-child(2) { grid-column: 2; }
+.host-rings .ring-tile:nth-child(3) { grid-column: 1 / -1; justify-content: center; }
+.ring-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.ring-tile .ring-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ring-tile .ring-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; color: var(--text-3); text-transform: uppercase; }
+.ring-tile .ring-sub { font-size: 11.5px; color: var(--text-3); font-family: var(--mono); }
+.host-foot {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+/* RAM-by-guest stacked bar (top of the card) */
+.ram-stacked-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.ram-stacked-bar > span { display: block; height: 100%; }
+
+/* Disks list (one row per disk: icon · device · size/temp · health badge) */
+.disks-list { display: flex; flex-direction: column; gap: 8px; }
+.disk-row {
+  display: grid;
+  grid-template-columns: 28px 1fr max-content;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.disk-row .disk-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+.disk-row .disk-ico svg { width: 16px; height: 16px; }
+.disk-row .disk-body { min-width: 0; }
+.disk-row .disk-device { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+
 /* Cert list (Domain / Issuer / Days-bar / Days-left) */
 .cert-list { display: flex; flex-direction: column; gap: 8px; }
 .cert-row {

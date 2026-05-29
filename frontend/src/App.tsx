@@ -11,6 +11,7 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { Drawer } from './components/Drawer';
 import { GuestDrawer } from './components/GuestDrawer';
 import { Header } from './components/Header';
+import { HostGrid } from './components/HostGrid';
 import { HostPanel } from './components/HostPanel';
 import { KpiStrip } from './components/KpiStrip';
 import { LoginPage } from './components/LoginPage';
@@ -424,15 +425,21 @@ function Dashboard({ user, onLogout }: DashboardProps) {
           <>
             <div className="dash-section-head">
               <h2>Live-Status</h2>
+              <span className="dimmer mono" style={{ fontSize: 11 }}>
+                {sys.data?.host?.node ? `${sys.data.host.node} · Echtzeit` : 'Echtzeit'}
+              </span>
             </div>
-            <div className="quick-stats">
-              <KpiStrip guests={guests} services={services} />
-              <AuditLog pollMs={pollFast} />
-            </div>
-            <div className="dash-section-head">
+            <KpiStrip guests={guests} services={services} />
+            <div className="dash-section-head" style={{ marginTop: 16 }}>
               <h2>Host &amp; Compute</h2>
             </div>
-            <HostPanel host={sys.data?.host ?? null} guests={guests} />
+            <HostGrid host={sys.data?.host ?? null} guests={guests} />
+            <div className="dash-section-head">
+              <h2>Container &amp; VMs</h2>
+              <span className="dimmer mono" style={{ fontSize: 11 }}>
+                {guests.filter((g) => g.running).length} / {guests.length}
+              </span>
+            </div>
             <VMTable
               guests={guests}
               onLogs={onLogs}
