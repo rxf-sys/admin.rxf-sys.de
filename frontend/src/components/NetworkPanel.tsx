@@ -1,7 +1,7 @@
 import { api } from '../api/client';
 import { usePoll } from '../hooks/usePoll';
 import type { NetworkSnapshot, NetworkThroughput, TunnelStatus, UnifiDevice } from '../types';
-import { AreaChart, Dot, ICONS, Num, fmtUptime } from './primitives';
+import { Dot, ICONS, Num, Sparkline, fmtUptime } from './primitives';
 
 interface Props {
   network: NetworkSnapshot | null;
@@ -46,26 +46,27 @@ export function NetworkPanel({ network, tunnel, pollMs }: Props) {
     );
   }
 
+  const gatewayDevice = devices.find((d) => d.is_gateway);
+  const gatewayModel = gatewayDevice?.model;
+
   return (
     <section className="network-section" aria-labelledby="network-heading">
       <div className="dash-section-head" style={{ marginBottom: 12 }}>
         <h2 id="network-heading">Netzwerk</h2>
-        <div className="section-tools">
-          <span className="dimmer mono" style={{ fontSize: 11 }}>
-            {network?.auth_mode === 'api-key'
-              ? 'UniFi Integration API'
-              : network?.auth_mode === 'cookie'
-                ? 'UniFi (Legacy)'
-                : 'kein UniFi'}
-          </span>
-        </div>
+        <span className="dimmer mono" style={{ fontSize: 11 }}>
+          {gatewayModel ? `UniFi · ${gatewayModel}` : network?.auth_mode === 'api-key'
+            ? 'UniFi Integration API'
+            : network?.auth_mode === 'cookie'
+              ? 'UniFi (Legacy)'
+              : 'kein UniFi'}
+        </span>
       </div>
 
+      {/* Top row: WAN · Durchsatz · Clients-by-VLAN */}
       <div className="grid-12" style={{ marginBottom: 16 }}>
-        {/* WAN · DDNS */}
         <div className="card col-4">
           <div className="card-h">
-            <h3>WAN · DDNS</h3>
+            <h3>WAN &amp; DDNS</h3>
             <span className={`badge ${publicIp ? 'ok' : 'warn'}`}>
               <Dot status={publicIp ? 'ok' : 'warn'} /> {publicIp ? 'SYNC' : 'KEINE IP'}
             </span>
@@ -81,37 +82,17 @@ export function NetworkPanel({ network, tunnel, pollMs }: Props) {
           </div>
         </div>
 
-        {/* WAN Throughput */}
-        <div className="card col-8">
-          <ThroughputChart
-            throughput={throughput}
-            liveDown={network?.throughput_down_mbit ?? 0}
-            liveUp={network?.throughput_up_mbit ?? 0}
-            authMode={network?.auth_mode ?? 'none'}
-          />
-        </div>
-      </div>
+        <ThroughputCard
+          throughput={throughput}
+          liveDown={network?.throughput_down_mbit ?? 0}
+          liveUp={network?.throughput_up_mbit ?? 0}
+          authMode={network?.auth_mode ?? 'none'}
+        />
 
-      {devices.length > 0 && (
-        <>
-          <div className="dash-section-head">
-            <h2>UniFi Devices <span className="count">· {devices.length} online</span></h2>
-          </div>
-          <div className="grid-12" style={{ marginBottom: 16 }}>
-            {devices.map((d) => (
-              <div key={d.id} className="card device-card col-6">
-                <DeviceCard device={d} />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="grid-12">
-        <div className="card col-12">
+        <div className="card col-4">
           <div className="card-h">
-            <h3>VLANs <span className="h3-sub">· {totalClients} Clients total</span></h3>
-            <span className="dimmer mono" style={{ fontSize: 11 }}>{vlans.length} Netze</span>
+            <h3>Clients</h3>
+            <span className="dimmer mono" style={{ fontSize: 11 }}>{totalClients} aktiv</span>
           </div>
           {vlans.length === 0 ? (
             <div className="dim" style={{ fontSize: 12 }}>Keine VLANs konfiguriert.</div>
@@ -124,13 +105,10 @@ export function NetworkPanel({ network, tunnel, pollMs }: Props) {
                   <div key={`${v.name}-${v.vlan ?? i}`} className="vlan-row">
                     <span className="vlan-swatch" style={{ background: color }} />
                     <span className="vlan-name">{v.name}</span>
-                    <span className="mono dimmer" style={{ fontSize: 11 }}>
-                      VLAN {v.vlan ?? '—'}
-                    </span>
                     <div className="vlan-bar">
                       <div style={{ width: `${pct}%`, background: color }} />
                     </div>
-                    <span className="mono" style={{ fontSize: 13, fontWeight: 600, width: 28, textAlign: 'right' }}>
+                    <span className="mono" style={{ fontSize: 12, fontWeight: 600, width: 24, textAlign: 'right' }}>
                       {v.clients}
                     </span>
                   </div>
@@ -140,11 +118,27 @@ export function NetworkPanel({ network, tunnel, pollMs }: Props) {
           )}
         </div>
       </div>
+
+      {devices.length > 0 && (
+        <>
+          <div className="dash-section-head">
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Geräte &amp; Verbindungen</h3>
+            <span className="dimmer mono" style={{ fontSize: 11 }}>{devices.length} online</span>
+          </div>
+          <div className="grid-12">
+            {devices.map((d) => (
+              <div key={d.id} className="card device-card col-6">
+                <DeviceCard device={d} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }
 
-function ThroughputChart({
+function ThroughputCard({
   throughput,
   liveDown,
   liveUp,
@@ -164,43 +158,39 @@ function ThroughputChart({
   const curUp = ups.length ? ups[ups.length - 1] : liveUp;
 
   return (
-    <>
+    <div className="card col-4">
       <div className="card-h">
-        <h3>WAN Throughput <span className="h3-sub">letzte 60 min · 1 min Auflösung</span></h3>
-        <div className="throughput-legend">
-          <span className="item">
-            <span className="dash" style={{ background: 'var(--info)' }} />
-            <span className="dim">DOWN</span>
-            <span className="mono" style={{ color: 'var(--text-1)' }}>{curDown.toFixed(1)}</span>
-            <span className="dimmer">Mbit/s</span>
-          </span>
-          <span className="item">
-            <span className="dash" style={{ background: 'var(--accent)' }} />
-            <span className="dim">UP</span>
-            <span className="mono" style={{ color: 'var(--text-1)' }}>{curUp.toFixed(1)}</span>
-            <span className="dimmer">Mbit/s</span>
-          </span>
-        </div>
+        <h3>Durchsatz <span className="h3-sub">live</span></h3>
       </div>
       {apiKeyNoThroughput ? (
-        <div className="dim" style={{ fontSize: 12, lineHeight: 1.55, padding: '20px 0' }}>
-          Die UniFi Integration API liefert keinen Live-Durchsatz — nur die Legacy-Cookie-Auth tut das.
-          Daher kein Verlaufs-Chart.
-        </div>
-      ) : noHistory ? (
-        <div className="dim" style={{ fontSize: 12, padding: '20px 0' }}>
-          Sammle Verlauf — Sampling-Loop läuft alle 60 s.
+        <div className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>
+          UniFi Integration API liefert keinen Live-Durchsatz.
         </div>
       ) : (
-        <>
-          <AreaChart series={downs} secondary={ups} color="var(--info)" secondaryColor="var(--accent)" height={140} />
-          <div className="throughput-foot">
-            <span>peak ↓ {throughput?.peak_down_mbit ?? 0} Mbit · ↑ {throughput?.peak_up_mbit ?? 0} Mbit</span>
-            <span>−60 min<span style={{ margin: '0 20px' }}>−30 min</span>jetzt</span>
+        <div className="throughput-pair">
+          <div className="throughput-tile">
+            <div className="t-label">↓ Down</div>
+            <div className="t-value mono">{curDown.toFixed(1)} <span className="t-unit">Mbit/s</span></div>
+            {!noHistory && <Sparkline data={downs} width={140} height={32} area color="var(--info)" />}
           </div>
-        </>
+          <div className="throughput-tile">
+            <div className="t-label">↑ Up</div>
+            <div className="t-value mono">{curUp.toFixed(1)} <span className="t-unit">Mbit/s</span></div>
+            {!noHistory && <Sparkline data={ups} width={140} height={32} area color="var(--accent)" />}
+          </div>
+        </div>
       )}
-    </>
+      {!apiKeyNoThroughput && (
+        <div className="throughput-foot" style={{ marginTop: 8 }}>
+          <span className="dimmer mono" style={{ fontSize: 11 }}>
+            Peak ↓ {throughput?.peak_down_mbit ?? 0} Mbit/s
+          </span>
+          <span className="dimmer mono" style={{ fontSize: 11 }}>
+            Peak ↑ {throughput?.peak_up_mbit ?? 0} Mbit/s
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 

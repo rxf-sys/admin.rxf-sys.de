@@ -102,6 +102,30 @@
 .day-legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
 .day-legend .swatch-inline { width: 10px; height: 10px; display: inline-block; margin-right: 4px; vertical-align: middle; border-radius: 2px; }
 
+/* Throughput live-card (Down/Up tiles side by side) */
+.throughput-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.throughput-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.throughput-tile .t-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--text-3); text-transform: uppercase;
+}
+.throughput-tile .t-value {
+  font-size: 22px; font-weight: 700; color: var(--text-1);
+  letter-spacing: -0.4px;
+}
+.throughput-tile .t-value .t-unit {
+  font-size: 11px; font-weight: 500; color: var(--text-3);
+}
+
 /* Host rings card (Server tab) */
 .host-rings-card { display: flex; flex-direction: column; gap: 12px; }
 .host-rings {
