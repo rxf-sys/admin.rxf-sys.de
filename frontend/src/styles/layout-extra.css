@@ -102,6 +102,31 @@
 .day-legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
 .day-legend .swatch-inline { width: 10px; height: 10px; display: inline-block; margin-right: 4px; vertical-align: middle; border-radius: 2px; }
 
+/* Storage-by-guest list (one row per guest with a horizontal bar) */
+.guest-size-list { display: flex; flex-direction: column; gap: 8px; }
+.guest-size-row {
+  display: grid;
+  grid-template-columns: 8px minmax(70px, max-content) 1fr minmax(48px, max-content);
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.guest-size-row .dot-color { width: 8px; height: 8px; border-radius: 50%; }
+.guest-size-row .guest-size-name { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.guest-size-row .guest-size-bar {
+  position: relative;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.guest-size-row .guest-size-bar > span {
+  position: absolute; inset: 0 auto 0 0;
+  display: block;
+  border-radius: 3px;
+}
+.guest-size-row .guest-size-val { font-size: 11.5px; color: var(--text-3); text-align: right; white-space: nowrap; }
+
 /* 30-day backup trend (jobs/day stacked bars + GB/day line overlay) */
 .backup-trend { position: relative; height: 120px; margin: 8px 0 6px; }
 .backup-trend .trend-bars { display: flex; gap: 3px; align-items: flex-end; height: 120px; }

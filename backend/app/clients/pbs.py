@@ -91,6 +91,65 @@ async def trigger_verify(
         return None
 
 
+async def fetch_schedule_info(settings: Settings) -> dict:
+    """Read prune-job schedule + retention for the configured datastore.
+
+    PBS keeps prune jobs in ``/config/prune`` (one row per job). We surface
+    the first job whose ``store`` matches our datastore — most installs have
+    a single retention job per store. ``schedule`` is the raw PBS calendar
+    spec (systemd timer format, e.g. ``daily 02:00`` or ``Mon..Sun *-*-* 03:00``)
+    so the UI can render it verbatim instead of guessing.
+
+    The token only needs ``Datastore.Audit`` on the datastore. Missing prune
+    job (no retention configured) is treated as ``reachable=True`` with
+    ``schedule=None`` — not an error, just nothing to display.
+    """
+    if not (settings.pbs_token_id and settings.pbs_token_secret):
+        return {
+            "reachable": False,
+            "error": "PBS-Token nicht konfiguriert",
+            "schedule": None,
+            "retention": {},
+        }
+    async with httpx.AsyncClient(verify=settings.pbs_verify_tls, timeout=8.0) as client:
+        try:
+            jobs = await _get(client, settings, "/config/prune")
+        except httpx.HTTPError as e:
+            log.info("pbs.schedule_fetch_failed", error=str(e))
+            return {
+                "reachable": False,
+                "error": str(e),
+                "schedule": None,
+                "retention": {},
+            }
+    if not isinstance(jobs, list):
+        jobs = []
+    own = next(
+        (j for j in jobs if isinstance(j, dict) and j.get("store") == settings.pbs_datastore),
+        None,
+    )
+    if own is None:
+        return {
+            "reachable": True,
+            "error": None,
+            "schedule": None,
+            "retention": {},
+        }
+    retention = {
+        "last": own.get("keep-last"),
+        "daily": own.get("keep-daily"),
+        "weekly": own.get("keep-weekly"),
+        "monthly": own.get("keep-monthly"),
+        "yearly": own.get("keep-yearly"),
+    }
+    return {
+        "reachable": True,
+        "error": None,
+        "schedule": own.get("schedule"),
+        "retention": {k: v for k, v in retention.items() if v is not None},
+    }
+
+
 async def fetch_backup_summary(settings: Settings) -> BackupSummary:
     if not (settings.pbs_token_id and settings.pbs_token_secret):
         return BackupSummary(

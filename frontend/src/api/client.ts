@@ -4,6 +4,7 @@ import type {
   AuditJobsList,
   AuditRun,
   BackupHeatmap,
+  BackupSchedule,
   BackupStorage,
   BackupSummary,
   CertsSnapshot,
@@ -117,6 +118,8 @@ export const api = {
     get<BackupHeatmap>(`/api/backups/heatmap?days=${days}`, signal),
   backupsStorageByGuest: (signal?: AbortSignal) =>
     get<BackupStorage>('/api/backups/storage-by-guest', signal),
+  backupsSchedule: (signal?: AbortSignal) =>
+    get<BackupSchedule>('/api/backups/schedule', signal),
   network: (signal?: AbortSignal) => get<NetworkSnapshot>('/api/network', signal),
   networkThroughput: (hours = 1, signal?: AbortSignal) =>
     get<NetworkThroughput>(`/api/network/throughput?hours=${hours}`, signal),
