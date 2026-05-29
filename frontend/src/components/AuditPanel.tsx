@@ -51,7 +51,7 @@ const CATEGORY_INFO: Record<string, CatInfo> = {
   services: { label: 'Services',             icon: ICONS.zap },
 };
 
-type Filter = 'all' | 'err' | 'warn' | 'ok';
+type Filter = 'all' | 'err' | 'warn' | 'ok' | 'skipped';
 
 function statusColor(s: AuditRun['status']): string {
   if (s === 'ok') return 'var(--ok)';
@@ -440,6 +440,7 @@ const FILTER_OPTIONS: { id: Filter; label: string }[] = [
   { id: 'err', label: 'Kritisch' },
   { id: 'warn', label: 'Warnungen' },
   { id: 'ok', label: 'Bestanden' },
+  { id: 'skipped', label: 'Übersprungen' },
 ];
 
 interface FindingsByCategoryProps {
@@ -498,6 +499,7 @@ function FindingsByCategory({
     err: findings.filter((f) => f.status === 'err').length,
     warn: findings.filter((f) => f.status === 'warn').length,
     ok: findings.filter((f) => f.status === 'ok').length,
+    skipped: findings.filter((f) => f.status === 'skipped').length,
   };
 
   // Worst status of a category drives the tint of its header badge.
