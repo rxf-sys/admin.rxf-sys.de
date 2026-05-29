@@ -284,6 +284,25 @@ export interface BackupHeatmap {
   cells: BackupHeatmapCell[];
 }
 
+export interface BackupRetention {
+  last?: number;
+  daily?: number;
+  weekly?: number;
+  monthly?: number;
+  yearly?: number;
+}
+
+export interface BackupSchedule {
+  reachable: boolean;
+  error: string | null;
+  /** Raw PBS calendar spec (systemd timer format), e.g. "daily 02:00". */
+  schedule: string | null;
+  retention: BackupRetention;
+  /** Mirrors ``BackupSummary.last_success_iso`` so the card can show it
+   * without a second API call. */
+  last_success_iso: string | null;
+}
+
 export interface BackupStorageItem {
   target: string;
   backup_type: string;
@@ -314,6 +333,24 @@ export interface AccessSessions {
   last_login_iso: string | null;
   sessions_24h: number;
   items: AccessSession[];
+}
+
+export interface CloudflareAnalyticsBucket {
+  since: string;
+  all: number;
+  cached: number;
+}
+
+export interface CloudflareAnalytics {
+  reachable: boolean;
+  error: string | null;
+  minutes: number;
+  requests_total: number;
+  requests_per_min: number;
+  cache_hit_pct: number | null;
+  threats_total: number;
+  bandwidth_b: number;
+  series: CloudflareAnalyticsBucket[];
 }
 
 export interface AuditFinding {

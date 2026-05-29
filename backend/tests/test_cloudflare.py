@@ -113,3 +113,61 @@ async def test_certs_dedupes_and_sorts(settings):
     assert len(certs) == 1
     assert certs[0].domain == "example.test"
     assert certs[0].days_left <= 10
+
+
+@pytest.mark.asyncio
+async def test_zone_analytics_no_token_returns_empty(settings):
+    s = settings.model_copy(update={"cf_api_token": "", "cf_zone_id": "z"})
+    a = await cloudflare.fetch_zone_analytics(s, minutes=60)
+    assert a["reachable"] is False
+    assert a["requests_total"] == 0
+    assert a["series"] == []
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_zone_analytics_aggregates_totals(settings):
+    respx.get(
+        f"{CF}/zones/{settings.cf_zone_id}/analytics/dashboard"
+    ).mock(return_value=httpx.Response(
+        200,
+        json={
+            "success": True,
+            "errors": [],
+            "messages": [],
+            "result": {
+                "totals": {
+                    "requests": {"all": 1200, "cached": 900},
+                    "bandwidth": {"all": 5_000_000},
+                    "threats": {"all": 4},
+                },
+                "timeseries": [
+                    {"since": "t0", "requests": {"all": 20, "cached": 15}},
+                    {"since": "t1", "requests": {"all": 40, "cached": 30}},
+                ],
+            },
+        },
+    ))
+
+    a = await cloudflare.fetch_zone_analytics(settings, minutes=60)
+    assert a["reachable"] is True
+    assert a["requests_total"] == 1200
+    assert a["requests_per_min"] == 20.0
+    assert a["cache_hit_pct"] == 75.0
+    assert a["threats_total"] == 4
+    assert a["bandwidth_b"] == 5_000_000
+    assert len(a["series"]) == 2
+    assert a["series"][1]["all"] == 40
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_zone_analytics_http_error_surfaces_as_unreachable(settings):
+    respx.get(
+        f"{CF}/zones/{settings.cf_zone_id}/analytics/dashboard"
+    ).mock(side_effect=httpx.ConnectError("no route"))
+
+    a = await cloudflare.fetch_zone_analytics(settings, minutes=60)
+    assert a["reachable"] is False
+    assert a["error"]
+    assert a["requests_total"] == 0

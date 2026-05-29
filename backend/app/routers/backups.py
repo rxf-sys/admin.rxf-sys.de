@@ -133,6 +133,22 @@ async def get_heatmap(days: int = 30, settings: Settings = Depends(get_settings)
     }
 
 
+@router.get("/schedule")
+async def get_schedule(settings: Settings = Depends(get_settings)) -> dict:
+    """Prune-job schedule + retention policy for the configured datastore.
+
+    Drives the dashboard's 'Zeitplan & Aufbewahrung' card. Cached lightly
+    since prune-job config rarely changes; an explicit refresh after a PBS
+    config change isn't worth wiring up."""
+    async def loader() -> dict:
+        info = await pbs.fetch_schedule_info(settings)
+        summary = await pbs.fetch_backup_summary(settings)
+        info["last_success_iso"] = summary.last_success_iso
+        return info
+
+    return await cache.get_or_set("backups.schedule", settings.cache_ttl_pbs, loader)
+
+
 @router.get("/storage-by-guest")
 async def get_storage_by_guest(settings: Settings = Depends(get_settings)) -> dict:
     """Total snapshot size per backup-id, summed across the retained window.

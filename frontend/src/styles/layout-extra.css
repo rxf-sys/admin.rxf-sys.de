@@ -102,6 +102,139 @@
 .day-legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
 .day-legend .swatch-inline { width: 10px; height: 10px; display: inline-block; margin-right: 4px; vertical-align: middle; border-radius: 2px; }
 
+/* Throughput live-card (Down/Up tiles side by side) */
+.throughput-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.throughput-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.throughput-tile .t-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--text-3); text-transform: uppercase;
+}
+.throughput-tile .t-value {
+  font-size: 22px; font-weight: 700; color: var(--text-1);
+  letter-spacing: -0.4px;
+}
+.throughput-tile .t-value .t-unit {
+  font-size: 11px; font-weight: 500; color: var(--text-3);
+}
+
+/* Host rings card (Server tab) */
+.host-rings-card { display: flex; flex-direction: column; gap: 12px; }
+.host-rings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  padding: 6px 0;
+}
+.host-rings .ring-tile:first-child { grid-column: 1; }
+.host-rings .ring-tile:nth-child(2) { grid-column: 2; }
+.host-rings .ring-tile:nth-child(3) { grid-column: 1 / -1; justify-content: center; }
+.ring-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.ring-tile .ring-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ring-tile .ring-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; color: var(--text-3); text-transform: uppercase; }
+.ring-tile .ring-sub { font-size: 11.5px; color: var(--text-3); font-family: var(--mono); }
+.host-foot {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+/* RAM-by-guest stacked bar (top of the card) */
+.ram-stacked-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.ram-stacked-bar > span { display: block; height: 100%; }
+
+/* Disks list (one row per disk: icon · device · size/temp · health badge) */
+.disks-list { display: flex; flex-direction: column; gap: 8px; }
+.disk-row {
+  display: grid;
+  grid-template-columns: 28px 1fr max-content;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.disk-row .disk-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+.disk-row .disk-ico svg { width: 16px; height: 16px; }
+.disk-row .disk-body { min-width: 0; }
+.disk-row .disk-device { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+
+/* Cert list (Domain / Issuer / Days-bar / Days-left) */
+.cert-list { display: flex; flex-direction: column; gap: 8px; }
+.cert-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(60px, 90px) 48px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.cert-row .cert-domain { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cert-row .cert-issuer { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cert-row .cert-bar {
+  position: relative;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cert-row .cert-bar > span {
+  position: absolute; inset: 0 auto 0 0;
+  border-radius: 3px;
+}
+.cert-row .cert-days { text-align: right; }
+
+/* Storage-by-guest list (one row per guest with a horizontal bar) */
+.guest-size-list { display: flex; flex-direction: column; gap: 8px; }
+.guest-size-row {
+  display: grid;
+  grid-template-columns: 8px minmax(70px, max-content) 1fr minmax(48px, max-content);
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.guest-size-row .dot-color { width: 8px; height: 8px; border-radius: 50%; }
+.guest-size-row .guest-size-name { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.guest-size-row .guest-size-bar {
+  position: relative;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.guest-size-row .guest-size-bar > span {
+  position: absolute; inset: 0 auto 0 0;
+  display: block;
+  border-radius: 3px;
+}
+.guest-size-row .guest-size-val { font-size: 11.5px; color: var(--text-3); text-align: right; white-space: nowrap; }
+
 /* 30-day backup trend (jobs/day stacked bars + GB/day line overlay) */
 .backup-trend { position: relative; height: 120px; margin: 8px 0 6px; }
 .backup-trend .trend-bars { display: flex; gap: 3px; align-items: flex-end; height: 120px; }
@@ -491,10 +624,24 @@
   font-size: 10px; font-weight: 700;
   flex-shrink: 0;
 }
+.acheck-ico svg { width: 12px; height: 12px; }
 .acheck-ico.tone-ok { background: var(--ok-soft); color: var(--ok); }
 .acheck-ico.tone-warn { background: var(--warn-soft); color: var(--warn); }
 .acheck-ico.tone-err { background: var(--err-soft); color: var(--err); }
 .acheck-ico.tone-skipped { background: var(--surface-3); color: var(--text-4); }
+
+/* Category header badge (small tinted icon left of the category title) */
+.cat-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.cat-ico svg { width: 13px; height: 13px; }
+.cat-ico.tone-ok { background: var(--ok-soft); color: var(--ok); }
+.cat-ico.tone-warn { background: var(--warn-soft); color: var(--warn); }
+.cat-ico.tone-err { background: var(--err-soft); color: var(--err); }
+.cat-ico.tone-skipped { background: var(--surface-3); color: var(--text-4); }
 .acheck-body { min-width: 0; }
 .acheck-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
 .acheck-detail { font-size: 12px; color: var(--text-3); margin-top: 2px; }

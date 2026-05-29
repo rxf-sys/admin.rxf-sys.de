@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type {
   BackupHeatmap,
-  BackupHeatmapCell,
+  BackupSchedule,
   BackupSnapshot,
   BackupStorage,
   BackupSummary,
   Guest,
 } from '../types';
-import { Dot, ICONS, StackedBar, fmtBytes, fmtTimeAgo, type StackedSegment } from './primitives';
+import { Dot, ICONS, fmtBytes, fmtTimeAgo } from './primitives';
 
 interface Props {
   backups: BackupSummary | null;
@@ -17,26 +17,21 @@ interface Props {
   onOpenGuest?: (guest: Guest) => void;
 }
 
-const PALETTE = ['#4fe9a4', '#4f9eff', '#ffb17a', '#7ab6ff', '#00d97e', '#5a608a', '#e056a8', '#5fd0d7'];
-
-// Maps the backend's heatmap label onto the design's day-cell variant class.
-const CELL_CLASS: Record<BackupHeatmapCell['label'], string> = {
-  ok: 'ok',
-  partial: 'half',
-  err: 'fail',
-  empty: '',
-};
+const GUEST_PALETTE = ['#4fe9a4', '#4f9eff', '#ffb17a', '#7ab6ff', '#00d97e', '#5a608a', '#e056a8', '#5fd0d7'];
 
 export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props) {
   const [heatmap, setHeatmap] = useState<BackupHeatmap | null>(null);
   const [storage, setStorage] = useState<BackupStorage | null>(null);
+  const [schedule, setSchedule] = useState<BackupSchedule | null>(null);
   const [heatmapError, setHeatmapError] = useState(false);
   const [storageError, setStorageError] = useState(false);
+  const [scheduleError, setScheduleError] = useState(false);
 
   useEffect(() => {
     const ctrl = new AbortController();
     setHeatmapError(false);
     setStorageError(false);
+    setScheduleError(false);
     api
       .backupsHeatmap(30, ctrl.signal)
       .then(setHeatmap)
@@ -49,15 +44,31 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
       .catch(() => {
         if (!ctrl.signal.aborted) setStorageError(true);
       });
+    api
+      .backupsSchedule(ctrl.signal)
+      .then(setSchedule)
+      .catch(() => {
+        if (!ctrl.signal.aborted) setScheduleError(true);
+      });
     return () => ctrl.abort();
   }, [backups]);
 
-  const ds = backups?.datastore;
-  const usedPct = ds ? Math.min(100, ds.used_pct) : 0;
-  const barColor = usedPct > 85 ? 'var(--err)' : usedPct > 70 ? 'var(--warn)' : 'var(--ok)';
-
   return (
     <section className="backup-section">
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h2>Backup</h2>
+        <span className="dimmer mono" style={{ fontSize: 11 }}>
+          {backups?.datastore ? `${backups.datastore.name} @ PBS` : 'Proxmox Backup Server'}
+        </span>
+      </div>
+
+      {/* Top row: Datastore donut + Storage-by-guest + Schedule */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <DatastoreCard backups={backups} />
+        <StorageByGuestCard storage={storage} errored={storageError} />
+        <ScheduleCard schedule={schedule} errored={scheduleError} />
+      </div>
+
       {/* 30-day trend (stacked bars + GB/day line) */}
       <div className="grid-12" style={{ marginBottom: 16 }}>
         <BackupTrendCard
@@ -67,133 +78,220 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
         />
       </div>
 
-      <div className="grid-12" style={{ marginBottom: 16 }}>
-        {/* Datastore */}
-        <div className="card col-5">
-          <div className="card-h">
-            <h3>Datastore {ds && <span className="h3-sub">· {ds.name}</span>}</h3>
-            <span className={`badge ${backups?.reachable === false ? 'err' : 'ok'}`}>
-              <Dot status={backups?.reachable === false ? 'err' : 'ok'} />
-              {backups?.reachable === false ? 'OFFLINE' : 'REACHABLE'}
-            </span>
-          </div>
-          {!ds ? (
-            <div className="dim" style={{ fontSize: 12 }}>
-              {backups?.error ?? 'Keine Datastore-Daten — PBS-Token prüfen.'}
-            </div>
-          ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 12 }}>
-                <span className="mono" style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--text-1)' }}>
-                  {fmtBytes(ds.used_b)}
-                  <span style={{ fontSize: 14, color: 'var(--text-3)' }}> / {fmtBytes(ds.total_b)}</span>
-                </span>
-                <span className="mono" style={{ fontSize: 18, color: barColor, marginBottom: 4 }}>
-                  {usedPct.toFixed(1)}%
-                </span>
-              </div>
-              <div className="bar thick">
-                <div className="bar-fill" style={{ width: `${usedPct}%`, background: barColor }} />
-              </div>
-              <div className="kv-stack" style={{ marginTop: 14 }}>
-                <div className="kv-row">
-                  <span className="kv-k">Frei</span>
-                  <span className="kv-v mono">{fmtBytes(Math.max(0, ds.total_b - ds.used_b))}</span>
-                </div>
-                <div className="kv-row">
-                  <span className="kv-k">Snapshots heute</span>
-                  <span className="kv-v mono">{backups.success_today} / {backups.total_today}</span>
-                </div>
-                <div className="kv-row">
-                  <span className="kv-k">Letzter Erfolg</span>
-                  <span className="kv-v mono">{backups.last_success_iso ? fmtTimeAgo(backups.last_success_iso) : '—'}</span>
-                </div>
-                <div className="kv-row">
-                  <span className="kv-k">Aufbewahrung</span>
-                  <span className="kv-v mono" style={{ fontSize: 11 }}>via PBS Retention-Job</span>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* 30-day heatmap */}
-        <div className="card col-7">
-          <div className="card-h">
-            <h3>30 Tage Trend <span className="h3-sub">· Snapshots pro Tag</span></h3>
-            <span className="dimmer mono" style={{ fontSize: 11 }}>
-              {heatmap?.success_pct == null ? '—' : `success: ${heatmap.success_pct.toFixed(1)}%`}
-            </span>
-          </div>
-          {heatmapError ? (
-            <div className="dim" style={{ fontSize: 12, color: 'var(--err)', padding: '20px 0' }}>
-              Heatmap konnte nicht geladen werden.
-            </div>
-          ) : heatmap === null ? (
-            <div className="dim" style={{ fontSize: 12, padding: '20px 0' }}>Lade…</div>
-          ) : !heatmap.reachable ? (
-            <div className="dim" style={{ fontSize: 12, color: 'var(--err)', padding: '20px 0' }}>
-              {heatmap.error ?? 'PBS unerreichbar'}
-            </div>
-          ) : (
-            <>
-              <div className="day-grid" role="img" aria-label="Backup-Heatmap der letzten 30 Tage">
-                {heatmap.cells.map((c) => (
-                  <span
-                    key={c.day}
-                    className={`day-cell ${CELL_CLASS[c.label]}`}
-                    title={`${c.day} · ${c.total} Snapshots (ok: ${c.ok}, warn: ${c.warn}, err: ${c.err})`}
-                  >
-                    {c.total > 0 ? c.total : ''}
-                  </span>
-                ))}
-              </div>
-              <div className="day-legend">
-                <span><span className="swatch-inline day-cell ok" /> Vollständig</span>
-                <span><span className="swatch-inline day-cell half" /> Teilweise</span>
-                <span><span className="swatch-inline day-cell fail" /> Fehler</span>
-                <span><span className="swatch-inline day-cell" /> leer</span>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Storage by guest */}
-      <div className="grid-12" style={{ marginBottom: 16 }}>
-        <div className="card col-12">
-          <div className="card-h">
-            <h3>Storage by Guest <span className="h3-sub">· Roh-Snapshot-Größe</span></h3>
-            <span className="dimmer mono" style={{ fontSize: 11 }}>
-              {storage?.total_b ? `total ${fmtBytes(storage.total_b)}` : '—'}
-            </span>
-          </div>
-          {storageError ? (
-            <div className="dim" style={{ fontSize: 12, color: 'var(--err)' }}>
-              Storage-Aufschlüsselung konnte nicht geladen werden.
-            </div>
-          ) : storage === null ? (
-            <div className="dim" style={{ fontSize: 12 }}>Lade…</div>
-          ) : storage.items.length === 0 ? (
-            <div className="dim" style={{ fontSize: 12 }}>Keine Snapshots im aktuellen Retention-Fenster.</div>
-          ) : (
-            <StackedStorage storage={storage} />
-          )}
-        </div>
-      </div>
-
       {/* PBS jobs */}
       <div className="grid-12">
         <div className="card col-12" style={{ padding: 0 }}>
           <div style={{ padding: '18px 20px' }}>
             <div className="card-h" style={{ marginBottom: 0 }}>
-              <h3>PBS Jobs <span className="h3-sub">· {backups?.jobs.length ?? 0} Einträge</span></h3>
+              <h3>Jobs heute <span className="h3-sub">· {backups?.jobs.length ?? 0} Einträge</span></h3>
             </div>
           </div>
           <JobsTable backups={backups} guests={guests} onVerify={onVerify} onOpenGuest={onOpenGuest} />
         </div>
       </div>
     </section>
+  );
+}
+
+function DatastoreCard({ backups }: { backups: BackupSummary | null }) {
+  const ds = backups?.datastore;
+  const pct = ds ? Math.min(100, ds.used_pct) : 0;
+  const ringColor = pct > 85 ? 'var(--err)' : pct > 70 ? 'var(--warn)' : 'var(--ok)';
+  return (
+    <div className="card col-4">
+      <div className="card-h">
+        <h3>Datastore {ds && <span className="h3-sub">· {ds.name}</span>}</h3>
+        <span className={`badge ${backups?.reachable === false ? 'err' : 'ok'}`}>
+          <Dot status={backups?.reachable === false ? 'err' : 'ok'} />
+          {backups?.success_today != null && backups?.total_today
+            ? `${backups.success_today}/${backups.total_today} HEUTE`
+            : backups?.reachable === false
+              ? 'OFFLINE'
+              : 'REACHABLE'}
+        </span>
+      </div>
+      {!ds ? (
+        <div className="dim" style={{ fontSize: 12 }}>
+          {backups?.error ?? 'Keine Datastore-Daten — PBS-Token prüfen.'}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <Donut pct={pct} color={ringColor} label={`${pct.toFixed(0)}%`} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, color: 'var(--text-4)', textTransform: 'uppercase' }}>
+              Belegt
+            </span>
+            <span className="mono" style={{ fontSize: 14, color: 'var(--text-3)' }}>
+              {fmtBytes(ds.used_b)}
+            </span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, color: 'var(--text-4)', textTransform: 'uppercase', marginTop: 6 }}>
+              Frei
+            </span>
+            <span className="mono" style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-1)' }}>
+              {fmtBytes(Math.max(0, ds.total_b - ds.used_b))}
+            </span>
+            <span className="dimmer mono" style={{ fontSize: 10.5, marginTop: 4 }}>
+              total {fmtBytes(ds.total_b)}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StorageByGuestCard({
+  storage,
+  errored,
+}: {
+  storage: BackupStorage | null;
+  errored: boolean;
+}) {
+  const items = storage?.items ?? [];
+  const maxSize = items.reduce((acc, it) => Math.max(acc, it.size_b), 0) || 1;
+  // Cap list height: show top 5 individual guests, fold the rest into "andere".
+  const TOP_N = 5;
+  const top = items.slice(0, TOP_N);
+  const rest = items.slice(TOP_N);
+  const restSize = rest.reduce((s, it) => s + it.size_b, 0);
+  const display = rest.length > 0
+    ? [...top, { target: `andere (${rest.length})`, size_b: restSize, _bucket: true } as { target: string; size_b: number; _bucket?: boolean }]
+    : top;
+
+  return (
+    <div className="card col-4">
+      <div className="card-h">
+        <h3>Grösse nach Gast</h3>
+        <span className="dimmer mono" style={{ fontSize: 11 }}>
+          {storage?.total_b ? fmtBytes(storage.total_b) : '—'}
+        </span>
+      </div>
+      {errored ? (
+        <div className="dim" style={{ fontSize: 12, color: 'var(--err)' }}>
+          Aufschlüsselung konnte nicht geladen werden.
+        </div>
+      ) : storage === null ? (
+        <div className="dim" style={{ fontSize: 12 }}>Lade…</div>
+      ) : items.length === 0 ? (
+        <div className="dim" style={{ fontSize: 12 }}>Keine Snapshots im Retention-Fenster.</div>
+      ) : (
+        <div className="guest-size-list">
+          {display.map((it, i) => {
+            const w = Math.max(2, (it.size_b / maxSize) * 100);
+            const color = GUEST_PALETTE[i % GUEST_PALETTE.length];
+            return (
+              <div key={it.target} className="guest-size-row">
+                <span className="dot-color" style={{ background: color }} />
+                <span className="guest-size-name">{it.target}</span>
+                <span className="guest-size-bar"><span style={{ width: `${w}%`, background: color }} /></span>
+                <span className="guest-size-val mono">{fmtBytes(it.size_b)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScheduleCard({
+  schedule,
+  errored,
+}: {
+  schedule: BackupSchedule | null;
+  errored: boolean;
+}) {
+  const retentionStr = schedule?.retention
+    ? Object.entries(schedule.retention)
+        .filter(([, v]) => v != null)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ')
+    : '';
+  return (
+    <div className="card col-4">
+      <div className="card-h">
+        <h3>Zeitplan &amp; Aufbewahrung</h3>
+      </div>
+      {errored ? (
+        <div className="dim" style={{ fontSize: 12, color: 'var(--err)' }}>
+          Schedule nicht ladbar.
+        </div>
+      ) : schedule === null ? (
+        <div className="dim" style={{ fontSize: 12 }}>Lade…</div>
+      ) : !schedule.reachable ? (
+        <div className="dim" style={{ fontSize: 12, color: 'var(--err)' }}>
+          {schedule.error ?? 'PBS unerreichbar'}
+        </div>
+      ) : !schedule.schedule && !retentionStr ? (
+        <div className="dim" style={{ fontSize: 12 }}>
+          Keine Prune-Job-Konfiguration für diesen Datastore.
+        </div>
+      ) : (
+        <div className="kv-stack">
+          <div className="kv-row">
+            <span className="kv-k">Schedule</span>
+            <span className="kv-v mono">{schedule.schedule ?? '—'}</span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-k">Retention</span>
+            <span className="kv-v mono" style={{ fontSize: 11 }}>{retentionStr || '—'}</span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-k">Letzter Erfolg</span>
+            <span className="kv-v mono">
+              {schedule.last_success_iso ? fmtTimeAgo(schedule.last_success_iso) : '—'}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Donut({
+  pct,
+  size = 90,
+  stroke = 9,
+  color,
+  label,
+}: {
+  pct: number;
+  size?: number;
+  stroke?: number;
+  color: string;
+  label?: string;
+}) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const dash = (Math.max(0, Math.min(pct, 100)) / 100) * c;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface-3)" strokeWidth={stroke} />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth={stroke}
+        strokeDasharray={`${dash} ${c}`}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+      {label && (
+        <text
+          x="50%"
+          y="50%"
+          dominantBaseline="central"
+          textAnchor="middle"
+          fontSize={size * 0.24}
+          fontWeight={700}
+          fill="var(--text-1)"
+        >
+          {label}
+        </text>
+      )}
+    </svg>
   );
 }
 
@@ -304,28 +402,6 @@ function BackupTrendCard({ heatmap, loading, errored }: BackupTrendCardProps) {
   );
 }
 
-function StackedStorage({ storage }: { storage: BackupStorage }) {
-  const segments: StackedSegment[] = storage.items.map((it, i) => ({
-    name: it.target,
-    gb: it.size_b / 1024 ** 3,
-    color: PALETTE[i % PALETTE.length],
-  }));
-  return (
-    <>
-      <StackedBar segments={segments} />
-      <div className="stacked-legend" style={{ marginTop: 12 }}>
-        {storage.items.map((it, i) => (
-          <span key={it.target} className="item">
-            <span className="swatch-sm" style={{ background: PALETTE[i % PALETTE.length] }} />
-            <span>{it.target}</span>
-            <span className="item-val">{fmtBytes(it.size_b)}</span>
-            <span className="dimmer">· {it.count}×</span>
-          </span>
-        ))}
-      </div>
-    </>
-  );
-}
 
 function JobsTable({
   backups,

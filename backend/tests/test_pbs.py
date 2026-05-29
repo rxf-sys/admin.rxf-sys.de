@@ -123,3 +123,66 @@ async def test_trigger_verify_without_token_is_noop():
     settings = Settings(pbs_token_id="", pbs_token_secret="")
     result = await pbs.trigger_verify(settings, "ct", "100", 1707730000)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_schedule_info_no_token():
+    from app.config import Settings
+
+    settings = Settings(pbs_token_id="", pbs_token_secret="")
+    info = await pbs.fetch_schedule_info(settings)
+    assert info["reachable"] is False
+    assert info["schedule"] is None
+    assert info["retention"] == {}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_schedule_info_picks_matching_store(settings):
+    base = f"https://{settings.pbs_host}:{settings.pbs_port}/api2/json"
+    respx.get(f"{base}/config/prune").mock(return_value=httpx.Response(
+        200,
+        json={
+            "data": [
+                {"id": "other", "store": "other-store", "schedule": "weekly", "keep-last": 1},
+                {
+                    "id": "main",
+                    "store": settings.pbs_datastore,
+                    "schedule": "daily 02:00",
+                    "keep-last": 7,
+                    "keep-daily": 4,
+                    "keep-monthly": 6,
+                },
+            ]
+        },
+    ))
+
+    info = await pbs.fetch_schedule_info(settings)
+    assert info["reachable"] is True
+    assert info["schedule"] == "daily 02:00"
+    assert info["retention"] == {"last": 7, "daily": 4, "monthly": 6}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_schedule_info_no_prune_job_for_store(settings):
+    base = f"https://{settings.pbs_host}:{settings.pbs_port}/api2/json"
+    respx.get(f"{base}/config/prune").mock(return_value=httpx.Response(
+        200, json={"data": [{"id": "x", "store": "other"}]},
+    ))
+
+    info = await pbs.fetch_schedule_info(settings)
+    assert info["reachable"] is True
+    assert info["schedule"] is None
+    assert info["retention"] == {}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_schedule_info_http_error_unreachable(settings):
+    base = f"https://{settings.pbs_host}:{settings.pbs_port}/api2/json"
+    respx.get(f"{base}/config/prune").mock(side_effect=httpx.ConnectError("nope"))
+
+    info = await pbs.fetch_schedule_info(settings)
+    assert info["reachable"] is False
+    assert info["error"]
