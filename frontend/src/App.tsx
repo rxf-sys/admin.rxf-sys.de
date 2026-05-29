@@ -422,11 +422,17 @@ function Dashboard({ user, onLogout }: DashboardProps) {
         )}
         {section === 'server' && (
           <>
-            <HostPanel host={sys.data?.host ?? null} guests={guests} />
+            <div className="dash-section-head">
+              <h2>Live-Status</h2>
+            </div>
             <div className="quick-stats">
               <KpiStrip guests={guests} services={services} />
               <AuditLog pollMs={pollFast} />
             </div>
+            <div className="dash-section-head">
+              <h2>Host &amp; Compute</h2>
+            </div>
+            <HostPanel host={sys.data?.host ?? null} guests={guests} />
             <VMTable
               guests={guests}
               onLogs={onLogs}
