@@ -102,6 +102,30 @@
 .day-legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
 .day-legend .swatch-inline { width: 10px; height: 10px; display: inline-block; margin-right: 4px; vertical-align: middle; border-radius: 2px; }
 
+/* Cert list (Domain / Issuer / Days-bar / Days-left) */
+.cert-list { display: flex; flex-direction: column; gap: 8px; }
+.cert-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(60px, 90px) 48px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.cert-row .cert-domain { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cert-row .cert-issuer { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cert-row .cert-bar {
+  position: relative;
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cert-row .cert-bar > span {
+  position: absolute; inset: 0 auto 0 0;
+  border-radius: 3px;
+}
+.cert-row .cert-days { text-align: right; }
+
 /* Storage-by-guest list (one row per guest with a horizontal bar) */
 .guest-size-list { display: flex; flex-direction: column; gap: 8px; }
 .guest-size-row {

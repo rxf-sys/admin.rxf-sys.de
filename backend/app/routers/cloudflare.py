@@ -34,3 +34,23 @@ async def get_access_sessions(
     return await cache.get_or_set(
         f"cf-access-sessions:{hours}:{limit}", 300, loader
     )
+
+
+@router.get("/analytics")
+async def get_zone_analytics(
+    minutes: int = 60, settings: Settings = Depends(get_settings)
+) -> dict:
+    """Aggregated zone analytics (requests, cache-hit, threats) over the last
+    ``minutes`` — drives the Requests card on the Cloudflare tab.
+
+    Cached for ``cache_ttl_cf_analytics`` seconds (default 5 min) since the
+    dashboard endpoint updates roughly once per minute upstream and isn't
+    worth hammering on every poll."""
+    minutes = max(5, min(minutes, 1440))
+
+    async def loader() -> dict:
+        return await cloudflare.fetch_zone_analytics(settings, minutes=minutes)
+
+    return await cache.get_or_set(
+        f"cf-analytics:{minutes}", settings.cache_ttl_cf_analytics, loader
+    )

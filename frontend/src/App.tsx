@@ -470,6 +470,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             services={services}
             zoneName="rxf-sys.de"
             onSelectService={setSelectedSvc}
+            pollMs={pollCerts}
           />
         )}
         {section === 'audit' && isAdmin && (

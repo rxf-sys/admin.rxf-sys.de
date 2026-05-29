@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
+import { api } from '../api/client';
+import { usePoll } from '../hooks/usePoll';
 import type { CertsSnapshot, ServiceStatus, TunnelStatus } from '../types';
-import { Dot, ICONS, Num } from './primitives';
+import { Dot, ICONS, Num, Sparkline } from './primitives';
 
 interface Props {
   tunnel: TunnelStatus | null;
@@ -8,9 +10,15 @@ interface Props {
   services: ServiceStatus[];
   zoneName: string;
   onSelectService?: (id: string) => void;
+  /** Poll interval in ms for analytics; 0 pauses. */
+  pollMs: number;
 }
 
-export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectService }: Props) {
+export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectService, pollMs }: Props) {
+  // Analytics refresh on the slower 'certs' tier — CF aggregates per minute,
+  // there's no value in polling it every few seconds.
+  const analytics = usePoll((sig) => api.cfAnalytics(60, sig), pollMs).data;
+
   const dnsStatuses = useMemo(() => {
     const byHost = new Map<string, ServiceStatus>();
     services.forEach((s) => byHost.set(s.sub, s));
@@ -33,26 +41,21 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
       </div>
 
       <div className="grid-12" style={{ marginBottom: 16 }}>
-        {/* Tunnel — full width since the Access card was removed. */}
-        <div className="card col-12">
+        {/* Tunnel */}
+        <div className="card col-5">
           <div className="card-h">
-            <h3>Cloudflare Tunnel</h3>
+            <h3>Tunnel {tunnel?.name && <span className="h3-sub">· {tunnel.name}</span>}</h3>
             <span className={`badge ${tunnelStatus}`}>
               <Dot status={tunnelStatus} /> {tunnel?.status?.toUpperCase() ?? 'UNKNOWN'}
             </span>
           </div>
-          <div style={{ marginBottom: 14 }}>
-            <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>
-              {tunnel?.name ?? '—'}
-            </span>
-          </div>
           <div className="kv-stack">
             <div className="kv-row">
-              <span className="kv-k">Connections</span>
-              <Num value={tunnel?.connections ?? 0} unit="active" size="md" />
+              <span className="kv-k">Verbindungen</span>
+              <Num value={tunnel?.connections ?? 0} unit="aktiv" size="md" />
             </div>
             <div className="kv-row">
-              <span className="kv-k">Edge regions</span>
+              <span className="kv-k">Regionen</span>
               <span className="kv-v mono" style={{ fontSize: 12 }}>
                 {tunnel?.regions?.length ? tunnel.regions.join(' · ') : '—'}
               </span>
@@ -73,6 +76,16 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
             </div>
           </div>
         </div>
+
+        {/* Requests / Edge analytics */}
+        <RequestsCard
+          analytics={analytics}
+          edgePops={tunnel?.regions?.length ?? null}
+        />
+      </div>
+
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Zertifikate &amp; DNS</h3>
       </div>
 
       <div className="grid-12">
@@ -92,29 +105,24 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
               Keine Zertifikate in der Zone gefunden.
             </div>
           ) : (
-            <table className="mini-table">
-              <thead>
-                <tr>
-                  <th>Domain</th>
-                  <th>Issuer</th>
-                  <th style={{ textAlign: 'right' }}>Days left</th>
-                </tr>
-              </thead>
-              <tbody>
-                {certs.certs.map((c) => {
-                  const color = c.days_left < 14 ? 'var(--err)' : c.days_left < 30 ? 'var(--warn)' : 'var(--ok)';
-                  return (
-                    <tr key={`${c.domain}-${c.issuer}`}>
-                      <td className="mono" style={{ fontSize: 12.5 }}>{c.domain}</td>
-                      <td className="dim" style={{ fontSize: 12 }}>{c.issuer}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <span className="mono" style={{ color, fontWeight: 600 }}>{c.days_left}d</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="cert-list">
+              {certs.certs.map((c) => {
+                const color = c.days_left < 14 ? 'var(--err)' : c.days_left < 30 ? 'var(--warn)' : 'var(--ok)';
+                // 90 days = full bar; clamped so a fresh 90+ day cert still
+                // tops out at 100% and very-soon-expiring stays visible.
+                const pct = Math.max(4, Math.min(100, (c.days_left / 90) * 100));
+                return (
+                  <div key={`${c.domain}-${c.issuer}`} className="cert-row">
+                    <span className="mono cert-domain" style={{ fontSize: 12.5 }}>{c.domain}</span>
+                    <span className="dim cert-issuer" style={{ fontSize: 11.5 }}>{c.issuer}</span>
+                    <span className="cert-bar">
+                      <span style={{ width: `${pct}%`, background: color }} />
+                    </span>
+                    <span className="mono cert-days" style={{ color, fontWeight: 600 }}>{c.days_left}d</span>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 
@@ -177,5 +185,61 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
         </div>
       </div>
     </section>
+  );
+}
+
+function RequestsCard({
+  analytics,
+  edgePops,
+}: {
+  analytics: import('../types').CloudflareAnalytics | null;
+  edgePops: number | null;
+}) {
+  // Format a per-minute count compactly: 1234 -> "1.2k", 78 -> "78".
+  const fmtPerMin = (n: number): string => {
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    if (n >= 100) return Math.round(n).toString();
+    return n.toFixed(1);
+  };
+  const reqPerMin = analytics?.requests_per_min ?? 0;
+  const series = (analytics?.series ?? []).map((b) => b.all);
+  const ok = analytics?.reachable !== false;
+  return (
+    <div className="card col-7">
+      <div className="card-h">
+        <h3>Requests <span className="h3-sub">· letzte Stunde</span></h3>
+        <span className={`badge ${ok ? 'ok' : 'warn'}`}>
+          <Dot status={ok ? 'ok' : 'warn'} /> {ok ? 'LIVE' : 'NO ANALYTICS'}
+        </span>
+      </div>
+      {analytics === null ? (
+        <div className="dim" style={{ fontSize: 12 }}>Lade Analytics…</div>
+      ) : !analytics.reachable ? (
+        <div className="dim" style={{ fontSize: 12, lineHeight: 1.55 }}>
+          {analytics.error ?? 'Cloudflare Analytics nicht erreichbar.'}
+          <div className="dimmer" style={{ fontSize: 11, marginTop: 8 }}>
+            Hinweis: der <code>CF_API_TOKEN</code> braucht &ldquo;Zone &middot; Analytics: Read&rdquo; für diese Zone.
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 10 }}>
+            <div>
+              <span className="mono" style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--text-1)' }}>
+                {fmtPerMin(reqPerMin)}
+              </span>
+              <span className="mono" style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 6 }}>req/min</span>
+            </div>
+            <Sparkline data={series} width={220} height={42} area color="var(--accent)" />
+          </div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11 }}>
+            <span className="mono dim">Cache-Hit {analytics.cache_hit_pct == null ? '—' : `${analytics.cache_hit_pct.toFixed(1)}%`}</span>
+            <span className="mono dim">{analytics.threats_total} {analytics.threats_total === 1 ? 'Threat' : 'Threats'}</span>
+            <span className="mono dim">Edge: {edgePops ?? '?'} PoPs</span>
+            <span className="mono dim" style={{ marginLeft: 'auto' }}>{analytics.requests_total.toLocaleString('de-DE')} req · 60 min</span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

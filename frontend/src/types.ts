@@ -335,6 +335,24 @@ export interface AccessSessions {
   items: AccessSession[];
 }
 
+export interface CloudflareAnalyticsBucket {
+  since: string;
+  all: number;
+  cached: number;
+}
+
+export interface CloudflareAnalytics {
+  reachable: boolean;
+  error: string | null;
+  minutes: number;
+  requests_total: number;
+  requests_per_min: number;
+  cache_hit_pct: number | null;
+  threats_total: number;
+  bandwidth_b: number;
+  series: CloudflareAnalyticsBucket[];
+}
+
 export interface AuditFinding {
   id: string;
   status: 'ok' | 'warn' | 'err' | 'skipped';

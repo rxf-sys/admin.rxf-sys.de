@@ -201,6 +201,87 @@ async def fetch_certs(settings: Settings) -> tuple[list[CertInfo], str | None]:
     return sorted(dedup.values(), key=lambda c: c.days_left), None
 
 
+async def fetch_zone_analytics(settings: Settings, minutes: int = 60) -> dict:
+    """Pull a zone's request/cache/threat counters for the last ``minutes``.
+
+    Uses the legacy ``/zones/{zone_id}/analytics/dashboard`` endpoint which is
+    still available to Free + Pro plans and serves minute-bucketed data when
+    ``since`` is negative. We return a flattened view that matches what the
+    dashboard's 'Requests'-Card needs (req/min average, cache-hit %, total
+    threats, sparkline series).
+
+    Token scopes required: ``Zone -> Analytics: Read``. Missing token or
+    missing zone id surfaces as ``reachable=false`` rather than an exception,
+    so the UI can render the empty-state without flaring an error toast.
+    """
+    if not (settings.cf_api_token and settings.cf_zone_id):
+        return {
+            "reachable": False,
+            "error": "CF_API_TOKEN oder CF_ZONE_ID nicht gesetzt",
+            "minutes": minutes,
+            "requests_total": 0,
+            "requests_per_min": 0.0,
+            "cache_hit_pct": None,
+            "threats_total": 0,
+            "bandwidth_b": 0,
+            "series": [],
+        }
+    path = (
+        f"/zones/{settings.cf_zone_id}/analytics/dashboard"
+        f"?since=-{max(1, min(minutes, 1440))}&until=0&continuous=true"
+    )
+    async with httpx.AsyncClient(verify=True, timeout=10.0) as client:
+        try:
+            result = await _get(client, settings, path)
+        except httpx.HTTPError as e:
+            return {
+                "reachable": False,
+                "error": str(e),
+                "minutes": minutes,
+                "requests_total": 0,
+                "requests_per_min": 0.0,
+                "cache_hit_pct": None,
+                "threats_total": 0,
+                "bandwidth_b": 0,
+                "series": [],
+            }
+    if not isinstance(result, dict):
+        result = {}
+    totals = result.get("totals") or {}
+    req = totals.get("requests") or {}
+    bw = totals.get("bandwidth") or {}
+    th = totals.get("threats") or {}
+    requests_all = int(req.get("all", 0) or 0)
+    requests_cached = int(req.get("cached", 0) or 0)
+    cache_hit_pct = (
+        round(requests_cached / requests_all * 100, 1) if requests_all > 0 else None
+    )
+    timeseries = result.get("timeseries") or []
+    series = []
+    for bucket in timeseries:
+        if not isinstance(bucket, dict):
+            continue
+        r = bucket.get("requests") or {}
+        series.append(
+            {
+                "since": bucket.get("since"),
+                "all": int(r.get("all", 0) or 0),
+                "cached": int(r.get("cached", 0) or 0),
+            }
+        )
+    return {
+        "reachable": True,
+        "error": None,
+        "minutes": minutes,
+        "requests_total": requests_all,
+        "requests_per_min": round(requests_all / max(1, minutes), 1),
+        "cache_hit_pct": cache_hit_pct,
+        "threats_total": int(th.get("all", 0) or 0),
+        "bandwidth_b": int(bw.get("all", 0) or 0),
+        "series": series,
+    }
+
+
 async def fetch_access_sessions(settings: Settings, hours: int = 24, limit: int = 100) -> dict:
     """Pull recent Cloudflare Access login events.
 

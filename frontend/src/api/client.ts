@@ -8,6 +8,7 @@ import type {
   BackupStorage,
   BackupSummary,
   CertsSnapshot,
+  CloudflareAnalytics,
   GuestBackups,
   GuestHistory,
   GuestTask,
@@ -126,6 +127,8 @@ export const api = {
   certs: (signal?: AbortSignal) => get<CertsSnapshot>('/api/certs', signal),
   cfAccessSessions: (hours = 24, signal?: AbortSignal) =>
     get<AccessSessions>(`/api/cloudflare/access/sessions?hours=${hours}`, signal),
+  cfAnalytics: (minutes = 60, signal?: AbortSignal) =>
+    get<CloudflareAnalytics>(`/api/cloudflare/analytics?minutes=${minutes}`, signal),
   restartGuest: (vmid: number, type: 'lxc' | 'qemu') =>
     post<{ ok: boolean }>(`/api/system/guests/${vmid}/restart?type=${type}`),
   guestTasks: (vmid: number, signal?: AbortSignal) =>
