@@ -17,12 +17,30 @@ const STATUS_LABEL: Record<AuditRun['status'], string> = {
   timeout: 'Timeout',
 };
 
-const FINDING_STATUS_LABEL: Record<AuditFinding['status'], string> = {
-  ok: 'OK',
-  warn: 'WARN',
-  err: 'FEHLER',
-  skipped: 'ÜBERSPRUNGEN',
+const FINDING_GLYPH: Record<AuditFinding['status'], string> = {
+  ok: '✓',
+  warn: '!',
+  err: '✕',
+  skipped: '–',
 };
+
+const CATEGORY_LABEL: Record<string, string> = {
+  updates: 'Updates',
+  hardening: 'Hardening',
+  storage: 'Storage',
+  backup: 'Backup',
+  network: 'Netzwerk',
+  zfs: 'ZFS',
+  proxmox: 'Proxmox',
+  kernel: 'Kernel',
+  services: 'Services',
+  firewall: 'Firewall',
+  ssh: 'SSH',
+  apt: 'Updates',
+  systemd: 'Services',
+};
+
+type Filter = 'all' | 'err' | 'warn' | 'ok';
 
 function statusColor(s: AuditRun['status']): string {
   if (s === 'ok') return 'var(--ok)';
@@ -36,6 +54,39 @@ function fmtDuration(start: number, end: number | null): string {
   const ms = (end - start) * 1000;
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** Health score 0–100. ok counts full, warn half, err zero. skipped excluded.
+ * Returns null when there's nothing to grade yet (no findings at all). */
+function calcScore(summary: AuditRun['summary']): number | null {
+  if (!summary) return null;
+  const graded = summary.ok + summary.warn + summary.err;
+  if (graded === 0) return null;
+  return Math.round(((summary.ok + summary.warn * 0.5) / graded) * 100);
+}
+
+function scoreNote(score: number): 'A' | 'B' | 'C' | 'D' | 'E' {
+  if (score >= 85) return 'A';
+  if (score >= 70) return 'B';
+  if (score >= 55) return 'C';
+  if (score >= 40) return 'D';
+  return 'E';
+}
+
+function scoreTone(score: number): 'ok' | 'warn' | 'err' {
+  if (score >= 85) return 'ok';
+  if (score >= 65) return 'warn';
+  return 'err';
+}
+
+/** Resolve a category for a finding — explicit ``category`` wins, otherwise
+ * derive from the leading dot-segment of ``id`` (e.g. ``updates`` from
+ * ``updates.security_pending``). Falls back to ``Allgemein``. */
+function categoryOf(f: AuditFinding): string {
+  if (f.category && f.category.trim()) return f.category.trim();
+  const head = f.id.split(/[.:_/-]/)[0]?.toLowerCase();
+  if (!head) return 'Allgemein';
+  return CATEGORY_LABEL[head] ?? head.charAt(0).toUpperCase() + head.slice(1);
 }
 
 export function AuditPanel({ onError, onInfo }: Props) {
@@ -125,6 +176,14 @@ export function AuditPanel({ onError, onInfo }: Props) {
         </div>
       </div>
 
+      {selectedRun && (
+        <div className="grid-12" style={{ marginBottom: 16 }}>
+          <div className="col-12">
+            <AuditSummaryBand run={selectedRun} />
+          </div>
+        </div>
+      )}
+
       <div className="grid-12" style={{ marginBottom: 16 }}>
         <div className="card col-12">
           {selectedRun ? (
@@ -144,14 +203,7 @@ export function AuditPanel({ onError, onInfo }: Props) {
       </div>
 
       {selectedRun && selectedRun.findings.length > 0 && (
-        <div className="grid-12" style={{ marginBottom: 16 }}>
-          <div className="card col-12">
-            <div className="card-h">
-              <h3>Findings <span className="h3-sub">· {selectedRun.findings.length}</span></h3>
-            </div>
-            <FindingsList findings={selectedRun.findings} />
-          </div>
-        </div>
+        <FindingsByCategory findings={selectedRun.findings} />
       )}
 
       {jobs.length > 1 && (
@@ -190,33 +242,11 @@ function RunSummary({
   const color = statusColor(run.status);
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {run.status === 'running' ? (
-            <Dot status="warn" />
-          ) : (
-            <Dot status={run.status === 'ok' ? 'ok' : run.status === 'warn' ? 'warn' : 'err'} />
-          )}
-          <div>
-            <div style={{ fontWeight: 600, color: 'var(--text-1)' }}>
-              Audit {STATUS_LABEL[run.status]}
-            </div>
-            <div className="dim mono" style={{ fontSize: 11 }}>
-              {run.id}
-            </div>
-          </div>
-        </div>
-        {run.summary && (
-          <div style={{ display: 'flex', gap: 14 }}>
-            <CountPill label="ok" value={run.summary.ok} tone="ok" />
-            <CountPill label="warn" value={run.summary.warn} tone="warn" />
-            <CountPill label="err" value={run.summary.err} tone="err" />
-            <CountPill label="skipped" value={run.summary.skipped} tone="dim" />
-          </div>
-        )}
+      <div className="card-h">
+        <h3>Lauf-Details <span className="h3-sub mono">· {run.id}</span></h3>
       </div>
 
-      <div className="kv-stack" style={{ marginTop: 14 }}>
+      <div className="kv-stack">
         <div className="kv-row">
           <span className="kv-k">Gestartet</span>
           <span className="kv-v mono">{fmtTimeAgo(new Date(run.started_at * 1000).toISOString())}</span>
@@ -319,59 +349,166 @@ function CountPill({
   );
 }
 
-function FindingsList({ findings }: { findings: AuditFinding[] }) {
-  // Sort: errs first, then warns, ok, skipped — most important on top.
-  const order: Record<AuditFinding['status'], number> = { err: 0, warn: 1, ok: 2, skipped: 3 };
-  const sorted = [...findings].sort((a, b) => order[a.status] - order[b.status]);
+function AuditSummaryBand({ run }: { run: AuditRun }) {
+  const summary = run.summary;
+  const score = calcScore(summary);
+  const tone =
+    run.status === 'running'
+      ? 'warn'
+      : score !== null
+        ? scoreTone(score)
+        : run.status === 'ok'
+          ? 'ok'
+          : run.status === 'warn'
+            ? 'warn'
+            : 'err';
+  const note = score !== null ? scoreNote(score) : '—';
+  const title = `Proxmox-Audit${score !== null ? ` · ${score}/100` : ''}`;
+  const verdict = summary
+    ? `${summary.ok} bestanden · ${summary.warn} Warnungen · ${summary.err} kritisch · ${summary.ok + summary.warn + summary.err + summary.skipped} Checks`
+    : `Audit ${STATUS_LABEL[run.status]}`;
+
   return (
-    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {sorted.map((f) => (
-        <FindingRow key={f.id} f={f} />
-      ))}
-    </ul>
+    <div className={`audit-summary tone-${tone}`}>
+      <div className={`audit-score tone-${tone}`} aria-label={`Note ${note}`}>
+        {note}
+      </div>
+      <div className="verdict-main">
+        <h3>{title}</h3>
+        <p>{verdict}</p>
+      </div>
+      <div className="verdict-pills">
+        {summary && (
+          <>
+            <CountPill label="ok" value={summary.ok} tone="ok" />
+            <CountPill label="warn" value={summary.warn} tone="warn" />
+            <CountPill label="err" value={summary.err} tone="err" />
+            <CountPill label="skipped" value={summary.skipped} tone="dim" />
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
-function FindingRow({ f }: { f: AuditFinding }) {
-  const accent =
-    f.status === 'ok'
-      ? 'var(--ok)'
-      : f.status === 'warn'
-        ? 'var(--warn)'
-        : f.status === 'err'
-          ? 'var(--err)'
-          : 'var(--text-4)';
+const FILTER_OPTIONS: { id: Filter; label: string }[] = [
+  { id: 'all', label: 'Alle' },
+  { id: 'err', label: 'Kritisch' },
+  { id: 'warn', label: 'Warnungen' },
+  { id: 'ok', label: 'Bestanden' },
+];
+
+function FindingsByCategory({ findings }: { findings: AuditFinding[] }) {
+  const [filter, setFilter] = useState<Filter>('all');
+
+  // err first, then warn, ok, skipped — most important on top.
+  const order: Record<AuditFinding['status'], number> = { err: 0, warn: 1, ok: 2, skipped: 3 };
+  const passesFilter = (f: AuditFinding) =>
+    filter === 'all' ? true : filter === f.status;
+
+  const filtered = findings.filter(passesFilter);
+
+  // Group by category, preserve original order within a group, sort groups by
+  // worst-status (err first) then by name.
+  const groups = useMemo(() => {
+    const byCat = new Map<string, AuditFinding[]>();
+    for (const f of filtered) {
+      const cat = categoryOf(f);
+      const bucket = byCat.get(cat) ?? [];
+      bucket.push(f);
+      byCat.set(cat, bucket);
+    }
+    const arr = Array.from(byCat.entries()).map(([name, items]) => ({
+      name,
+      items: [...items].sort((a, b) => order[a.status] - order[b.status]),
+      worst: items.reduce(
+        (acc, f) => Math.min(acc, order[f.status]),
+        order.skipped,
+      ),
+    }));
+    arr.sort((a, b) => a.worst - b.worst || a.name.localeCompare(b.name, 'de'));
+    return arr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered.length, filter]);
+
+  const counts = {
+    all: findings.length,
+    err: findings.filter((f) => f.status === 'err').length,
+    warn: findings.filter((f) => f.status === 'warn').length,
+    ok: findings.filter((f) => f.status === 'ok').length,
+  };
+
   return (
-    <li
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '90px 1fr',
-        gap: 12,
-        padding: '8px 10px',
-        borderRadius: 'var(--r-2)',
-        background: 'var(--surface-2)',
-        border: '1px solid var(--border)',
-        borderLeft: `3px solid ${accent}`,
-        alignItems: 'baseline',
-      }}
-    >
-      <span
-        className="mono"
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: 0.5,
-          color: accent,
-        }}
-      >
-        {FINDING_STATUS_LABEL[f.status]}
-      </span>
-      <div>
-        <div style={{ fontWeight: 600, fontSize: 13 }}>{f.title}</div>
-        <div className="dim" style={{ fontSize: 12, marginTop: 2 }}>{f.detail}</div>
-        <div className="mono dimmer" style={{ fontSize: 10, marginTop: 2 }}>{f.id}</div>
+    <div className="grid-12" style={{ marginBottom: 16 }}>
+      <div className="col-12">
+        <div className="dash-section-head" style={{ marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+            Findings <span className="h3-sub">· {findings.length}</span>
+          </h3>
+          <div className="seg-control" role="tablist" aria-label="Findings filtern">
+            {FILTER_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                role="tab"
+                aria-selected={filter === opt.id}
+                className={`seg-btn ${filter === opt.id ? 'active' : ''}`}
+                onClick={() => setFilter(opt.id)}
+              >
+                {opt.label}
+                <span className="dimmer" style={{ marginLeft: 4 }}>
+                  ({counts[opt.id]})
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="card col-12 dim" style={{ fontSize: 12.5 }}>
+            Keine Findings in diesem Filter.
+          </div>
+        ) : (
+          <div className="cat-grid">
+            {groups.map((g) => (
+              <div key={g.name} className="card">
+                <div className="card-h">
+                  <h3>
+                    {g.name} <span className="h3-sub">· {g.items.length}</span>
+                  </h3>
+                </div>
+                <div className="acheck-list">
+                  {g.items.map((f) => (
+                    <AuditCheck key={f.id} f={f} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    </li>
+    </div>
+  );
+}
+
+function AuditCheck({ f }: { f: AuditFinding }) {
+  return (
+    <div className={`acheck tone-${f.status}`}>
+      <div className={`acheck-ico tone-${f.status}`} aria-hidden="true">
+        {FINDING_GLYPH[f.status]}
+      </div>
+      <div className="acheck-body">
+        <div className="acheck-title">{f.title}</div>
+        {f.detail && <div className="acheck-detail">{f.detail}</div>}
+        <div className="acheck-id">{f.id}</div>
+        {f.fix && (
+          <div className="acheck-fix">
+            <span className="fix-tag">FIX</span>
+            <code>{f.fix}</code>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -95,7 +95,7 @@ async def get_heatmap(days: int = 30, settings: Settings = Depends(get_settings)
     buckets: dict[str, dict[str, int]] = {}
     for i in range(days):
         d = (today - timedelta(days=i)).isoformat()
-        buckets[d] = {"ok": 0, "warn": 0, "err": 0}
+        buckets[d] = {"ok": 0, "warn": 0, "err": 0, "bytes_total": 0}
     success_total = 0
     fail_total = 0
     for j in summary.jobs:
@@ -104,6 +104,7 @@ async def get_heatmap(days: int = 30, settings: Settings = Depends(get_settings)
             continue
         key = "ok" if j.status == "ok" else ("warn" if j.status == "warn" else "err")
         buckets[d][key] += 1
+        buckets[d]["bytes_total"] += int(j.size_b)
         if j.status == "ok":
             success_total += 1
         else:

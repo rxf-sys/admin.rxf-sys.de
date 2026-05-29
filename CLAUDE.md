@@ -61,6 +61,24 @@ Automatisierter CD via `.github/workflows/cd.yml` — GitHub Secrets benötigt:
 - **Tests**: `pytest -v --cov=app --cov-fail-under=70` — 70% Coverage als Mindestgrenze
 - **Kein direkter Port nach außen**: Cloudflare Tunnel → Port 80 (Docker `web`-Container)
 
+## Rollen / sichtbare Tabs
+
+Die Tabs `Audit` und `Konten` (`AdminPanel`) sind `adminOnly` — sie erscheinen nur,
+wenn `/api/auth/me` `role: "admin"` zurückgibt. Wenn ein Tab im Live-Build fehlt
+obwohl der Code ihn enthält, liegt es fast immer an der Rolle des angemeldeten
+Accounts. Beförderung eines Bestandsnutzers gegen die laufende DB:
+
+```bash
+# im Container
+docker compose exec backend python -m tools.promote_admin <username>
+
+# oder auf dem LXC-Host
+cd /opt/rxf-admin/backend && python -m tools.promote_admin <username>
+```
+
+Das Script ist idempotent (zweimal aufgerufen meldet "already an active admin")
+und reaktiviert nebenbei einen ggf. deaktivierten Account.
+
 ## CI/CD
 
 - **CI** (`.github/workflows/ci.yml`): Lint + Tests + Coverage + Build bei Push/PR auf `main`

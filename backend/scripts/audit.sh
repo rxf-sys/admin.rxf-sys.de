@@ -3,7 +3,15 @@
 #
 # Emits exactly one JSON object on the last stdout line, of shape:
 #   {"summary":{"ok":N,"warn":N,"err":N,"skipped":N},
-#    "findings":[{"id":"...","status":"ok|warn|err|skipped","title":"...","detail":"..."}, ...]}
+#    "findings":[
+#      {"id":"...","status":"ok|warn|err|skipped","title":"...","detail":"...",
+#       "category":"updates|hardening|storage|backup|network|...",  // optional
+#       "fix":"sudo apt upgrade -y"}                                // optional
+#    ]}
+#
+# ``category`` and ``fix`` are optional — the frontend derives a category
+# from the leading dot-segment of ``id`` when ``category`` is absent, and
+# only renders the FIX line when a snippet is provided.
 #
 # Designed to run BOTH locally inside the backend container and on the
 # Proxmox host via SSH (`ssh ... bash -s < audit.sh`). Each check degrades
@@ -29,10 +37,22 @@ esc() {
 }
 
 add_finding() {
+    # add_finding id status title detail [category] [fix]
+    # The category and fix arguments are optional. Empty strings are skipped
+    # so the resulting JSON object stays minimal when the upstream check
+    # doesn't have a remediation hint or category to attach.
     local id="$1" status="$2" title="$3" detail="$4"
+    local category="${5:-}" fix="${6:-}"
     local entry
-    entry=$(printf '{"id":"%s","status":"%s","title":"%s","detail":"%s"}' \
+    entry=$(printf '{"id":"%s","status":"%s","title":"%s","detail":"%s"' \
         "$(esc "$id")" "$(esc "$status")" "$(esc "$title")" "$(esc "$detail")")
+    if [[ -n "$category" ]]; then
+        entry="${entry},\"category\":\"$(esc "$category")\""
+    fi
+    if [[ -n "$fix" ]]; then
+        entry="${entry},\"fix\":\"$(esc "$fix")\""
+    fi
+    entry="${entry}}"
     case "$status" in
         "$OK")   count_ok=$((count_ok + 1)) ;;
         "$WARN") count_warn=$((count_warn + 1)) ;;

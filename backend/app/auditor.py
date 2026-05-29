@@ -10,8 +10,12 @@ get HTTP 409.
 Output contract: the script must print a single JSON object to stdout of the
 shape ``{"summary": {"ok": N, "warn": N, "err": N, "skipped": N},
 "findings": [{"id": "...", "status": "ok|warn|err|skipped", "title": "...",
-"detail": "..."}, ...]}``. Anything else is treated as an error and the raw
-stdout/stderr is kept in ``log_output`` for diagnosis.
+"detail": "...", "category": "updates|...", "fix": "..."}, ...]}``.
+Both ``category`` and ``fix`` on a finding are optional — the frontend
+derives a category from the leading dot-segment of ``id`` when ``category``
+is absent, and only renders the FIX line when a snippet is provided.
+Anything else is treated as an error and the raw stdout/stderr is kept in
+``log_output`` for diagnosis.
 """
 
 from __future__ import annotations
