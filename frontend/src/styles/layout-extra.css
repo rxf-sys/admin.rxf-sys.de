@@ -102,6 +102,27 @@
 .day-legend { display: flex; gap: 14px; margin-top: 12px; font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
 .day-legend .swatch-inline { width: 10px; height: 10px; display: inline-block; margin-right: 4px; vertical-align: middle; border-radius: 2px; }
 
+/* 30-day backup trend (jobs/day stacked bars + GB/day line overlay) */
+.backup-trend { position: relative; height: 120px; margin: 8px 0 6px; }
+.backup-trend .trend-bars { display: flex; gap: 3px; align-items: flex-end; height: 120px; }
+.backup-trend .trend-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.backup-trend .trend-fail { background: var(--err); border-radius: 2px 2px 0 0; }
+.backup-trend .trend-ok { background: var(--ok); opacity: 0.85; }
+.backup-trend .trend-col:has(.trend-fail) .trend-ok { border-radius: 0; }
+.backup-trend .trend-col:not(:has(.trend-fail)) .trend-ok { border-radius: 2px 2px 0 0; }
+.backup-trend .trend-line { position: absolute; inset: 0; pointer-events: none; }
+.trend-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 11px; color: var(--text-3); flex-wrap: wrap; }
+.trend-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.trend-legend .swatch.ok { background: var(--ok); }
+.trend-legend .swatch.err { background: var(--err); }
+.trend-legend .swatch.line { width: 14px; height: 2px; background: var(--accent); border-radius: 0; }
+
 .job-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .job-table thead th {
   text-align: left;

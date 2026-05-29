@@ -58,6 +58,15 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
 
   return (
     <section className="backup-section">
+      {/* 30-day trend (stacked bars + GB/day line) */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <BackupTrendCard
+          heatmap={heatmap}
+          loading={heatmap === null && !heatmapError}
+          errored={heatmapError}
+        />
+      </div>
+
       <div className="grid-12" style={{ marginBottom: 16 }}>
         {/* Datastore */}
         <div className="card col-5">
@@ -185,6 +194,113 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
         </div>
       </div>
     </section>
+  );
+}
+
+// Soll-Anzahl Backup-Jobs pro Tag (12 = 8 LXC/VM-Guests + Reserve), mirror'd from
+// the dashboard's expected daily cadence. Bars fill proportionally relative
+// to this target so a day with 6/12 jobs shows a 50%-height column.
+const JOBS_PER_DAY_TARGET = 12;
+
+interface BackupTrendCardProps {
+  heatmap: BackupHeatmap | null;
+  loading: boolean;
+  errored: boolean;
+}
+
+/** 30-Tage-Trend: Erfolg-/Fehler-Balken pro Tag plus GB-Linie als Overlay.
+ *
+ * Liest die gleichen `cells` wie die Heatmap, fügt aber das `bytes_total`-Feld
+ * pro Tag hinzu (Backend-Erweiterung). Skaliert die Balkenhöhe gegen
+ * `JOBS_PER_DAY_TARGET` und die Linie gegen `max(bytes_total)`, damit beide
+ * Achsen die volle Plot-Höhe nutzen.
+ */
+function BackupTrendCard({ heatmap, loading, errored }: BackupTrendCardProps) {
+  const cells = heatmap?.cells ?? [];
+  const totalBytes = cells.reduce((sum, c) => sum + c.bytes_total, 0);
+  const daysWithBackups = cells.filter((c) => c.total > 0).length;
+  const cleanDays = cells.filter((c) => c.err === 0 && c.total > 0).length;
+  const avgGb = daysWithBackups > 0 ? totalBytes / 1024 ** 3 / daysWithBackups : 0;
+  const maxBytes = Math.max(1, ...cells.map((c) => c.bytes_total));
+
+  // SVG-Polyline für GB/Tag — viewBox 100×120, preserveAspectRatio="none",
+  // damit die Linie genau über den Flex-Balken liegt. 10px Top-Padding,
+  // damit Spitzenwerte nicht am Card-Rand kleben.
+  const points = cells
+    .map((c, i) => {
+      const x = cells.length > 1 ? (i / (cells.length - 1)) * 100 : 50;
+      const y = 120 - (c.bytes_total / maxBytes) * 100 - 10;
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(' ');
+
+  const summaryText =
+    cells.length === 0
+      ? '—'
+      : `${cleanDays}/${cells.length} Tage fehlerfrei · Ø ${avgGb.toFixed(1)} GB/Tag`;
+
+  return (
+    <div className="card col-12">
+      <div className="card-h">
+        <h3>30-Tage-Trend <span className="h3-sub">· Jobs pro Tag + Volumen</span></h3>
+        <span className="dimmer mono" style={{ fontSize: 11 }}>{summaryText}</span>
+      </div>
+      {errored ? (
+        <div className="dim" style={{ fontSize: 12, color: 'var(--err)', padding: '20px 0' }}>
+          Trend konnte nicht geladen werden.
+        </div>
+      ) : loading ? (
+        <div className="dim" style={{ fontSize: 12, padding: '20px 0' }}>Lade…</div>
+      ) : heatmap && !heatmap.reachable ? (
+        <div className="dim" style={{ fontSize: 12, color: 'var(--err)', padding: '20px 0' }}>
+          {heatmap.error ?? 'PBS unerreichbar'}
+        </div>
+      ) : (
+        <>
+          <div className="backup-trend" role="img" aria-label={`Backup-Trend ${cells.length} Tage`}>
+            <div className="trend-bars">
+              {cells.map((c) => {
+                const filled = Math.min(c.total / JOBS_PER_DAY_TARGET, 1) * 100;
+                const failPct = c.total > 0 ? (c.err / c.total) * filled : 0;
+                const okPct = Math.max(0, filled - failPct);
+                return (
+                  <div
+                    key={c.day}
+                    className="trend-col"
+                    title={`${c.day} · ${c.ok}/${c.total} ok · ${c.err} fail · ${(c.bytes_total / 1024 ** 3).toFixed(1)} GB`}
+                  >
+                    {failPct > 0 && <span className="trend-fail" style={{ height: `${failPct}%` }} />}
+                    {okPct > 0 && <span className="trend-ok" style={{ height: `${okPct}%` }} />}
+                  </div>
+                );
+              })}
+            </div>
+            <svg
+              className="trend-line"
+              width="100%"
+              height="120"
+              viewBox="0 0 100 120"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <polyline
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="1.4"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+                points={points}
+              />
+            </svg>
+          </div>
+          <div className="trend-legend">
+            <span><span className="swatch ok" /> Erfolgreich</span>
+            <span><span className="swatch err" /> Fehlgeschlagen</span>
+            <span><span className="swatch line" /> Volumen GB</span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

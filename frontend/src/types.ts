@@ -273,6 +273,7 @@ export interface BackupHeatmapCell {
   warn: number;
   err: number;
   total: number;
+  bytes_total: number;
 }
 
 export interface BackupHeatmap {
