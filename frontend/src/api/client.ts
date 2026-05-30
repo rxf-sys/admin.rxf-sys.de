@@ -2,8 +2,10 @@ import type {
   AccessSessions,
   Account,
   AdminSession,
+  ApiToken,
   AuditJobsList,
   AutoAuditSettings,
+  CreatedApiToken,
   AuditRun,
   BackupHeatmap,
   BackupSchedule,
@@ -105,6 +107,18 @@ export const api = {
     get<{ sessions: AdminSession[] }>('/api/admin/sessions', signal),
   adminRevokeSession: (token_prefix: string) =>
     send<{ revoked: number }>('DELETE', `/api/admin/sessions/${encodeURIComponent(token_prefix)}`),
+  adminListTokens: (signal?: AbortSignal) =>
+    get<{ tokens: ApiToken[] }>('/api/admin/tokens', signal),
+  adminDeleteToken: (id: number) =>
+    send<{ ok: boolean }>('DELETE', `/api/admin/tokens/${id}`),
+
+  // --- Per-user API tokens ---
+  listMyTokens: (signal?: AbortSignal) =>
+    get<{ tokens: ApiToken[] }>('/api/account/tokens', signal),
+  createMyToken: (body: { name: string; scope: 'read' | 'write' | 'admin'; ttl_days?: number | null }) =>
+    post<CreatedApiToken>('/api/account/tokens', body),
+  deleteMyToken: (id: number) =>
+    send<{ ok: boolean }>('DELETE', `/api/account/tokens/${id}`),
 
   // --- Instance: runtime-editable branding / locale knobs ---
   getInstance: (signal?: AbortSignal) => get<InstanceInfo>('/api/instance', signal),

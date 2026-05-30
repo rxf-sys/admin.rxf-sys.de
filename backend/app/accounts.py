@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT    NOT NULL,
+    token_hash   TEXT    NOT NULL UNIQUE,
+    token_prefix TEXT    NOT NULL,
+    scope        TEXT    NOT NULL DEFAULT 'read',
+    created_at   INTEGER NOT NULL,
+    expires_at   INTEGER,
+    last_used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens (user_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens (token_hash);
 """
 
 _db_path: str = ""
@@ -510,6 +524,150 @@ async def revoke_session(token_prefix: str) -> int:
         )
         await db.commit()
         return cur.rowcount or 0
+
+
+# ---------------------------------------------------------------------------
+# API tokens (long-lived bearer credentials, parallel to cookie sessions)
+# ---------------------------------------------------------------------------
+
+import hashlib  # noqa: E402
+
+# Tokens are long random strings — sha256 is plenty (no rainbow tables risk
+# since the entropy is server-side, unlike user passwords). We avoid argon2
+# here because token-auth lookups have to be fast (we hash the incoming
+# token and look it up by hash).
+TOKEN_PREFIX_LEN = 12  # visible prefix for identification in the UI
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def create_api_token(
+    user_id: int,
+    name: str,
+    *,
+    scope: str = "read",
+    ttl_days: int | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Create a new API token for ``user_id``.
+
+    Returns the *raw* token (shown to the user exactly once) and the public
+    metadata row. The raw token has the shape ``rxf_<43chars>`` and is never
+    stored — only its sha256 hash lives in the DB.
+    """
+    raw = "rxf_" + secrets.token_urlsafe(32)
+    token_hash = _hash_token(raw)
+    prefix = raw[:TOKEN_PREFIX_LEN]
+    now = int(time.time())
+    expires_at = now + ttl_days * 86400 if ttl_days else None
+    async with _connect() as db:
+        cur = await db.execute(
+            """
+            INSERT INTO api_tokens
+              (user_id, name, token_hash, token_prefix, scope, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, name.strip(), token_hash, prefix, scope, now, expires_at),
+        )
+        await db.commit()
+        row_id = cur.lastrowid
+    log.info("accounts.api_token_created", user_id=user_id, scope=scope, token_id=row_id)
+    meta = {
+        "id": int(row_id or 0),
+        "user_id": user_id,
+        "name": name.strip(),
+        "token_prefix": prefix,
+        "scope": scope,
+        "created_at": now,
+        "expires_at": expires_at,
+        "last_used_at": None,
+    }
+    return raw, meta
+
+
+async def list_api_tokens(user_id: int | None = None) -> list[dict[str, Any]]:
+    """List tokens — for a specific user when ``user_id`` is given, otherwise
+    all tokens across all users (admin view)."""
+    query = """
+        SELECT t.id, t.user_id, t.name, t.token_prefix, t.scope,
+               t.created_at, t.expires_at, t.last_used_at, u.username
+        FROM api_tokens t
+        JOIN users u ON u.id = t.user_id
+    """
+    params: tuple[Any, ...] = ()
+    if user_id is not None:
+        query += " WHERE t.user_id = ?"
+        params = (user_id,)
+    query += " ORDER BY t.created_at DESC"
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+    return [
+        {
+            "id": int(r["id"]),
+            "user_id": int(r["user_id"]),
+            "username": r["username"],
+            "name": r["name"],
+            "token_prefix": r["token_prefix"],
+            "scope": r["scope"],
+            "created_at": int(r["created_at"]),
+            "expires_at": int(r["expires_at"]) if r["expires_at"] else None,
+            "last_used_at": int(r["last_used_at"]) if r["last_used_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+async def delete_api_token(token_id: int, user_id: int | None = None) -> bool:
+    """Delete a token by id. When ``user_id`` is given, restricts the delete
+    to tokens owned by that user (so a non-admin can only delete their own)."""
+    async with _connect() as db:
+        if user_id is not None:
+            cur = await db.execute(
+                "DELETE FROM api_tokens WHERE id = ? AND user_id = ?",
+                (token_id, user_id),
+            )
+        else:
+            cur = await db.execute("DELETE FROM api_tokens WHERE id = ?", (token_id,))
+        await db.commit()
+        return (cur.rowcount or 0) > 0
+
+
+async def resolve_api_token(raw_token: str) -> dict[str, Any] | None:
+    """Validate a raw bearer token → public user dict, or None.
+
+    Mirrors resolve_session() so the auth dependency can swap in token-auth
+    transparently. Updates last_used_at on success; rejects expired tokens
+    and tokens whose owning user is disabled.
+    """
+    if not raw_token or not raw_token.startswith("rxf_"):
+        return None
+    token_hash = _hash_token(raw_token)
+    now = int(time.time())
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, user_id, expires_at FROM api_tokens WHERE token_hash = ?",
+            (token_hash,),
+        ) as cur:
+            trow = await cur.fetchone()
+        if trow is None:
+            return None
+        if trow["expires_at"] and int(trow["expires_at"]) < now:
+            return None
+        async with db.execute(
+            "SELECT * FROM users WHERE id = ?", (int(trow["user_id"]),)
+        ) as cur:
+            urow = await cur.fetchone()
+        if urow is None or bool(urow["disabled"]):
+            return None
+        await db.execute(
+            "UPDATE api_tokens SET last_used_at = ? WHERE id = ?", (now, int(trow["id"]))
+        )
+        await db.commit()
+        return _row_to_user(urow)
 
 
 async def cleanup_expired_sessions() -> int:

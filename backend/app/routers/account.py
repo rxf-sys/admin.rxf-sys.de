@@ -51,3 +51,40 @@ async def change_password(
         )
     await accounts.set_password(user["id"], body.new_password)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Per-user API tokens
+# ---------------------------------------------------------------------------
+
+
+class CreateTokenBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    scope: str = Field(default="read", pattern=r"^(read|write|admin)$")
+    ttl_days: int | None = Field(default=None, ge=1, le=3650)
+
+
+@router.get("/tokens")
+async def list_my_tokens(user: dict = Depends(verify_session)) -> dict:
+    return {"tokens": await accounts.list_api_tokens(user_id=user["id"])}
+
+
+@router.post("/tokens", status_code=status.HTTP_201_CREATED)
+async def create_my_token(
+    body: CreateTokenBody, user: dict = Depends(verify_session)
+) -> dict:
+    """Returns the raw token *once*. Subsequent reads only see the prefix."""
+    raw, meta = await accounts.create_api_token(
+        user["id"], body.name, scope=body.scope, ttl_days=body.ttl_days
+    )
+    return {"token": raw, "meta": meta}
+
+
+@router.delete("/tokens/{token_id}")
+async def delete_my_token(
+    token_id: int, user: dict = Depends(verify_session)
+) -> dict:
+    ok = await accounts.delete_api_token(token_id, user_id=user["id"])
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token nicht gefunden")
+    return {"ok": True}

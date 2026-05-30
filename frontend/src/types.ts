@@ -406,6 +406,23 @@ export interface AdminSession {
   last_seen_at: number;
 }
 
+export interface ApiToken {
+  id: number;
+  user_id: number;
+  username: string;
+  name: string;
+  token_prefix: string;
+  scope: 'read' | 'write' | 'admin';
+  created_at: number;
+  expires_at: number | null;
+  last_used_at: number | null;
+}
+
+export interface CreatedApiToken {
+  token: string;
+  meta: ApiToken;
+}
+
 export interface AuditFinding {
   id: string;
   status: 'ok' | 'warn' | 'err' | 'skipped';

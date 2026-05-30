@@ -29,16 +29,27 @@ _DEV_USER: dict[str, Any] = {
 
 
 async def verify_session(request: Request) -> dict[str, Any]:
-    """Resolve the session cookie to a user dict, or raise 401.
+    """Resolve the session cookie OR an API bearer token to a user dict,
+    or raise 401. The decoded user is also stashed on ``request.state.user``
+    so downstream code (e.g. audit logging) can read it without re-querying.
 
-    The decoded user is also stashed on ``request.state.user`` so downstream
-    code (e.g. audit logging) can read it without re-querying.
+    Bearer tokens take precedence — they're explicit, and a client that
+    sends both probably intends to use the token.
     """
     settings: Settings = get_settings()
     if not settings.auth_enabled:
         request.state.user = _DEV_USER
         return _DEV_USER
 
+    # Bearer token path (Authorization: Bearer rxf_…)
+    auth = request.headers.get("Authorization") or ""
+    if auth.lower().startswith("bearer "):
+        user = await accounts.resolve_api_token(auth.split(" ", 1)[1].strip())
+        if user is not None:
+            request.state.user = user
+            return user
+
+    # Session cookie path
     token = request.cookies.get(settings.session_cookie_name, "")
     user = await accounts.resolve_session(token)
     if user is None:
