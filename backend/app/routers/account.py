@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from .. import accounts
+from .. import accounts, totp
 from ..auth import verify_session
 from .auth import MIN_PASSWORD_LEN
 
@@ -88,3 +88,62 @@ async def delete_my_token(
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token nicht gefunden")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# 2FA (TOTP)
+# ---------------------------------------------------------------------------
+
+
+class TotpVerifyBody(BaseModel):
+    code: str = Field(min_length=4, max_length=20)
+
+
+class TotpDisableBody(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+
+
+@router.get("/2fa")
+async def get_2fa_status(user: dict = Depends(verify_session)) -> dict:
+    return await totp.status_for(user["id"])
+
+
+@router.post("/2fa/setup")
+async def begin_2fa_setup(user: dict = Depends(verify_session)) -> dict:
+    """Start (or restart) provisioning. Returns the secret + QR for the
+    authenticator app. Caller must call /2fa/verify with the first code
+    from the app to actually enable 2FA."""
+    try:
+        return await totp.begin_setup(user["id"], user["username"])
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/2fa/verify")
+async def verify_2fa_setup(
+    body: TotpVerifyBody, user: dict = Depends(verify_session)
+) -> dict:
+    """Confirm provisioning by sending the first TOTP code. Server marks
+    2FA as enabled and returns 8 one-shot backup codes (shown exactly
+    once)."""
+    try:
+        backup = await totp.verify_setup(user["id"], body.code)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {"enabled": True, "backup_codes": backup}
+
+
+@router.delete("/2fa")
+async def disable_2fa(
+    body: TotpDisableBody, user: dict = Depends(verify_session)
+) -> dict:
+    """Disable 2FA. Re-authenticates with the current password so a
+    forgotten-but-still-open session can't drop the second factor."""
+    check = await accounts.authenticate(user["username"], body.password)
+    if check is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Passwort falsch",
+        )
+    await totp.disable(user["id"])
+    return {"enabled": False}

@@ -292,6 +292,23 @@ export interface NtfyConfig {
   token_set: boolean;
 }
 
+export interface TotpStatus {
+  enabled: boolean;
+  pending: boolean;
+  backup_codes_remaining: number;
+}
+
+export interface TotpSetup {
+  secret_b32: string;
+  provisioning_uri: string;
+  qr_svg: string;
+}
+
+export interface TotpVerifyResult {
+  enabled: boolean;
+  backup_codes: string[];
+}
+
 export interface HostMetricsSample {
   ts: number;
   cpu_pct: number;

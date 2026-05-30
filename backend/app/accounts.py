@@ -77,6 +77,13 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens (user_id);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens (token_hash);
+
+CREATE TABLE IF NOT EXISTS user_totp (
+    user_id           INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    secret_b32        TEXT    NOT NULL,
+    enabled_at        INTEGER,
+    backup_codes_json TEXT    NOT NULL DEFAULT '[]'
+);
 """
 
 _db_path: str = ""

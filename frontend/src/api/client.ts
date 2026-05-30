@@ -16,6 +16,9 @@ import type {
   HostHistory,
   InstanceInfo,
   NtfyConfig,
+  TotpSetup,
+  TotpStatus,
+  TotpVerifyResult,
   GuestBackups,
   GuestHistory,
   GuestTask,
@@ -80,8 +83,14 @@ export const api = {
 
   // --- Authentication ---
   authMe: (signal?: AbortSignal) => get<{ user: Account }>('/api/auth/me', signal),
-  login: (username: string, password: string) =>
-    post<{ user: Account }>('/api/auth/login', { username, password }),
+  /** Login. Returns ``{user}`` on success. When the account has 2FA enabled
+   * and no ``totp_code`` was sent, returns ``{totp_required: true, username}``
+   * — caller must prompt for the code and re-call with totp_code set. */
+  login: (username: string, password: string, totp_code?: string) =>
+    post<{ user?: Account; totp_required?: boolean; username?: string }>(
+      '/api/auth/login',
+      { username, password, ...(totp_code ? { totp_code } : {}) },
+    ),
   logout: () => post<{ ok: boolean }>('/api/auth/logout'),
 
   // --- Own account ---
@@ -119,6 +128,16 @@ export const api = {
     post<CreatedApiToken>('/api/account/tokens', body),
   deleteMyToken: (id: number) =>
     send<{ ok: boolean }>('DELETE', `/api/account/tokens/${id}`),
+
+  // --- 2FA (TOTP) ---
+  get2faStatus: (signal?: AbortSignal) =>
+    get<TotpStatus>('/api/account/2fa', signal),
+  begin2faSetup: () =>
+    post<TotpSetup>('/api/account/2fa/setup', {}),
+  verify2faSetup: (code: string) =>
+    post<TotpVerifyResult>('/api/account/2fa/verify', { code }),
+  disable2fa: (password: string) =>
+    send<{ enabled: boolean }>('DELETE', '/api/account/2fa', { password }),
 
   // --- Instance: runtime-editable branding / locale knobs ---
   getInstance: (signal?: AbortSignal) => get<InstanceInfo>('/api/instance', signal),

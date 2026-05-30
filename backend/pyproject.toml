@@ -13,6 +13,8 @@ dependencies = [
     "aiosqlite>=0.20",
     "argon2-cffi>=23.1",
     "structlog>=24.4",
+    "pyotp>=2.9",        # TOTP for 2FA
+    "qrcode>=7.4",       # provisioning URI → SVG, embedded in setup response
 ]
 
 [project.optional-dependencies]

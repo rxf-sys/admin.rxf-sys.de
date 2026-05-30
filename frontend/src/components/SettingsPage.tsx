@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { api, apiErrorMessage } from '../api/client';
 import {
   BACKUP_INTERVALS_MS,
@@ -7,7 +7,7 @@ import {
   REFRESH_INTERVALS_MS,
   type UISettings,
 } from '../hooks/useTheme';
-import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, NtfyConfig, SystemSnapshot, TunnelStatus } from '../types';
+import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, NtfyConfig, SystemSnapshot, TotpSetup, TotpStatus, TunnelStatus } from '../types';
 import { Dot, ICONS } from './primitives';
 
 const MIN_PASSWORD_LEN = 8;
@@ -371,6 +371,7 @@ export function SettingsPage({
             <span className="mono dim" style={{ fontSize: 11 }}>aktiv</span>
           </Row>
           <AutoAuditRow isAdmin={isAdmin} onError={onError} />
+          <TwoFactorRow onError={onError} onInfo={onInfo} />
         </div>
       </div>
 
@@ -427,6 +428,185 @@ export function SettingsPage({
         </div>
       </div>
     </section>
+  );
+}
+
+/** Two-factor authentication (TOTP) — enroll / disable / show remaining
+ * backup codes. Backup codes from a fresh enrollment are kept in component
+ * state until the user explicitly dismisses the dialog (they can't be
+ * fetched again later). */
+function TwoFactorRow({
+  onError,
+  onInfo,
+}: {
+  onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
+}) {
+  const [status, setStatus] = useState<TotpStatus | null>(null);
+  const [setup, setSetup] = useState<TotpSetup | null>(null);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const [disabling, setDisabling] = useState(false);
+  const [disablePw, setDisablePw] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api.get2faStatus());
+    } catch { /* row stays blank */ }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const startSetup = async () => {
+    try {
+      setSetup(await api.begin2faSetup());
+      setVerifyCode('');
+    } catch (e) { onError(apiErrorMessage(e)); }
+  };
+
+  const verifySetup = async (e: FormEvent) => {
+    e.preventDefault();
+    if (verifying) return;
+    setVerifying(true);
+    try {
+      const r = await api.verify2faSetup(verifyCode.trim());
+      setBackupCodes(r.backup_codes);
+      setSetup(null);
+      onInfo('2FA aktiviert');
+      await load();
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const submitDisable = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!disablePw || disabling) return;
+    setDisabling(true);
+    try {
+      await api.disable2fa(disablePw);
+      setDisablePw('');
+      setStatus({ enabled: false, pending: false, backup_codes_remaining: 0 });
+      onInfo('2FA deaktiviert');
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setDisabling(false);
+    }
+  };
+
+  if (!status) return <Row title="2FA"><span className="dim">Lade…</span></Row>;
+
+  return (
+    <>
+      <Row
+        title="2FA"
+        desc={
+          status.enabled
+            ? `Aktiv · ${status.backup_codes_remaining} Backup-Codes übrig.`
+            : 'Zweiter Faktor per TOTP (Aegis, 1Password, Google Authenticator).'
+        }
+      >
+        {status.enabled ? (
+          <span className="role-pill admin">AKTIV</span>
+        ) : (
+          <button type="button" className="btn sm" onClick={startSetup}>
+            {ICONS.shield} Aktivieren
+          </button>
+        )}
+      </Row>
+
+      {setup && (
+        <form
+          onSubmit={verifySetup}
+          style={{ marginTop: 8, padding: 12, border: '1px solid var(--border)', borderRadius: 'var(--r-2)' }}
+        >
+          <div className="dim" style={{ fontSize: 12, marginBottom: 8 }}>
+            Scanne den QR-Code mit deiner Authenticator-App und gib dann den 6-stelligen Code ein.
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div
+              style={{ width: 140, height: 140, background: '#fff', padding: 6, borderRadius: 8 }}
+              dangerouslySetInnerHTML={{ __html: setup.qr_svg }}
+            />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="dim" style={{ fontSize: 11, marginBottom: 4 }}>Geheimnis (manuell):</div>
+              <code className="mono" style={{ fontSize: 11, wordBreak: 'break-all', userSelect: 'all' }}>
+                {setup.secret_b32}
+              </code>
+              <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                <label className="login-field" style={{ flex: 1 }}>
+                  <span>6-stelliger Code</span>
+                  <input
+                    className="input mono" type="text" inputMode="numeric"
+                    value={verifyCode}
+                    onChange={(e) => setVerifyCode(e.target.value)}
+                    autoFocus
+                    placeholder="123456"
+                  />
+                </label>
+                <button className="btn primary sm" type="submit" disabled={verifying} style={{ height: 36 }}>
+                  {verifying ? 'Prüfe…' : 'Bestätigen'}
+                </button>
+                <button className="btn sm" type="button" onClick={() => setSetup(null)} style={{ height: 36 }}>
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          </div>
+        </form>
+      )}
+
+      {backupCodes && (
+        <div
+          style={{ marginTop: 8, padding: 12, border: '1px solid var(--warn)', borderRadius: 'var(--r-2)', background: 'var(--warn-soft)' }}
+        >
+          <div className="dim" style={{ fontSize: 12, color: 'var(--warn)', marginBottom: 8 }}>
+            Notiere diese 8 Backup-Codes — jeder funktioniert genau einmal und sie werden NICHT erneut angezeigt.
+          </div>
+          <code
+            className="mono"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: 6,
+              fontSize: 13,
+              padding: 10,
+              background: 'var(--surface-1)',
+              borderRadius: 4,
+              userSelect: 'all',
+            }}
+          >
+            {backupCodes.map((c) => <span key={c}>{c}</span>)}
+          </code>
+          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+            <button className="btn primary sm" type="button" onClick={() => setBackupCodes(null)}>
+              Notiert
+            </button>
+          </div>
+        </div>
+      )}
+
+      {status.enabled && !setup && (
+        <form onSubmit={submitDisable} style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <label className="login-field" style={{ flex: 1 }}>
+            <span>2FA deaktivieren · Passwort bestätigen</span>
+            <input
+              className="input" type="password" autoComplete="current-password"
+              value={disablePw}
+              onChange={(e) => setDisablePw(e.target.value)}
+              placeholder="Passwort"
+            />
+          </label>
+          <button className="btn danger sm" type="submit" disabled={!disablePw || disabling} style={{ height: 36 }}>
+            {disabling ? 'Deaktiviere…' : 'Deaktivieren'}
+          </button>
+        </form>
+      )}
+    </>
   );
 }
 

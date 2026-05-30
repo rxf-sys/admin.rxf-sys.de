@@ -2,12 +2,18 @@ import { useState, type FormEvent } from 'react';
 import { apiErrorMessage } from '../api/client';
 
 interface Props {
-  onLogin: (username: string, password: string) => Promise<void>;
+  /** Performs the login. Returns true when the call was successful AND no
+   * 2FA challenge is pending; returns false when 2FA is required (the page
+   * then switches to the code-input step and re-calls onLogin with totp).
+   * Throws on credential errors. */
+  onLogin: (username: string, password: string, totp_code?: string) => Promise<boolean>;
 }
 
 export function LoginPage({ onLogin }: Props) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [totp, setTotp] = useState('');
+  const [needsTotp, setNeedsTotp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -17,11 +23,26 @@ export function LoginPage({ onLogin }: Props) {
     setError(null);
     setBusy(true);
     try {
-      await onLogin(username.trim(), password);
+      const done = await onLogin(
+        username.trim(),
+        password,
+        needsTotp ? totp.trim() : undefined,
+      );
+      if (!done) {
+        // Server signalled totp_required — switch the form to the code step.
+        setNeedsTotp(true);
+      }
     } catch (err) {
       setError(apiErrorMessage(err));
+    } finally {
       setBusy(false);
     }
+  };
+
+  const resetTo1stStep = () => {
+    setNeedsTotp(false);
+    setTotp('');
+    setError(null);
   };
 
   return (
@@ -46,33 +67,58 @@ export function LoginPage({ onLogin }: Props) {
           </div>
         </div>
 
-        <h1 className="login-heading">Anmelden</h1>
-        <p className="login-desc">Melde dich mit deinem Konto an, um fortzufahren.</p>
+        {needsTotp ? (
+          <>
+            <h1 className="login-heading">2FA-Code</h1>
+            <p className="login-desc">
+              Code aus deiner Authenticator-App eingeben — oder einen 8-stelligen Backup-Code.
+            </p>
+            <label className="login-field">
+              <span>Code</span>
+              <input
+                className="input mono"
+                type="text"
+                inputMode="text"
+                autoComplete="one-time-code"
+                value={totp}
+                onChange={(e) => setTotp(e.target.value)}
+                autoFocus
+                required
+                placeholder="123456"
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <h1 className="login-heading">Anmelden</h1>
+            <p className="login-desc">Melde dich mit deinem Konto an, um fortzufahren.</p>
 
-        <label className="login-field">
-          <span>Benutzername</span>
-          <input
-            className="input"
-            type="text"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoFocus
-            required
-          />
-        </label>
+            <label className="login-field">
+              <span>Benutzername</span>
+              <input
+                className="input"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoFocus
+                required
+              />
+            </label>
 
-        <label className="login-field">
-          <span>Passwort</span>
-          <input
-            className="input"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
+            <label className="login-field">
+              <span>Passwort</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </label>
+          </>
+        )}
 
         {error && (
           <div className="login-error" role="alert">
@@ -81,8 +127,18 @@ export function LoginPage({ onLogin }: Props) {
         )}
 
         <button className="btn primary login-submit" type="submit" disabled={busy}>
-          {busy ? 'Anmelden…' : 'Anmelden'}
+          {busy ? (needsTotp ? 'Prüfe…' : 'Anmelden…') : (needsTotp ? 'Bestätigen' : 'Anmelden')}
         </button>
+        {needsTotp && (
+          <button
+            type="button"
+            className="btn login-secondary"
+            onClick={resetTo1stStep}
+            style={{ marginTop: 8 }}
+          >
+            Zurück
+          </button>
+        )}
       </form>
       <p className="login-foot">rxf-sys homeserver · admin dashboard</p>
     </div>
