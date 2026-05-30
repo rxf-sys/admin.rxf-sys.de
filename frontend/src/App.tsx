@@ -501,6 +501,10 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             onLogout={doLogout}
             onPasswordChanged={() => pushToast({ level: 'ok', title: 'Passwort geändert', body: 'Dein Passwort wurde aktualisiert.' })}
             onError={(msg) => pushToast({ level: 'err', title: 'Fehler', body: msg })}
+            system={sys.data}
+            tunnel={tun.data}
+            backups={bkp.data}
+            network={net.data}
           />
         )}
       </main>

@@ -353,6 +353,17 @@ export interface CloudflareAnalytics {
   series: CloudflareAnalyticsBucket[];
 }
 
+export interface AdminSession {
+  token_prefix: string;
+  user_id: number;
+  username: string;
+  email: string | null;
+  role: Role;
+  created_at: number;
+  expires_at: number;
+  last_seen_at: number;
+}
+
 export interface AuditFinding {
   id: string;
   status: 'ok' | 'warn' | 'err' | 'skipped';

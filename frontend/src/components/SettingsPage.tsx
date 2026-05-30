@@ -7,10 +7,8 @@ import {
   REFRESH_INTERVALS_MS,
   type UISettings,
 } from '../hooks/useTheme';
-import type { Account } from '../types';
-import { ICONS } from './primitives';
-
-type SettingsSection = 'appearance' | 'polling' | 'notifications' | 'identity' | 'about';
+import type { Account, BackupSummary, NetworkSnapshot, SystemSnapshot, TunnelStatus } from '../types';
+import { Dot, ICONS } from './primitives';
 
 const MIN_PASSWORD_LEN = 8;
 
@@ -21,22 +19,19 @@ interface Props {
   onLogout: () => void;
   onPasswordChanged: () => void;
   onError: (msg: string) => void;
+  /** Snapshots used to derive the live connection status of each integration. */
+  system: SystemSnapshot | null;
+  tunnel: TunnelStatus | null;
+  backups: BackupSummary | null;
+  network: NetworkSnapshot | null;
   appVersion?: string;
 }
-
-const NAV: { id: SettingsSection; label: string; icon: keyof typeof ICONS }[] = [
-  { id: 'appearance', label: 'Appearance', icon: 'palette' },
-  { id: 'polling', label: 'Polling', icon: 'refresh' },
-  { id: 'notifications', label: 'Notifications', icon: 'bell' },
-  { id: 'identity', label: 'Konto', icon: 'user' },
-  { id: 'about', label: 'About', icon: 'info' },
-];
 
 function fmtInterval(ms: number): string {
   if (ms === 0) return 'aus';
   if (ms < 60_000) return `${ms / 1000}s`;
-  if (ms < 3_600_000) return `${ms / 60_000}min`;
-  return `${ms / 3_600_000}h`;
+  if (ms < 3_600_000) return `${ms / 60_000} min`;
+  return `${ms / 3_600_000} h`;
 }
 
 function Row({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
@@ -91,13 +86,49 @@ function Switch({ checked, onChange, ariaLabel }: { checked: boolean; onChange: 
   );
 }
 
-function SectionHead({ title, desc }: { title: string; desc?: string }) {
-  return (
-    <div className="settings-section-h">
-      <h2>{title}</h2>
-      {desc && <p>{desc}</p>}
-    </div>
-  );
+interface IntegrationItem {
+  name: string;
+  endpoint: string;
+  reachable: boolean | null;
+  detail: string;
+}
+
+function deriveIntegrations(
+  system: SystemSnapshot | null,
+  tunnel: TunnelStatus | null,
+  backups: BackupSummary | null,
+  network: NetworkSnapshot | null,
+): IntegrationItem[] {
+  return [
+    {
+      name: 'Proxmox VE',
+      endpoint: 'Pull · cluster/status',
+      reachable: system ? system.host.online : null,
+      detail: system ? `${system.host.node} · PVE ${system.host.pve_version ?? '?'}` : '—',
+    },
+    {
+      name: 'Proxmox Backup Server',
+      endpoint: 'Pull · admin/datastore',
+      reachable: backups ? backups.reachable : null,
+      detail: backups?.datastore ? backups.datastore.name : backups?.error ?? '—',
+    },
+    {
+      name: 'Cloudflare API',
+      endpoint: 'Pull · zone + tunnel',
+      reachable: tunnel ? tunnel.reachable : null,
+      detail: tunnel?.name ?? tunnel?.error ?? '—',
+    },
+    {
+      name: 'UniFi Network',
+      endpoint: 'Pull · integration v1',
+      reachable: network ? network.reachable : null,
+      detail: network?.auth_mode === 'api-key'
+        ? 'Integration API'
+        : network?.auth_mode === 'cookie'
+          ? 'Cookie auth'
+          : network?.error ?? '—',
+    },
+  ];
 }
 
 export function SettingsPage({
@@ -107,9 +138,12 @@ export function SettingsPage({
   onLogout,
   onPasswordChanged,
   onError,
+  system,
+  tunnel,
+  backups,
+  network,
   appVersion,
 }: Props) {
-  const [active, setActive] = useState<SettingsSection>('appearance');
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   );
@@ -140,194 +174,251 @@ export function SettingsPage({
     [],
   );
 
+  const integrations = useMemo(
+    () => deriveIntegrations(system, tunnel, backups, network),
+    [system, tunnel, backups, network],
+  );
+
+  const clearLocalCache = () => {
+    if (!window.confirm('Lokalen Cache + Verlauf leeren? Theme + Polling-Einstellungen bleiben erhalten.')) return;
+    try {
+      // Wipe everything except the persisted UI settings.
+      const keep = localStorage.getItem('rxf-ui');
+      localStorage.clear();
+      if (keep) localStorage.setItem('rxf-ui', keep);
+      window.location.reload();
+    } catch (e) {
+      onError(`Cache-Clear fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   return (
-    <>
-      <div className="settings-nav-col">
-        <nav className="settings-nav" aria-label="Einstellungs-Bereiche">
-          {NAV.map((n) => {
-            const isActive = n.id === active;
-            return (
-              <button
-                key={n.id}
-                type="button"
-                className={`settings-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => setActive(n.id)}
-                aria-current={isActive ? 'true' : undefined}
-              >
-                {ICONS[n.icon] ?? null}
-                <span>{n.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+    <section className="settings-section">
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h2>Einstellungen</h2>
+        <span className="dimmer mono" style={{ fontSize: 11 }}>Auto-Speichern aktiv</span>
       </div>
 
-      <div className="settings-content-col">
-        {active === 'appearance' && (
-          <div className="card">
-            <SectionHead title="Appearance" desc="Visuelle Darstellung des Dashboards." />
-            <Row title="Theme" desc="Wechsel zwischen hellem und dunklem Modus.">
-              <Seg
-                value={settings.theme}
-                options={[
-                  { value: 'dark', label: 'Dark', icon: ICONS.moon },
-                  { value: 'light', label: 'Light', icon: ICONS.sun },
-                  { value: 'auto', label: 'System', icon: ICONS.monitor },
-                ]}
-                onChange={(v) => update('theme', v as UISettings['theme'])}
-                ariaLabel="Theme"
-              />
-            </Row>
-            <Row title="Density" desc="Wie dicht Informationen gepackt werden.">
-              <Seg
-                value={settings.density}
-                options={[
-                  { value: 'compact', label: 'Compact' },
-                  { value: 'cozy', label: 'Cozy' },
-                ]}
-                onChange={(v) => update('density', v as UISettings['density'])}
-                ariaLabel="Density"
-              />
-            </Row>
-            <Row title="Sparklines" desc="Mini-Charts in Service-Kacheln anzeigen.">
-              <Switch checked={settings.showSparklines} onChange={(v) => update('showSparklines', v)} ariaLabel="Sparklines anzeigen" />
-            </Row>
-            <Row title="Reduce motion" desc="Pulsing-Animationen für Alerts deaktivieren.">
-              <Switch checked={settings.reduceMotion} onChange={(v) => update('reduceMotion', v)} ariaLabel="Animationen reduzieren" />
-            </Row>
-          </div>
-        )}
+      {/* Row 1: Konto + Darstellung */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-6">
+          <SectionHead title="Konto" />
+          <Row title="Benutzername"><span className="mono">{account.username}</span></Row>
+          <Row title="E-Mail"><span className="mono">{account.email || '—'}</span></Row>
+          <Row title="Rolle">
+            <span className={`role-pill ${account.role}`}>{account.role}</span>
+          </Row>
+        </div>
 
-        {active === 'polling' && (
-          <div className="card">
-            <SectionHead title="Polling & Auto-Refresh" desc="Wie oft das Frontend Daten vom Backend lädt." />
-            <Row title="Live-Status Intervall" desc="Services, Host, Container, Tunnel.">
-              <select
-                className="input"
-                style={{ width: 120 }}
-                value={settings.refreshIntervalMs}
-                onChange={(e) => update('refreshIntervalMs', Number(e.target.value))}
-                aria-label="Live-Status-Intervall"
-              >
-                {intervalsLabel.fast.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </Row>
-            <Row title="Backup-Polling" desc="PBS-Daten ändern sich selten.">
-              <select
-                className="input"
-                style={{ width: 120 }}
-                value={settings.pollBackupMs}
-                onChange={(e) => update('pollBackupMs', Number(e.target.value))}
-                aria-label="Backup-Polling"
-              >
-                {intervalsLabel.backup.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </Row>
-            <Row title="Cert-Polling" desc="Ablaufdaten ändern sich nur täglich.">
-              <select
-                className="input"
-                style={{ width: 120 }}
-                value={settings.pollCertsMs}
-                onChange={(e) => update('pollCertsMs', Number(e.target.value))}
-                aria-label="Cert-Polling"
-              >
-                {intervalsLabel.certs.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </Row>
-          </div>
-        )}
+        <div className="card col-6">
+          <SectionHead title="Darstellung" />
+          <Row title="Theme">
+            <Seg
+              value={settings.theme}
+              options={[
+                { value: 'dark', label: 'Dark', icon: ICONS.moon },
+                { value: 'light', label: 'Light', icon: ICONS.sun },
+                { value: 'auto', label: 'System', icon: ICONS.monitor },
+              ]}
+              onChange={(v) => update('theme', v as UISettings['theme'])}
+              ariaLabel="Theme"
+            />
+          </Row>
+          <Row title="Informationsdichte">
+            <Seg
+              value={settings.density}
+              options={[
+                { value: 'compact', label: 'Compact' },
+                { value: 'cozy', label: 'Cozy' },
+              ]}
+              onChange={(v) => update('density', v as UISettings['density'])}
+              ariaLabel="Density"
+            />
+          </Row>
+          <Row title="Sparklines">
+            <Switch checked={settings.showSparklines} onChange={(v) => update('showSparklines', v)} ariaLabel="Sparklines anzeigen" />
+          </Row>
+          <Row title="Animationen reduzieren">
+            <Switch checked={settings.reduceMotion} onChange={(v) => update('reduceMotion', v)} ariaLabel="Animationen reduzieren" />
+          </Row>
+        </div>
+      </div>
 
-        {active === 'notifications' && (
-          <div className="card">
-            <SectionHead title="Notifications" desc="Wann Toast-Benachrichtigungen erscheinen." />
-            <Row title="Status-Änderungen" desc="Toast wenn ein Service von OK → degraded → down wechselt.">
-              <Switch checked={settings.notifyStatusChange} onChange={(v) => update('notifyStatusChange', v)} ariaLabel="Status-Wechsel" />
-            </Row>
-            <Row title="Backup-Fehler" desc="Toast bei fehlgeschlagenen PBS-Jobs.">
-              <Switch checked={settings.notifyBackupFail} onChange={(v) => update('notifyBackupFail', v)} ariaLabel="Backup-Fehler" />
-            </Row>
-            <Row title="Cert-Warnungen" desc="Toast wenn ein Cert in weniger als N Tagen abläuft.">
-              <select
-                className="input"
-                style={{ width: 100 }}
-                value={settings.certWarnDays}
-                onChange={(e) => update('certWarnDays', Number(e.target.value) as UISettings['certWarnDays'])}
-                aria-label="Cert-Warn-Schwelle"
-              >
-                {CERT_WARN_DAYS.map((d) => (
-                  <option key={d} value={d}>{d === 0 ? 'Aus' : `${d} Tage`}</option>
-                ))}
-              </select>
-            </Row>
-            <Row
-              title="Browser-Notifications"
-              desc={
-                notifPerm === 'unsupported'
-                  ? 'Browser unterstützt keine Notifications.'
-                  : notifPerm === 'granted'
-                    ? 'Erlaubt.'
-                    : notifPerm === 'denied'
-                      ? 'Verweigert — im Browser freigeben.'
-                      : 'Native OS-Benachrichtigungen für kritische Alerts.'
-              }
+      {/* Row 2: Aktualisierung + Benachrichtigungen */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-6">
+          <SectionHead title="Aktualisierung &amp; Proben" />
+          <Row title="Live-Status-Intervall" desc="Services, Host, Container, Tunnel.">
+            <select
+              className="input" style={{ width: 120 }}
+              value={settings.refreshIntervalMs}
+              onChange={(e) => update('refreshIntervalMs', Number(e.target.value))}
+              aria-label="Live-Status-Intervall"
             >
-              <button
-                type="button"
-                className="btn"
-                disabled={notifPerm === 'unsupported' || notifPerm === 'granted' || notifPerm === 'denied'}
-                onClick={requestBrowserNotifs}
-              >
-                {ICONS.bell}
-                {notifPerm === 'granted' ? 'Erlaubt' : notifPerm === 'denied' ? 'Verweigert' : 'Berechtigung anfordern'}
-              </button>
-            </Row>
-          </div>
-        )}
+              {intervalsLabel.fast.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+            </select>
+          </Row>
+          <Row title="Backup-Polling" desc="PBS-Daten ändern sich selten.">
+            <select
+              className="input" style={{ width: 120 }}
+              value={settings.pollBackupMs}
+              onChange={(e) => update('pollBackupMs', Number(e.target.value))}
+              aria-label="Backup-Polling"
+            >
+              {intervalsLabel.backup.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+            </select>
+          </Row>
+          <Row title="Cert-Polling" desc="Ablaufdaten ändern sich nur täglich.">
+            <select
+              className="input" style={{ width: 120 }}
+              value={settings.pollCertsMs}
+              onChange={(e) => update('pollCertsMs', Number(e.target.value))}
+              aria-label="Cert-Polling"
+            >
+              {intervalsLabel.certs.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+            </select>
+          </Row>
+        </div>
 
-        {active === 'identity' && (
-          <>
-            <div className="card">
-              <SectionHead title="Konto" desc="Dein angemeldetes Konto in diesem Dashboard." />
-              <Row title="Benutzername">
-                <span className="mono">{account.username}</span>
-              </Row>
-              <Row title="E-Mail">
-                <span className="mono">{account.email || '—'}</span>
-              </Row>
-              <Row title="Rolle" desc="Admins können Konten verwalten.">
-                <span className={`role-pill ${account.role}`}>{account.role}</span>
-              </Row>
-              <Row title="Abmelden" desc="Beendet die aktuelle Sitzung.">
-                <button type="button" className="btn danger" onClick={onLogout}>Logout</button>
-              </Row>
-            </div>
-            <div className="card">
-              <SectionHead title="Passwort ändern" desc={`Mindestens ${MIN_PASSWORD_LEN} Zeichen.`} />
-              <PasswordChangeForm onChanged={onPasswordChanged} onError={onError} />
-            </div>
-          </>
-        )}
-
-        {active === 'about' && (
-          <div className="card">
-            <SectionHead title="About" />
-            <div className="kv-stack">
-              <div className="kv-row"><span className="kv-k">Version</span><span className="kv-v mono">{appVersion ?? 'dev'}</span></div>
-              <div className="kv-row"><span className="kv-k">Backend</span><span className="kv-v mono">FastAPI · Python 3.11+</span></div>
-              <div className="kv-row"><span className="kv-k">Frontend</span><span className="kv-v mono">React 19 · Vite 8 · TypeScript 6</span></div>
-              <div className="kv-row"><span className="kv-k">OpenAPI</span><a className="kv-v mono" style={{ color: 'var(--accent)' }} href="/api/docs" target="_blank" rel="noreferrer">/api/docs</a></div>
-              <div className="kv-row"><span className="kv-k">Repository</span><a className="kv-v mono" style={{ color: 'var(--accent)' }} href="https://github.com/rxf-sys/admin.rxf-sys.de" target="_blank" rel="noreferrer">github.com/rxf-sys/admin.rxf-sys.de</a></div>
-            </div>
-          </div>
-        )}
+        <div className="card col-6">
+          <SectionHead title="Benachrichtigungen" />
+          <Row title="Status-Änderungen" desc="Toast wenn ein Service von OK → degraded → down wechselt.">
+            <Switch checked={settings.notifyStatusChange} onChange={(v) => update('notifyStatusChange', v)} ariaLabel="Status-Wechsel" />
+          </Row>
+          <Row title="Backup-Fehler" desc="Toast bei fehlgeschlagenen PBS-Jobs.">
+            <Switch checked={settings.notifyBackupFail} onChange={(v) => update('notifyBackupFail', v)} ariaLabel="Backup-Fehler" />
+          </Row>
+          <Row title="Cert-Warnungen" desc="Schwelle in Tagen.">
+            <select
+              className="input" style={{ width: 100 }}
+              value={settings.certWarnDays}
+              onChange={(e) => update('certWarnDays', Number(e.target.value) as UISettings['certWarnDays'])}
+              aria-label="Cert-Warn-Schwelle"
+            >
+              {CERT_WARN_DAYS.map((d) => (<option key={d} value={d}>{d === 0 ? 'Aus' : `${d} Tage`}</option>))}
+            </select>
+          </Row>
+          <Row
+            title="OS-Benachrichtigungen"
+            desc={
+              notifPerm === 'unsupported' ? 'Browser unterstützt keine Notifications.'
+                : notifPerm === 'granted' ? 'Erlaubt.'
+                : notifPerm === 'denied' ? 'Verweigert — im Browser freigeben.'
+                : 'Native OS-Benachrichtigungen für kritische Alerts.'
+            }
+          >
+            <button
+              type="button" className="btn"
+              disabled={notifPerm === 'unsupported' || notifPerm === 'granted' || notifPerm === 'denied'}
+              onClick={requestBrowserNotifs}
+            >
+              {ICONS.bell}
+              {notifPerm === 'granted' ? 'Erlaubt' : notifPerm === 'denied' ? 'Verweigert' : 'Berechtigung anfordern'}
+            </button>
+          </Row>
+        </div>
       </div>
-    </>
+
+      {/* Row 3: Integrationen + Sicherheit */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-6">
+          <SectionHead title="Integrationen" />
+          <div className="settings-integ-list">
+            {integrations.map((it) => {
+              const tone = it.reachable === true ? 'ok' : it.reachable === false ? 'err' : 'warn';
+              const label = it.reachable === true ? 'VERBUNDEN' : it.reachable === false ? 'OFFLINE' : 'PROBE';
+              return (
+                <div key={it.name} className="settings-integ-row">
+                  <div className="settings-integ-meta">
+                    <span className="settings-integ-name">{it.name}</span>
+                    <span className="dim mono" style={{ fontSize: 11 }}>{it.detail}</span>
+                  </div>
+                  <span className={`badge ${tone}`}><Dot status={tone} /> {label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="card col-6">
+          <SectionHead title="Sicherheit &amp; Audit" />
+          <Row title="Session-Cookie" desc="httpOnly · Secure · SameSite=Lax">
+            <span className="mono dim" style={{ fontSize: 11 }}>rxf_session</span>
+          </Row>
+          <Row title="Hash-Algorithmus">
+            <span className="mono">Argon2id</span>
+          </Row>
+          <Row title="Login-Rate-Limit" desc="5 Fehlversuche / 5 min · pro IP.">
+            <span className="mono dim" style={{ fontSize: 11 }}>aktiv</span>
+          </Row>
+          <Row title="2FA" desc="Noch nicht implementiert.">
+            <span className="dimmer mono" style={{ fontSize: 11 }}>—</span>
+          </Row>
+        </div>
+      </div>
+
+      {/* Row 4: Passwort ändern */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-12">
+          <SectionHead title="Passwort ändern" desc={`Mindestens ${MIN_PASSWORD_LEN} Zeichen.`} />
+          <PasswordChangeForm onChanged={onPasswordChanged} onError={onError} />
+        </div>
+      </div>
+
+      {/* Row 5: About */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-12">
+          <SectionHead title="About" />
+          <div className="kv-stack">
+            <div className="kv-row"><span className="kv-k">Version</span><span className="kv-v mono">{appVersion ?? 'dev'}</span></div>
+            <div className="kv-row"><span className="kv-k">Backend</span><span className="kv-v mono">FastAPI · Python 3.11+</span></div>
+            <div className="kv-row"><span className="kv-k">Frontend</span><span className="kv-v mono">React 19 · Vite 8 · TypeScript 6</span></div>
+            <div className="kv-row">
+              <span className="kv-k">OpenAPI</span>
+              <a className="kv-v mono" style={{ color: 'var(--accent)' }} href="/api/docs" target="_blank" rel="noreferrer">/api/docs</a>
+            </div>
+            <div className="kv-row">
+              <span className="kv-k">Repository</span>
+              <a className="kv-v mono" style={{ color: 'var(--accent)' }} href="https://github.com/rxf-sys/admin.rxf-sys.de" target="_blank" rel="noreferrer">
+                github.com/rxf-sys/admin.rxf-sys.de
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Danger zone */}
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--err)' }}>Gefahrenzone</h3>
+      </div>
+      <div className="grid-12">
+        <div className="card col-12 settings-danger">
+          <div className="settings-danger-row">
+            <div>
+              <h4>Cache &amp; Verlauf leeren</h4>
+              <p className="dim">Alle lokal gespeicherten Probe-Historien entfernen. Theme + Polling bleiben.</p>
+            </div>
+            <button type="button" className="btn" onClick={clearLocalCache}>Leeren</button>
+          </div>
+          <div className="settings-danger-row">
+            <div>
+              <h4>Abmelden</h4>
+              <p className="dim">Beendet die aktuelle Session und revoked das Cookie serverseitig.</p>
+            </div>
+            <button type="button" className="btn danger" onClick={onLogout}>Logout</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SectionHead({ title, desc }: { title: string; desc?: string }) {
+  return (
+    <div className="settings-section-h">
+      <h2>{title}</h2>
+      {desc && <p>{desc}</p>}
+    </div>
   );
 }
 
@@ -369,21 +460,21 @@ function PasswordChangeForm({
   };
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <label className="login-field">
+    <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'row', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      <label className="login-field" style={{ flex: '1 1 180px' }}>
         <span>Aktuelles Passwort</span>
         <input className="input" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
       </label>
-      <label className="login-field">
+      <label className="login-field" style={{ flex: '1 1 180px' }}>
         <span>Neues Passwort</span>
         <input className="input" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required />
       </label>
-      <label className="login-field">
-        <span>Neues Passwort bestätigen</span>
+      <label className="login-field" style={{ flex: '1 1 180px' }}>
+        <span>Bestätigen</span>
         <input className="input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
       </label>
-      <button className="btn primary" type="submit" disabled={busy} style={{ alignSelf: 'flex-start', height: 36 }}>
-        {busy ? 'Speichern…' : 'Passwort ändern'}
+      <button className="btn primary" type="submit" disabled={busy} style={{ height: 36 }}>
+        {busy ? 'Speichern…' : 'Ändern'}
       </button>
     </form>
   );

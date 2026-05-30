@@ -382,6 +382,60 @@ async def delete_session(token: str) -> None:
         await db.commit()
 
 
+async def list_active_sessions() -> list[dict[str, Any]]:
+    """All non-expired sessions joined with their owning user.
+
+    Used by the admin's 'Aktive Sessions' card. Returns one row per live
+    session with the basic user identity attached and ordered by recency
+    (last_seen_at, descending). Tokens are returned truncated — we never
+    expose the full token to the UI."""
+    now = int(time.time())
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT s.token, s.user_id, s.created_at, s.expires_at, s.last_seen_at,
+                   u.username, u.email, u.role
+            FROM sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.expires_at > ?
+            ORDER BY s.last_seen_at DESC
+            """,
+            (now,),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {
+            "token_prefix": (row["token"] or "")[:8],
+            "user_id": int(row["user_id"]),
+            "username": row["username"],
+            "email": row["email"],
+            "role": row["role"],
+            "created_at": int(row["created_at"]),
+            "expires_at": int(row["expires_at"]),
+            "last_seen_at": int(row["last_seen_at"]),
+        }
+        for row in rows
+    ]
+
+
+async def revoke_session(token_prefix: str) -> int:
+    """Delete sessions whose token starts with ``token_prefix``.
+
+    Admins identify sessions by their 8-char prefix (the full token is never
+    sent to the UI); the prefix space is large enough to make collisions
+    rare but we still return the rowcount so the caller can detect an
+    accidental match of zero or many rows."""
+    if not token_prefix or len(token_prefix) < 6:
+        return 0
+    async with _connect() as db:
+        cur = await db.execute(
+            "DELETE FROM sessions WHERE token LIKE ?", (token_prefix + "%",)
+        )
+        await db.commit()
+        return cur.rowcount or 0
+
+
 async def cleanup_expired_sessions() -> int:
     async with _connect() as db:
         cur = await db.execute(
