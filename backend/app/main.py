@@ -143,9 +143,10 @@ async def _metrics_sample_loop() -> None:
         try:
             await asyncio.sleep(interval)
             guests_task = asyncio.create_task(proxmox.fetch_guests(_settings))
+            host_task = asyncio.create_task(proxmox.fetch_host_status(_settings))
             net_task = asyncio.create_task(unifi.fetch_network_snapshot(_settings))
-            guests, net = await asyncio.gather(
-                guests_task, net_task, return_exceptions=True
+            guests, host, net = await asyncio.gather(
+                guests_task, host_task, net_task, return_exceptions=True
             )
             if isinstance(guests, list):
                 rows = [
@@ -156,6 +157,17 @@ async def _metrics_sample_loop() -> None:
                 await storage.record_guest_metrics(rows)
             else:
                 log_.info("metrics.guests_skip", error=str(guests))
+            if not isinstance(host, BaseException) and host.online:
+                await storage.record_host_metrics(
+                    cpu_pct=float(host.cpu_pct),
+                    ram_used_b=int(host.ram_used_b),
+                    ram_total_b=int(host.ram_total_b),
+                    disk_used_b=int(host.disk_used_b),
+                    disk_total_b=int(host.disk_total_b),
+                    cpu_temp_c=host.cpu_temp_c,
+                )
+            elif isinstance(host, BaseException):
+                log_.info("metrics.host_skip", error=str(host))
             if not isinstance(net, BaseException) and net.reachable:
                 await storage.record_network_metrics(
                     float(net.throughput_down_mbit), float(net.throughput_up_mbit)

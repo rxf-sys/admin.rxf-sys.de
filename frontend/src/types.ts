@@ -266,6 +266,22 @@ export interface NetworkThroughput {
   samples: NetworkThroughputSample[];
 }
 
+export interface HostMetricsSample {
+  ts: number;
+  cpu_pct: number;
+  ram_used_b: number;
+  ram_total_b: number;
+  disk_used_b: number;
+  disk_total_b: number;
+  cpu_temp_c: number | null;
+}
+
+export interface HostHistory {
+  hours: number;
+  samples: HostMetricsSample[];
+  enabled: boolean;
+}
+
 export interface BackupHeatmapCell {
   day: string;
   label: 'empty' | 'ok' | 'partial' | 'err';

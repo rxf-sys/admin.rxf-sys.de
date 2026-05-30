@@ -10,6 +10,7 @@ import type {
   BackupSummary,
   CertsSnapshot,
   CloudflareAnalytics,
+  HostHistory,
   GuestBackups,
   GuestHistory,
   GuestTask,
@@ -103,6 +104,8 @@ export const api = {
     send<{ revoked: number }>('DELETE', `/api/admin/sessions/${encodeURIComponent(token_prefix)}`),
 
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
+  systemHistory: (hours = 48, signal?: AbortSignal) =>
+    get<HostHistory>(`/api/system/history?hours=${hours}`, signal),
   services: (signal?: AbortSignal) => get<ServiceStatus[]>('/api/services', signal),
   createService: (body: ServiceInput) =>
     post<{ service: Record<string, unknown> }>('/api/services', body),

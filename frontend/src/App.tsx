@@ -147,6 +147,10 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   const pollBackup = paused ? 0 : ui.pollBackupMs;
   const pollCerts = paused ? 0 : ui.pollCertsMs;
   const sys = usePoll((sig) => api.system(sig), pollFast);
+  // History feeds the HostPanel sparklines on the Overview tab. Refreshes
+  // on the backup tier — host_metrics is sampled once a minute upstream, so
+  // there's no value in polling it every few seconds.
+  const sysHistory = usePoll((sig) => api.systemHistory(48, sig), pollBackup);
   const svc = usePoll((sig) => api.services(sig), pollFast);
   const tun = usePoll((sig) => api.tunnel(sig), pollFast);
   const bkp = usePoll((sig) => api.backups(sig), pollBackup);
@@ -405,7 +409,14 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               onInspectService={setSelectedSvc}
               onInspectGuest={onInspectGuest}
             />
-            <HostPanel host={sys.data?.host ?? null} guests={guests} />
+            <HostPanel
+              host={sys.data?.host ?? null}
+              guests={guests}
+              cpuTrend={sysHistory.data?.samples.map((s) => s.cpu_pct)}
+              diskTrend={sysHistory.data?.samples.map((s) =>
+                s.disk_total_b > 0 ? (s.disk_used_b / s.disk_total_b) * 100 : 0,
+              )}
+            />
             <div className="quick-stats">
               <KpiStrip guests={guests} services={services} />
               <AuditLog pollMs={pollFast} />
