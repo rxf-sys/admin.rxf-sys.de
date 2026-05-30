@@ -43,3 +43,12 @@ testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+[tool.coverage.run]
+# main.py is the ASGI entry point + background-loop wiring — exercised in
+# integration but not unit-testable without spinning up the lifespan, which
+# the test suite intentionally avoids. Exclude it from the gate so the gate
+# tracks the parts the suite actually covers.
+omit = [
+    "app/main.py",
+]
