@@ -192,6 +192,13 @@ export interface Account {
   username: string;
   email: string | null;
   role: Role;
+  /** Identity realm — local (this dashboard), pve / pbs / external when an
+   * upstream owns the credentials. Only 'local' is populated today; the
+   * column exists so PVE/PBS-imported users can be tagged in a follow-up. */
+  realm: string;
+  /** How the account got into the system — dashboard (UI), bootstrap
+   * (env-driven first admin), import (future bulk-import). */
+  source: string;
   disabled: boolean;
   created_at: number;
   last_login_at: number | null;

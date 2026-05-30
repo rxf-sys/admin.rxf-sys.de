@@ -130,7 +130,9 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
                 <tr>
                   <th>Benutzer</th>
                   <th>E-Mail</th>
+                  <th>Realm</th>
                   <th>Rolle</th>
+                  <th>Quelle</th>
                   <th>Status</th>
                   <th>Letzter Login</th>
                   <th style={{ textAlign: 'right' }}>Aktionen</th>
@@ -151,6 +153,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
                           onSave={(email) => updateUser(u.id, { email })}
                         />
                       </td>
+                      <td className="mono dim" style={{ fontSize: 11 }}>{u.realm}</td>
                       <td>
                         <select
                           className="hours-select"
@@ -164,6 +167,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
                           <option value="user">user (legacy)</option>
                         </select>
                       </td>
+                      <td className="mono dim" style={{ fontSize: 11 }}>{u.source}</td>
                       <td>
                         <span className={`role-pill ${u.disabled ? 'user' : 'admin'}`}>
                           {u.disabled ? 'deaktiviert' : 'aktiv'}

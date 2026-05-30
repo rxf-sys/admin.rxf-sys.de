@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS users (
     username      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
     email         TEXT,
     password_hash TEXT    NOT NULL,
-    role          TEXT    NOT NULL DEFAULT 'user',
+    role          TEXT    NOT NULL DEFAULT 'viewer',
+    realm         TEXT    NOT NULL DEFAULT 'local',
+    source        TEXT    NOT NULL DEFAULT 'dashboard',
     settings_json TEXT    NOT NULL DEFAULT '{}',
     disabled      INTEGER NOT NULL DEFAULT 0,
     created_at    INTEGER NOT NULL,
@@ -103,8 +105,27 @@ async def ensure_schema(settings: Settings) -> None:
     async with aiosqlite.connect(_db_path) as db:
         await db.execute("PRAGMA foreign_keys = ON")
         await db.executescript(_SCHEMA)
+        await _migrate_users(db)
         await db.commit()
     log.info("accounts.ready", db=_db_path)
+
+
+async def _migrate_users(db: aiosqlite.Connection) -> None:
+    """Bring an older ``users`` table up to date.
+
+    SQLite's CREATE TABLE IF NOT EXISTS only fires when the table is missing
+    entirely — once it's there, new columns from _SCHEMA are silently ignored.
+    This helper ALTERs in the optional columns added after the initial
+    release (currently: realm, source) so an in-place upgrade from an old
+    database doesn't break the read helpers."""
+    async with db.execute("PRAGMA table_info(users)") as cur:
+        cols = {row[1] for row in await cur.fetchall()}
+    if "realm" not in cols:
+        await db.execute("ALTER TABLE users ADD COLUMN realm TEXT NOT NULL DEFAULT 'local'")
+        log.info("accounts.migrated", column="realm")
+    if "source" not in cols:
+        await db.execute("ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'dashboard'")
+        log.info("accounts.migrated", column="source")
 
 
 def _connect() -> aiosqlite.Connection:
@@ -130,11 +151,18 @@ def verify_password(stored_hash: str, plain: str) -> bool:
 
 def _row_to_user(row: aiosqlite.Row) -> dict[str, Any]:
     """Public user dict — never includes the password hash."""
+    # ``realm`` and ``source`` may be missing on rows from a DB that hasn't
+    # been migrated yet — fall back to the defaults so the API stays stable.
+    keys = row.keys() if hasattr(row, "keys") else []
+    realm = row["realm"] if "realm" in keys else "local"
+    source = row["source"] if "source" in keys else "dashboard"
     return {
         "id": int(row["id"]),
         "username": row["username"],
         "email": row["email"],
         "role": row["role"],
+        "realm": realm,
+        "source": source,
         "disabled": bool(row["disabled"]),
         "created_at": int(row["created_at"]),
         "last_login_at": int(row["last_login_at"]) if row["last_login_at"] else None,
@@ -157,8 +185,10 @@ async def create_user(
     username: str,
     password: str,
     *,
-    role: str = "user",
+    role: str = "viewer",
     email: str | None = None,
+    realm: str = "local",
+    source: str = "dashboard",
 ) -> dict[str, Any]:
     """Insert a new account. Raises AccountError on a duplicate username."""
     username = username.strip()
@@ -171,16 +201,16 @@ async def create_user(
         async with _connect() as db:
             cur = await db.execute(
                 """
-                INSERT INTO users (username, email, password_hash, role, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (username, email, password_hash, role, realm, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (username, email, hash_password(password), role, now),
+                (username, email, hash_password(password), role, realm, source, now),
             )
             await db.commit()
             user_id = cur.lastrowid
     except aiosqlite.IntegrityError as e:
         raise AccountError("Benutzername bereits vergeben") from e
-    log.info("accounts.user_created", username=username, role=role)
+    log.info("accounts.user_created", username=username, role=role, realm=realm, source=source)
     user = await get_user_by_id(int(user_id or 0))
     assert user is not None
     return user
@@ -484,6 +514,7 @@ async def bootstrap_admin(settings: Settings) -> None:
         settings.bootstrap_admin_user,
         settings.bootstrap_admin_password,
         role="admin",
+        source="bootstrap",
     )
     log.info("accounts.admin_bootstrapped", username=settings.bootstrap_admin_user)
 
