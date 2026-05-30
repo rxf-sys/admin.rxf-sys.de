@@ -273,6 +273,12 @@ export interface NetworkThroughput {
   samples: NetworkThroughputSample[];
 }
 
+export interface InstanceInfo {
+  instance_name: string;
+  default_timezone: string;
+  time_format: '12h' | '24h';
+}
+
 export interface HostMetricsSample {
   ts: number;
   cpu_pct: number;

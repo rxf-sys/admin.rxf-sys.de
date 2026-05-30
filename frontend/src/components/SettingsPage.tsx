@@ -7,7 +7,7 @@ import {
   REFRESH_INTERVALS_MS,
   type UISettings,
 } from '../hooks/useTheme';
-import type { Account, BackupSummary, NetworkSnapshot, SystemSnapshot, TunnelStatus } from '../types';
+import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, SystemSnapshot, TunnelStatus } from '../types';
 import { Dot, ICONS } from './primitives';
 
 const MIN_PASSWORD_LEN = 8;
@@ -24,6 +24,9 @@ interface Props {
   tunnel: TunnelStatus | null;
   backups: BackupSummary | null;
   network: NetworkSnapshot | null;
+  /** Editable branding / locale knobs persisted in app_settings. */
+  instance: InstanceInfo | null;
+  onInstanceSaved: (next: InstanceInfo) => void;
   appVersion?: string;
 }
 
@@ -142,8 +145,11 @@ export function SettingsPage({
   tunnel,
   backups,
   network,
+  instance,
+  onInstanceSaved,
   appVersion,
 }: Props) {
+  const isAdmin = account.role === 'admin';
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   );
@@ -199,8 +205,18 @@ export function SettingsPage({
         <span className="dimmer mono" style={{ fontSize: 11 }}>Auto-Speichern aktiv</span>
       </div>
 
-      {/* Row 1: Konto + Darstellung */}
+      {/* Row 1: Allgemein + Konto */}
       <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-6">
+          <SectionHead title="Allgemein" />
+          <InstanceForm
+            instance={instance}
+            isAdmin={isAdmin}
+            onSaved={onInstanceSaved}
+            onError={onError}
+          />
+        </div>
+
         <div className="card col-6">
           <SectionHead title="Konto" />
           <Row title="Benutzername"><span className="mono">{account.username}</span></Row>
@@ -410,6 +426,104 @@ export function SettingsPage({
         </div>
       </div>
     </section>
+  );
+}
+
+/** Editable instance branding form. Non-admins see the values read-only. */
+function InstanceForm({
+  instance,
+  isAdmin,
+  onSaved,
+  onError,
+}: {
+  instance: InstanceInfo | null;
+  isAdmin: boolean;
+  onSaved: (next: InstanceInfo) => void;
+  onError: (msg: string) => void;
+}) {
+  const [name, setName] = useState(instance?.instance_name ?? '');
+  const [tz, setTz] = useState(instance?.default_timezone ?? '');
+  const [fmt, setFmt] = useState<'12h' | '24h'>(instance?.time_format ?? '24h');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (instance) {
+      setName(instance.instance_name);
+      setTz(instance.default_timezone);
+      setFmt(instance.time_format);
+    }
+  }, [instance]);
+
+  if (!instance) {
+    return <div className="dim" style={{ fontSize: 12 }}>Lade…</div>;
+  }
+
+  const dirty = name !== instance.instance_name
+    || tz !== instance.default_timezone
+    || fmt !== instance.time_format;
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin || !dirty || busy) return;
+    setBusy(true);
+    try {
+      const next = await api.updateInstance({
+        instance_name: name,
+        default_timezone: tz,
+        time_format: fmt,
+      });
+      onSaved(next);
+    } catch (err) {
+      onError(apiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={save}>
+      <Row title="Instanz-Name" desc="Erscheint im Header und im Browser-Tab.">
+        <input
+          className="input" style={{ width: 200 }}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={!isAdmin}
+          aria-label="Instanz-Name"
+        />
+      </Row>
+      <Row title="Zeitzone" desc="IANA-Format, z.B. Europe/Berlin.">
+        <input
+          className="input mono" style={{ width: 200 }}
+          value={tz}
+          onChange={(e) => setTz(e.target.value)}
+          disabled={!isAdmin}
+          aria-label="Zeitzone"
+        />
+      </Row>
+      <Row title="Zeitformat">
+        <select
+          className="input" style={{ width: 100 }}
+          value={fmt}
+          onChange={(e) => setFmt(e.target.value as '12h' | '24h')}
+          disabled={!isAdmin}
+          aria-label="Zeitformat"
+        >
+          <option value="24h">24h</option>
+          <option value="12h">12h</option>
+        </select>
+      </Row>
+      {isAdmin && (
+        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            className="btn primary sm"
+            type="submit"
+            disabled={!dirty || busy}
+          >
+            {busy ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+      )}
+    </form>
   );
 }
 

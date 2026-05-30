@@ -24,6 +24,7 @@ from .routers import (
     backups,
     certs,
     cloudflare as cloudflare_router,
+    instance as instance_router,
     network,
     services,
     system,
@@ -285,6 +286,7 @@ async def me(user: dict = Depends(verify_session)) -> dict:
 app.include_router(auth_router.router)
 app.include_router(account_router.router)
 app.include_router(admin_router.router)
+app.include_router(instance_router.router)
 app.include_router(system.router)
 app.include_router(services.router)
 app.include_router(tunnel.router)

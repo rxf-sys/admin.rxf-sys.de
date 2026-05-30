@@ -14,6 +14,8 @@ interface HeaderProps {
   onOpenSettings: () => void;
   onToggleTheme: () => void;
   isDarkTheme: boolean;
+  /** Branding name shown in the logo; falls back to 'rxf-sys'. */
+  instanceName?: string;
 }
 
 export function Header(p: HeaderProps) {
@@ -44,7 +46,7 @@ export function Header(p: HeaderProps) {
             </svg>
           </span>
           <div className="logo-text">
-            <span className="logo-title">rxf-sys</span>
+            <span className="logo-title">{p.instanceName || 'rxf-sys'}</span>
             <span className="logo-sub">admin</span>
           </div>
         </div>

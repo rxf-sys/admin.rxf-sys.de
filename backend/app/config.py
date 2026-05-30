@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     # When False, all requests resolve to a synthetic admin identity (dev only).
     auth_enabled: bool = True
 
+    # ---- Branding / UI defaults (admin-editable at runtime via app_settings) ----
+    # These are read from .env on first start and then mirrored into the
+    # app_settings table; from then on the runtime value wins. Admins can
+    # change them in the Einstellungen tab without redeploying.
+    instance_name: str = "rxf-sys Control"
+    default_timezone: str = "Europe/Berlin"
+    time_format: str = "24h"
+
     # ---- Account auth (session cookies, replaces Cloudflare Access) ----
     # Lifetime of a login session before it expires and the user must
     # re-authenticate.

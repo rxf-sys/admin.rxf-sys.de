@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 _db_path: str = ""
@@ -424,6 +429,32 @@ async def resolve_session(token: str) -> dict[str, Any] | None:
 async def delete_session(token: str) -> None:
     async with _connect() as db:
         await db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        await db.commit()
+
+
+async def get_app_setting(key: str) -> str | None:
+    """Read a single value from the global app_settings key-value table.
+
+    Returns None when the key is absent. Used for runtime-tunable UI
+    settings (instance name, default timezone) that live outside the
+    environment-driven Settings class."""
+    if not _db_path:
+        return None
+    async with _connect() as db:
+        async with db.execute("SELECT value FROM app_settings WHERE key = ?", (key,)) as cur:
+            row = await cur.fetchone()
+            return str(row[0]) if row else None
+
+
+async def set_app_setting(key: str, value: str) -> None:
+    """Upsert a value into app_settings. Caller is responsible for any
+    domain validation (length, allowed characters, …)."""
+    async with _connect() as db:
+        await db.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
         await db.commit()
 
 

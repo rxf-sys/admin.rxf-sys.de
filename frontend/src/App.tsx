@@ -27,7 +27,7 @@ import { useAuth } from './hooks/useAuth';
 import { usePoll } from './hooks/usePoll';
 import { type Section, useSection } from './hooks/useSection';
 import { useResolvedTheme, useUISettings } from './hooks/useTheme';
-import type { Account, BackupSnapshot, Guest, ServiceInput, ServiceStatus } from './types';
+import type { Account, BackupSnapshot, Guest, InstanceInfo, ServiceInput, ServiceStatus } from './types';
 
 const SECTION_KEYS: Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare', 'settings'];
 
@@ -156,6 +156,21 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   const bkp = usePoll((sig) => api.backups(sig), pollBackup);
   const net = usePoll((sig) => api.network(sig), pollFast);
   const cer = usePoll((sig) => api.certs(sig), pollCerts);
+
+  // Instance branding — loaded once after login and refreshed when the user
+  // saves it in the settings page.
+  const [instance, setInstance] = useState<InstanceInfo | null>(null);
+  const loadInstance = useCallback(async () => {
+    try {
+      setInstance(await api.getInstance());
+    } catch {
+      /* silent — settings stay at compile-time defaults */
+    }
+  }, []);
+  useEffect(() => { void loadInstance(); }, [loadInstance]);
+  useEffect(() => {
+    if (instance?.instance_name) document.title = `${instance.instance_name} · admin`;
+  }, [instance?.instance_name]);
 
   const refreshAll = useCallback(() => {
     sys.refresh();
@@ -383,6 +398,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
         onOpenSettings={() => setSection('settings')}
         onToggleTheme={onToggleTheme}
         isDarkTheme={resolvedTheme === 'dark'}
+        instanceName={instance?.instance_name}
       />
       <SectionNav active={section} onChange={setSection} alerts={alerts} isAdmin={isAdmin} />
       {anyError && (
@@ -516,6 +532,11 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             tunnel={tun.data}
             backups={bkp.data}
             network={net.data}
+            instance={instance}
+            onInstanceSaved={(next) => {
+              setInstance(next);
+              pushToast({ level: 'ok', title: 'Gespeichert', body: 'Instanz-Einstellungen aktualisiert.' });
+            }}
           />
         )}
       </main>

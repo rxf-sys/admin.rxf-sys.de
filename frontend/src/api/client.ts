@@ -11,6 +11,7 @@ import type {
   CertsSnapshot,
   CloudflareAnalytics,
   HostHistory,
+  InstanceInfo,
   GuestBackups,
   GuestHistory,
   GuestTask,
@@ -102,6 +103,11 @@ export const api = {
     get<{ sessions: AdminSession[] }>('/api/admin/sessions', signal),
   adminRevokeSession: (token_prefix: string) =>
     send<{ revoked: number }>('DELETE', `/api/admin/sessions/${encodeURIComponent(token_prefix)}`),
+
+  // --- Instance: runtime-editable branding / locale knobs ---
+  getInstance: (signal?: AbortSignal) => get<InstanceInfo>('/api/instance', signal),
+  updateInstance: (body: Partial<InstanceInfo>) =>
+    send<InstanceInfo>('PUT', '/api/instance', body),
 
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
   systemHistory: (hours = 48, signal?: AbortSignal) =>
