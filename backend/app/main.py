@@ -27,6 +27,7 @@ from .routers import (
     cloudflare as cloudflare_router,
     instance as instance_router,
     network,
+    notifications as notifications_router,
     services,
     system,
     tunnel,
@@ -275,14 +276,19 @@ async def lifespan(app: FastAPI):
     # without bouncing the backend.
     auto_audit_task = asyncio.create_task(_auto_audit_loop())
 
-    if _settings.notify_webhook_url:
+    if _settings.notify_webhook_url or _settings.ntfy_base:
         center = NotificationCenter(settings=_settings)
         notify_task = asyncio.create_task(
             run_notification_loop(
                 center, _gather_notify_snapshot, interval_s=_settings.notify_interval_s
             )
         )
-        structlog.get_logger().info("notify.enabled", interval_s=_settings.notify_interval_s)
+        structlog.get_logger().info(
+            "notify.enabled",
+            interval_s=_settings.notify_interval_s,
+            webhook=bool(_settings.notify_webhook_url),
+            ntfy=bool(_settings.ntfy_base),
+        )
     else:
         structlog.get_logger().info("notify.disabled")
     try:
@@ -338,6 +344,7 @@ app.include_router(auth_router.router)
 app.include_router(account_router.router)
 app.include_router(admin_router.router)
 app.include_router(instance_router.router)
+app.include_router(notifications_router.router)
 app.include_router(system.router)
 app.include_router(services.router)
 app.include_router(tunnel.router)

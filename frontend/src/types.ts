@@ -285,6 +285,13 @@ export interface AutoAuditSettings {
   last_run_date?: string | null;
 }
 
+export interface NtfyConfig {
+  base: string;
+  topic: string;
+  /** True when a token is stored — the actual token is never returned. */
+  token_set: boolean;
+}
+
 export interface HostMetricsSample {
   ts: number;
   cpu_pct: number;

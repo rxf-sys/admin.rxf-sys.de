@@ -7,7 +7,7 @@ import {
   REFRESH_INTERVALS_MS,
   type UISettings,
 } from '../hooks/useTheme';
-import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, SystemSnapshot, TunnelStatus } from '../types';
+import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, NtfyConfig, SystemSnapshot, TunnelStatus } from '../types';
 import { Dot, ICONS } from './primitives';
 
 const MIN_PASSWORD_LEN = 8;
@@ -19,6 +19,7 @@ interface Props {
   onLogout: () => void;
   onPasswordChanged: () => void;
   onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
   /** Snapshots used to derive the live connection status of each integration. */
   system: SystemSnapshot | null;
   tunnel: TunnelStatus | null;
@@ -141,6 +142,7 @@ export function SettingsPage({
   onLogout,
   onPasswordChanged,
   onError,
+  onInfo,
   system,
   tunnel,
   backups,
@@ -332,6 +334,7 @@ export function SettingsPage({
               {notifPerm === 'granted' ? 'Erlaubt' : notifPerm === 'denied' ? 'Verweigert' : 'Berechtigung anfordern'}
             </button>
           </Row>
+          <NtfyRows isAdmin={isAdmin} onError={onError} onInfo={onInfo} />
         </div>
       </div>
 
@@ -424,6 +427,126 @@ export function SettingsPage({
         </div>
       </div>
     </section>
+  );
+}
+
+/** ntfy push config rows — server URL, topic, optional bearer token + test. */
+function NtfyRows({
+  isAdmin,
+  onError,
+  onInfo,
+}: {
+  isAdmin: boolean;
+  onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
+}) {
+  const [cfg, setCfg] = useState<NtfyConfig | null>(null);
+  const [base, setBase] = useState('');
+  const [topic, setTopic] = useState('');
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    api.getNtfy()
+      .then((c) => { setCfg(c); setBase(c.base); setTopic(c.topic); })
+      .catch(() => { /* row stays blank */ });
+  }, []);
+
+  if (!cfg) {
+    return <Row title="Push (ntfy)"><span className="dim">Lade…</span></Row>;
+  }
+
+  const dirty = base !== cfg.base || topic !== cfg.topic || token !== '';
+
+  const save = async () => {
+    if (!isAdmin || !dirty || busy) return;
+    setBusy(true);
+    try {
+      await api.updateNtfy({ base, topic, token });
+      const next = await api.getNtfy();
+      setCfg(next);
+      setToken('');
+      onInfo('ntfy-Einstellungen gespeichert');
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendTest = async () => {
+    if (testing) return;
+    setTesting(true);
+    try {
+      await api.testNtfy();
+      onInfo('Test-Push gesendet');
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <>
+      <Row title="ntfy-Server" desc="z.B. https://ntfy.rxf-sys.de — leer = ntfy aus.">
+        <input
+          className="input mono" style={{ width: 240 }}
+          value={base}
+          onChange={(e) => setBase(e.target.value)}
+          disabled={!isAdmin}
+          aria-label="ntfy-Basis-URL"
+          placeholder="https://ntfy.example.com"
+        />
+      </Row>
+      <Row title="ntfy-Topic">
+        <input
+          className="input mono" style={{ width: 240 }}
+          value={topic}
+          onChange={(e) => setTopic(e.target.value)}
+          disabled={!isAdmin}
+          aria-label="ntfy-Topic"
+          placeholder="rxf-admin"
+        />
+      </Row>
+      <Row
+        title="ntfy-Token"
+        desc={cfg.token_set ? 'Token gesetzt · neuen eintragen zum Überschreiben.' : 'Optional · für geschützte Topics.'}
+      >
+        <input
+          className="input mono" style={{ width: 240 }}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          type="password"
+          autoComplete="new-password"
+          disabled={!isAdmin}
+          aria-label="ntfy-Token"
+          placeholder={cfg.token_set ? '••••••••' : ''}
+        />
+      </Row>
+      {isAdmin && (
+        <div style={{ marginTop: 6, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            className="btn sm"
+            type="button"
+            onClick={sendTest}
+            disabled={!cfg.base || !cfg.topic || testing}
+            title={!cfg.base || !cfg.topic ? 'Zuerst speichern' : 'Test-Push schicken'}
+          >
+            {testing ? 'Sende…' : 'Test-Push'}
+          </button>
+          <button
+            className="btn primary sm"
+            type="button"
+            onClick={save}
+            disabled={!dirty || busy}
+          >
+            {busy ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

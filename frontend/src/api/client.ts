@@ -13,6 +13,7 @@ import type {
   CloudflareAnalytics,
   HostHistory,
   InstanceInfo,
+  NtfyConfig,
   GuestBackups,
   GuestHistory,
   GuestTask,
@@ -115,6 +116,14 @@ export const api = {
     get<AutoAuditSettings>('/api/audit/settings/auto', signal),
   updateAutoAudit: (body: { enabled: boolean; hour: number }) =>
     send<{ enabled: boolean; hour: number }>('PUT', '/api/audit/settings/auto', body),
+
+  // --- ntfy push config ---
+  getNtfy: (signal?: AbortSignal) =>
+    get<NtfyConfig>('/api/notifications/ntfy', signal),
+  updateNtfy: (body: { base: string; topic: string; token: string }) =>
+    send<{ ok: boolean }>('PUT', '/api/notifications/ntfy', body),
+  testNtfy: () =>
+    post<{ ok: boolean; url: string }>('/api/notifications/ntfy/test', {}),
 
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
   systemHistory: (hours = 48, signal?: AbortSignal) =>

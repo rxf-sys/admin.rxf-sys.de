@@ -141,6 +141,13 @@ class Settings(BaseSettings):
     notify_cert_days: int = 14
     # Loop interval for the notification background task.
     notify_interval_s: int = 60
+    # ntfy push — second-channel notifications alongside the legacy webhook.
+    # NTFY_BASE is the server root (e.g. https://ntfy.rxf-sys.de or
+    # https://ntfy.sh); NTFY_TOPIC is the topic name; NTFY_TOKEN is the
+    # optional Bearer token for protected topics. Empty NTFY_BASE disables.
+    ntfy_base: str = ""
+    ntfy_topic: str = "rxf-admin"
+    ntfy_token: str = ""
 
     # ---- Audit script ----
     # Path to the bundled audit shell script. Empty = use the default path
