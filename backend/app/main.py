@@ -10,7 +10,7 @@ import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import accounts, auditor, registry, storage
+from . import accounts, auditor, registry, storage, weekly_report
 from .auth import verify_session
 from .clients import cloudflare, pbs, probes, proxmox, unifi
 from .config import get_settings
@@ -138,6 +138,46 @@ async def _auto_audit_loop() -> None:
             log_.error("auto_audit.loop_error", error=str(e), error_type=type(e).__name__)
 
 
+async def _weekly_report_loop() -> None:
+    """Send the weekly report every Monday at ``report_hour`` UTC.
+
+    Same date-stamp guard as the auto-audit loop so a restart inside the
+    trigger window doesn't double-send. Settings are read from app_settings
+    (with .env fallback) on every tick so runtime config changes take effect
+    without restarting.
+    """
+    log_ = structlog.get_logger("weekly_report")
+    while True:
+        try:
+            await asyncio.sleep(300)
+            s = get_settings()
+            enabled_str = await accounts.get_app_setting("weekly_report_enabled")
+            enabled = (enabled_str == "true") if enabled_str is not None else s.weekly_report_enabled
+            if not enabled:
+                continue
+            hour_str = await accounts.get_app_setting("report_hour")
+            target_hour = int(hour_str) if hour_str and hour_str.isdigit() else s.report_hour
+            target_hour = max(0, min(23, target_hour))
+            now = datetime.now(timezone.utc)
+            # Monday is weekday 0 in Python's ISO calendar.
+            if now.weekday() != 0 or now.hour != target_hour:
+                continue
+            stamp = now.strftime("%G-W%V")  # ISO year + week → one send per week
+            last = await accounts.get_app_setting("weekly_report_last_week")
+            if last == stamp:
+                continue
+            try:
+                await weekly_report.send_report(s)
+                await accounts.set_app_setting("weekly_report_last_week", stamp)
+                log_.info("weekly_report.sent", week=stamp)
+            except Exception as e:  # noqa: BLE001
+                log_.error("weekly_report.send_failed", error=str(e))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log_.error("weekly_report.loop_error", error=str(e))
+
+
 async def _history_cleanup_loop() -> None:
     """Periodically drop old metric samples and expired login sessions."""
     while True:
@@ -236,6 +276,7 @@ async def lifespan(app: FastAPI):
     metrics_task: asyncio.Task | None = None
     probe_task: asyncio.Task | None = None
     auto_audit_task: asyncio.Task | None = None
+    weekly_report_task: asyncio.Task | None = None
 
     # Account auth is mandatory — its schema + first-admin bootstrap run
     # before anything else so the API is never up without a way to log in.
@@ -275,6 +316,7 @@ async def lifespan(app: FastAPI):
     # setting on every tick so an admin can flip the switch at runtime
     # without bouncing the backend.
     auto_audit_task = asyncio.create_task(_auto_audit_loop())
+    weekly_report_task = asyncio.create_task(_weekly_report_loop())
 
     if _settings.notify_webhook_url or _settings.ntfy_base:
         center = NotificationCenter(settings=_settings)
@@ -294,7 +336,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        for task in (notify_task, cleanup_task, metrics_task, probe_task, auto_audit_task):
+        for task in (notify_task, cleanup_task, metrics_task, probe_task, auto_audit_task, weekly_report_task):
             if task is None:
                 continue
             task.cancel()

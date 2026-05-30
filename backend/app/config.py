@@ -167,6 +167,24 @@ class Settings(BaseSettings):
     audit_auto_enabled: bool = False
     audit_auto_hour: int = 6  # 06:00 UTC by default — quiet hour for most
 
+    # ---- Weekly report (SMTP) ----
+    # Empty smtp_host disables the report regardless of any DB overrides.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+    # From-address used as the envelope sender + From header. Empty falls back
+    # to smtp_user when sending.
+    smtp_from: str = ""
+    # Recipient(s) for the weekly report — single address or comma-separated.
+    report_to: str = ""
+    # When True, the background loop sends a report every Monday at
+    # ``report_hour`` UTC. The loop also surfaces a manual-trigger endpoint
+    # so admins can test without waiting for the schedule.
+    weekly_report_enabled: bool = False
+    report_hour: int = 8  # 08:00 UTC Monday
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

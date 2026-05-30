@@ -7,7 +7,7 @@ import {
   REFRESH_INTERVALS_MS,
   type UISettings,
 } from '../hooks/useTheme';
-import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, NtfyConfig, SystemSnapshot, TotpSetup, TotpStatus, TunnelStatus } from '../types';
+import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, NtfyConfig, ReportConfig, SmtpConfig, SystemSnapshot, TotpSetup, TotpStatus, TunnelStatus } from '../types';
 import { Dot, ICONS } from './primitives';
 
 const MIN_PASSWORD_LEN = 8;
@@ -338,6 +338,14 @@ export function SettingsPage({
         </div>
       </div>
 
+      {/* E-Mail reports — sits alone in a col-12 because the form is wide */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-12">
+          <SectionHead title="E-Mail-Reports (SMTP)" />
+          <EmailReportsRows isAdmin={isAdmin} onError={onError} onInfo={onInfo} />
+        </div>
+      </div>
+
       {/* Row 3: Integrationen + Sicherheit */}
       <div className="grid-12" style={{ marginBottom: 16 }}>
         <div className="card col-6">
@@ -428,6 +436,180 @@ export function SettingsPage({
         </div>
       </div>
     </section>
+  );
+}
+
+/** SMTP server config + weekly report scheduler in one block. Compact form
+ * because most fields are small; the Test-Send button skips waiting for
+ * Monday. */
+function EmailReportsRows({
+  isAdmin,
+  onError,
+  onInfo,
+}: {
+  isAdmin: boolean;
+  onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
+}) {
+  const [smtp, setSmtp] = useState<SmtpConfig | null>(null);
+  const [report, setReport] = useState<ReportConfig | null>(null);
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [s, r] = await Promise.all([api.getSmtp(), api.getReportConfig()]);
+      setSmtp(s);
+      setReport(r);
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    }
+  }, [onError]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  if (!smtp || !report) return <div className="dim" style={{ fontSize: 12 }}>Lade…</div>;
+
+  const update = <K extends keyof SmtpConfig>(k: K, v: SmtpConfig[K]) => setSmtp({ ...smtp, [k]: v });
+  const updateReport = <K extends keyof ReportConfig>(k: K, v: ReportConfig[K]) => setReport({ ...report, [k]: v });
+
+  const save = async () => {
+    if (!isAdmin || busy) return;
+    setBusy(true);
+    try {
+      await api.updateSmtp({
+        host: smtp.host, port: smtp.port, user: smtp.user,
+        password: pw, starttls: smtp.starttls, from_addr: smtp.from_addr,
+      });
+      await api.updateReportConfig({
+        enabled: report.enabled, hour: report.hour, to: report.to,
+      });
+      setPw('');
+      await load();
+      onInfo('SMTP- und Report-Einstellungen gespeichert');
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendNow = async () => {
+    if (sending) return;
+    setSending(true);
+    try {
+      const r = await api.sendReportNow();
+      onInfo(`Test-Report gesendet an ${r.to}`);
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <>
+      <Row title="SMTP-Server" desc="Host:Port — z.B. smtp.fastmail.com:587">
+        <input
+          className="input mono" style={{ width: 220 }}
+          value={smtp.host}
+          onChange={(e) => update('host', e.target.value)}
+          disabled={!isAdmin}
+          placeholder="smtp.example.com"
+        />
+        <input
+          className="input mono" style={{ width: 70, marginLeft: 6 }}
+          type="number"
+          value={smtp.port}
+          onChange={(e) => update('port', Number(e.target.value))}
+          disabled={!isAdmin}
+        />
+      </Row>
+      <Row title="SMTP-User">
+        <input
+          className="input mono" style={{ width: 260 }}
+          value={smtp.user}
+          onChange={(e) => update('user', e.target.value)}
+          disabled={!isAdmin}
+          placeholder="user@example.com"
+        />
+      </Row>
+      <Row
+        title="SMTP-Passwort"
+        desc={smtp.password_set ? 'Passwort gesetzt · neues eintragen zum Überschreiben.' : 'App-Password empfohlen.'}
+      >
+        <input
+          className="input mono" style={{ width: 260 }}
+          type="password" autoComplete="new-password"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          disabled={!isAdmin}
+          placeholder={smtp.password_set ? '••••••••' : ''}
+        />
+      </Row>
+      <Row title="STARTTLS">
+        <Switch checked={smtp.starttls} onChange={(v) => isAdmin && update('starttls', v)} ariaLabel="STARTTLS" />
+      </Row>
+      <Row title="From-Adresse" desc="Optional · fallback ist SMTP-User.">
+        <input
+          className="input mono" style={{ width: 260 }}
+          value={smtp.from_addr}
+          onChange={(e) => update('from_addr', e.target.value)}
+          disabled={!isAdmin}
+        />
+      </Row>
+      <Row title="Empfänger (Report)" desc="Ein oder mehrere E-Mail-Adressen (Komma-getrennt).">
+        <input
+          className="input mono" style={{ width: 260 }}
+          value={report.to}
+          onChange={(e) => updateReport('to', e.target.value)}
+          disabled={!isAdmin}
+          placeholder="admin@example.com"
+        />
+      </Row>
+      <Row
+        title="Wochenreport"
+        desc={report.last_sent_week ? `Zuletzt versendet: KW ${report.last_sent_week}` : 'Montags automatisch versenden.'}
+      >
+        <Switch
+          checked={report.enabled}
+          onChange={(v) => isAdmin && updateReport('enabled', v)}
+          ariaLabel="Wochenreport aktivieren"
+        />
+      </Row>
+      {report.enabled && (
+        <Row title="Trigger-Uhrzeit" desc="Montag · UTC.">
+          <select
+            className="input" style={{ width: 100 }}
+            value={report.hour}
+            onChange={(e) => updateReport('hour', Number(e.target.value))}
+            disabled={!isAdmin}
+            aria-label="Wochenreport-Stunde"
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>{String(h).padStart(2, '0')}:00 UTC</option>
+            ))}
+          </select>
+        </Row>
+      )}
+      {isAdmin && (
+        <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            className="btn sm"
+            type="button"
+            onClick={sendNow}
+            disabled={!smtp.host || !report.to || sending}
+            title={!smtp.host || !report.to ? 'Zuerst SMTP + Empfänger speichern' : 'Test-Report jetzt senden'}
+          >
+            {sending ? 'Sende…' : 'Test-Report'}
+          </button>
+          <button className="btn primary sm" type="button" onClick={save} disabled={busy}>
+            {busy ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

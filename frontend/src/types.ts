@@ -292,6 +292,22 @@ export interface NtfyConfig {
   token_set: boolean;
 }
 
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  password_set: boolean;
+  starttls: boolean;
+  from_addr: string;
+}
+
+export interface ReportConfig {
+  enabled: boolean;
+  hour: number;
+  to: string;
+  last_sent_week: string | null;
+}
+
 export interface TotpStatus {
   enabled: boolean;
   pending: boolean;

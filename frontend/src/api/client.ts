@@ -16,6 +16,8 @@ import type {
   HostHistory,
   InstanceInfo,
   NtfyConfig,
+  ReportConfig,
+  SmtpConfig,
   TotpSetup,
   TotpStatus,
   TotpVerifyResult,
@@ -157,6 +159,18 @@ export const api = {
     send<{ ok: boolean }>('PUT', '/api/notifications/ntfy', body),
   testNtfy: () =>
     post<{ ok: boolean; url: string }>('/api/notifications/ntfy/test', {}),
+
+  // --- SMTP + weekly report ---
+  getSmtp: (signal?: AbortSignal) =>
+    get<SmtpConfig>('/api/notifications/smtp', signal),
+  updateSmtp: (body: { host: string; port: number; user: string; password: string; starttls: boolean; from_addr: string }) =>
+    send<{ ok: boolean }>('PUT', '/api/notifications/smtp', body),
+  getReportConfig: (signal?: AbortSignal) =>
+    get<ReportConfig>('/api/notifications/report', signal),
+  updateReportConfig: (body: { enabled: boolean; hour: number; to: string }) =>
+    send<{ ok: boolean }>('PUT', '/api/notifications/report', body),
+  sendReportNow: () =>
+    post<{ ok: boolean; to: string; services_count: number }>('/api/notifications/report/send', {}),
 
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
   systemHistory: (hours = 48, signal?: AbortSignal) =>
