@@ -279,6 +279,12 @@ export interface InstanceInfo {
   time_format: '12h' | '24h';
 }
 
+export interface AutoAuditSettings {
+  enabled: boolean;
+  hour: number;
+  last_run_date?: string | null;
+}
+
 export interface HostMetricsSample {
   ts: number;
   cpu_pct: number;

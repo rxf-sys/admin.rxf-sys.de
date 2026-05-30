@@ -4,6 +4,7 @@ import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import structlog
 from fastapi import Depends, FastAPI
@@ -90,6 +91,50 @@ async def _gather_notify_snapshot() -> dict:
             for c in (certs_list[0] if isinstance(certs_list, tuple) else [])
         ],
     }
+
+
+async def _auto_audit_loop() -> None:
+    """Trigger the audit script once a day around ``audit_auto_hour`` (UTC).
+
+    Uses ``app_settings['auto_audit_last_run_date']`` as a date-stamp guard so
+    a restart inside the trigger window doesn't fire a second audit, and so
+    the loop's tick interval can stay coarse (5 min). The trigger fires for
+    the first matching tick after the hour rolls over; any later ticks on
+    the same UTC day are skipped because the date stamp already matches.
+    """
+    log_ = structlog.get_logger("auto_audit")
+    while True:
+        try:
+            await asyncio.sleep(300)  # check every 5 minutes
+            s = get_settings()
+            # DB-stored app_settings override the .env defaults so admins can
+            # flip the switch without redeploying.
+            enabled_str = await accounts.get_app_setting("audit_auto_enabled")
+            enabled = (enabled_str == "true") if enabled_str is not None else s.audit_auto_enabled
+            if not enabled:
+                continue
+            hour_str = await accounts.get_app_setting("audit_auto_hour")
+            target_hour = int(hour_str) if hour_str and hour_str.isdigit() else s.audit_auto_hour
+            target_hour = max(0, min(23, target_hour))
+            now = datetime.now(timezone.utc)
+            if now.hour != target_hour:
+                continue
+            today_stamp = now.strftime("%Y-%m-%d")
+            last = await accounts.get_app_setting("auto_audit_last_run_date")
+            if last == today_stamp:
+                continue
+            try:
+                job_id = await auditor.start_run(s, started_by="auto-audit")
+                await accounts.set_app_setting("auto_audit_last_run_date", today_stamp)
+                log_.info("auto_audit.triggered", job_id=job_id, date=today_stamp)
+            except auditor.AuditorBusy as e:
+                log_.info("auto_audit.skipped_busy", running_job=str(e))
+            except Exception as e:  # noqa: BLE001
+                log_.error("auto_audit.start_failed", error=str(e))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - never let the loop die
+            log_.error("auto_audit.loop_error", error=str(e), error_type=type(e).__name__)
 
 
 async def _history_cleanup_loop() -> None:
@@ -189,6 +234,7 @@ async def lifespan(app: FastAPI):
     cleanup_task: asyncio.Task | None = None
     metrics_task: asyncio.Task | None = None
     probe_task: asyncio.Task | None = None
+    auto_audit_task: asyncio.Task | None = None
 
     # Account auth is mandatory — its schema + first-admin bootstrap run
     # before anything else so the API is never up without a way to log in.
@@ -224,6 +270,11 @@ async def lifespan(app: FastAPI):
             )
         probe_task = asyncio.create_task(_service_probe_loop())
 
+    # Auto-audit loop runs unconditionally; it checks the audit_auto_enabled
+    # setting on every tick so an admin can flip the switch at runtime
+    # without bouncing the backend.
+    auto_audit_task = asyncio.create_task(_auto_audit_loop())
+
     if _settings.notify_webhook_url:
         center = NotificationCenter(settings=_settings)
         notify_task = asyncio.create_task(
@@ -237,7 +288,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        for task in (notify_task, cleanup_task, metrics_task, probe_task):
+        for task in (notify_task, cleanup_task, metrics_task, probe_task, auto_audit_task):
             if task is None:
                 continue
             task.cancel()

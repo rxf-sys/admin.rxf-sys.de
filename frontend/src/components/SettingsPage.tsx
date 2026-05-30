@@ -367,9 +367,7 @@ export function SettingsPage({
           <Row title="Login-Rate-Limit" desc="5 Fehlversuche / 5 min · pro IP.">
             <span className="mono dim" style={{ fontSize: 11 }}>aktiv</span>
           </Row>
-          <Row title="2FA" desc="Noch nicht implementiert.">
-            <span className="dimmer mono" style={{ fontSize: 11 }}>—</span>
-          </Row>
+          <AutoAuditRow isAdmin={isAdmin} onError={onError} />
         </div>
       </div>
 
@@ -426,6 +424,62 @@ export function SettingsPage({
         </div>
       </div>
     </section>
+  );
+}
+
+/** Auto-Audit row — toggle + hour picker. Loads its own state on mount. */
+function AutoAuditRow({ isAdmin, onError }: { isAdmin: boolean; onError: (msg: string) => void }) {
+  const [state, setState] = useState<{ enabled: boolean; hour: number; last?: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getAutoAudit()
+      .then((s) => setState({ enabled: s.enabled, hour: s.hour, last: s.last_run_date ?? null }))
+      .catch(() => { /* row stays blank */ });
+  }, []);
+
+  const save = async (next: { enabled: boolean; hour: number }) => {
+    if (!isAdmin || busy) return;
+    setBusy(true);
+    try {
+      await api.updateAutoAudit(next);
+      setState((cur) => cur ? { ...cur, ...next } : { ...next, last: null });
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!state) return <Row title="Auto-Audit"><span className="dim">Lade…</span></Row>;
+  return (
+    <>
+      <Row
+        title="Auto-Audit"
+        desc={state.last ? `Letzter Auto-Lauf: ${state.last}` : 'Täglich automatisch ausführen.'}
+      >
+        <Switch
+          checked={state.enabled}
+          onChange={(v) => isAdmin && save({ enabled: v, hour: state.hour })}
+          ariaLabel="Auto-Audit aktivieren"
+        />
+      </Row>
+      {state.enabled && (
+        <Row title="Trigger-Uhrzeit" desc="UTC. Loop prüft alle 5 min.">
+          <select
+            className="input" style={{ width: 100 }}
+            value={state.hour}
+            onChange={(e) => save({ enabled: true, hour: Number(e.target.value) })}
+            disabled={!isAdmin}
+            aria-label="Auto-Audit-Stunde"
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>{String(h).padStart(2, '0')}:00 UTC</option>
+            ))}
+          </select>
+        </Row>
+      )}
+    </>
   );
 }
 

@@ -3,6 +3,7 @@ import type {
   Account,
   AdminSession,
   AuditJobsList,
+  AutoAuditSettings,
   AuditRun,
   BackupHeatmap,
   BackupSchedule,
@@ -108,6 +109,12 @@ export const api = {
   getInstance: (signal?: AbortSignal) => get<InstanceInfo>('/api/instance', signal),
   updateInstance: (body: Partial<InstanceInfo>) =>
     send<InstanceInfo>('PUT', '/api/instance', body),
+
+  // --- Auto-audit settings ---
+  getAutoAudit: (signal?: AbortSignal) =>
+    get<AutoAuditSettings>('/api/audit/settings/auto', signal),
+  updateAutoAudit: (body: { enabled: boolean; hour: number }) =>
+    send<{ enabled: boolean; hour: number }>('PUT', '/api/audit/settings/auto', body),
 
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
   systemHistory: (hours = 48, signal?: AbortSignal) =>

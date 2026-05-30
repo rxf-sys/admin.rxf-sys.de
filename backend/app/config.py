@@ -154,6 +154,11 @@ class Settings(BaseSettings):
     audit_ssh_user: str = "root"
     # Optional explicit private-key path; leave empty to use the SSH default.
     audit_ssh_key_path: str = ""
+    # Auto-Audit: when enabled, the background scheduler triggers the audit
+    # script once per day at ``audit_auto_hour`` (UTC). Persists the last
+    # run timestamp in app_settings so a restart doesn't re-trigger.
+    audit_auto_enabled: bool = False
+    audit_auto_hour: int = 6  # 06:00 UTC by default — quiet hour for most
 
 
 @lru_cache(maxsize=1)
