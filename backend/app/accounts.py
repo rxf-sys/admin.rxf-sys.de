@@ -60,7 +60,22 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
 
 _db_path: str = ""
 
-ROLES = ("admin", "user")
+# Available account roles. ``user`` is the legacy default kept so existing
+# rows don't need migrating; new accounts default to ``viewer`` which is the
+# minimum-privilege role (read-only, no admin pages). The 'operator' role is
+# the middle ground — can trigger audits / service CRUD / acknowledge but
+# not manage other accounts. Admin-routes still require the strict 'admin'
+# role; the broader RBAC enforcement happens via ``role_in()`` below and the
+# require_role dependency in app/auth.py.
+ROLES = ("admin", "operator", "viewer", "user")
+ADMIN_ROLES = frozenset({"admin"})
+WRITE_ROLES = frozenset({"admin", "operator"})
+
+
+def role_in(role: str, allowed: frozenset[str]) -> bool:
+    """Strict membership check. Lives here (not in auth.py) so route modules
+    can use it for in-handler permission checks without importing FastAPI."""
+    return role in allowed
 # Argon2 hashes are long; this caps the field defensively. The plaintext
 # limit is enforced separately in the auth router.
 MAX_SETTINGS_BYTES = 32_768

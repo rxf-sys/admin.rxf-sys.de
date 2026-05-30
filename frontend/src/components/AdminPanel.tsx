@@ -158,8 +158,10 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
                           onChange={(e) => updateUser(u.id, { role: e.target.value as Role })}
                           aria-label={`Rolle von ${u.username}`}
                         >
-                          <option value="user">user</option>
                           <option value="admin">admin</option>
+                          <option value="operator">operator</option>
+                          <option value="viewer">viewer</option>
+                          <option value="user">user (legacy)</option>
                         </select>
                       </td>
                       <td>
@@ -205,6 +207,15 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
               </tbody>
             </table>
           )}
+        </div>
+      </div>
+
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Rollen</h3>
+      </div>
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-12">
+          <RolesTable users={users ?? []} />
         </div>
       </div>
 
@@ -275,6 +286,33 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
         />
       )}
     </section>
+  );
+}
+
+/** Compact roles overview — one row per role with its description + member count. */
+function RolesTable({ users }: { users: Account[] }) {
+  const rolesInfo: { role: Role; label: string; desc: string }[] = [
+    { role: 'admin',    label: 'Administrator', desc: 'Vollzugriff auf alle Ressourcen, Konten- und Audit-Verwaltung.' },
+    { role: 'operator', label: 'Operator',      desc: 'Service-CRUD, Audit ausführen, Sessions verwalten. Keine Konten-Verwaltung.' },
+    { role: 'viewer',   label: 'Viewer',        desc: 'Nur Lesen — alle Tabs sichtbar, keine schreibenden Aktionen.' },
+    { role: 'user',     label: 'User (legacy)', desc: 'Alter Bestandswert vor Rollen-Refactor. Behandelt wie viewer.' },
+  ];
+  const counts = users.reduce<Record<string, number>>((acc, u) => {
+    acc[u.role] = (acc[u.role] ?? 0) + 1;
+    return acc;
+  }, {});
+  return (
+    <div className="roles-list">
+      {rolesInfo.map((r) => (
+        <div key={r.role} className="role-row">
+          <span className={`role-pill ${r.role === 'admin' ? 'admin' : 'user'}`}>
+            {r.label}
+          </span>
+          <div className="role-desc dim">{r.desc}</div>
+          <span className="mono dim role-count">{counts[r.role] ?? 0} Nutzer</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -361,7 +399,7 @@ function CreateUserForm({
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role>('user');
+  const [role, setRole] = useState<Role>('viewer');
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -409,8 +447,9 @@ function CreateUserForm({
         <label className="login-field" style={{ flex: '0 0 120px' }}>
           <span>Rolle</span>
           <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-            <option value="user">user</option>
             <option value="admin">admin</option>
+            <option value="operator">operator</option>
+            <option value="viewer">viewer</option>
           </select>
         </label>
         <button className="btn primary" type="submit" disabled={busy} style={{ height: 38 }}>

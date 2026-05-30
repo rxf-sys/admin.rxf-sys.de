@@ -185,7 +185,7 @@ export interface CertsSnapshot {
   error: string | null;
 }
 
-export type Role = 'admin' | 'user';
+export type Role = 'admin' | 'operator' | 'viewer' | 'user';
 
 export interface Account {
   id: number;

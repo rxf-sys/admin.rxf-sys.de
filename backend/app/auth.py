@@ -58,3 +58,21 @@ async def require_admin(user: dict[str, Any] = Depends(verify_session)) -> dict[
             detail="admin privileges required",
         )
     return user
+
+
+def require_role(*allowed_roles: str):
+    """Dependency factory: returns a verify_session-like dep that also asserts
+    the user's role is in ``allowed_roles``. Use for endpoints that should be
+    open to operators but not viewers (e.g. audit run, service CRUD).
+    """
+    allowed = frozenset(allowed_roles)
+
+    async def _dep(user: dict[str, Any] = Depends(verify_session)) -> dict[str, Any]:
+        if user.get("role") not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"requires one of: {', '.join(sorted(allowed))}",
+            )
+        return user
+
+    return _dep
