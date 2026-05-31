@@ -13,7 +13,12 @@ log = structlog.get_logger("cloudflare")
 CF_API = "https://api.cloudflare.com/client/v4"
 
 # Subdomains expected to CNAME to <tunnel_id>.cfargotunnel.com.
-EXPECTED_TUNNEL_SUBS = ["vault", "cloud", "photos", "docs", "media", "ha", "monitor", "pbs"]
+# Note: this list used to drive the DNS-consistency check (Cloudflare must
+# have a CNAME for each of these hostnames). It is no longer consulted —
+# fetch_dns_consistency now returns *every* record in the zone. Kept here
+# for reference; can be deleted once the registry is the canonical source
+# of "expected hostnames".
+_DEPRECATED_EXPECTED_TUNNEL_SUBS = ["vault", "cloud", "photos", "docs", "media", "ha", "monitor", "pbs"]
 
 
 def _auth(settings: Settings) -> dict[str, str]:
@@ -365,9 +370,15 @@ async def fetch_access_sessions(settings: Settings, hours: int = 24, limit: int 
 
 
 async def fetch_dns_consistency(settings: Settings) -> list[DNSRecordCheck]:
-    if not (settings.cf_api_token and settings.cf_zone_id and settings.cf_tunnel_id):
+    """Pull *every* DNS record from the configured zone — no expected-list
+    filter, no synthetic 'missing' entries.
+
+    The ``ok`` flag still reflects a tunnel-consistency check for CNAMEs
+    pointing at ``cfargotunnel.com`` (must point at our configured tunnel
+    id when we have one), but everything else (A, AAAA, MX, TXT, …) just
+    reports ok=True so the UI can render the row neutrally."""
+    if not (settings.cf_api_token and settings.cf_zone_id):
         return []
-    expected = f"{settings.cf_tunnel_id}.cfargotunnel.com"
     async with httpx.AsyncClient(timeout=8.0) as client:
         try:
             records = await _get_paginated(
@@ -376,22 +387,31 @@ async def fetch_dns_consistency(settings: Settings) -> list[DNSRecordCheck]:
         except httpx.HTTPError as e:
             log.warning("cloudflare.dns_failed", zone=settings.cf_zone_id, error=str(e))
             return []
-    by_name: dict[str, dict] = {}
+    expected_tunnel = (
+        f"{settings.cf_tunnel_id}.cfargotunnel.com"
+        if settings.cf_tunnel_id else ""
+    )
+    out: list[DNSRecordCheck] = []
     for rec in records:
         name = rec.get("name", "")
-        by_name[name] = rec
-    out: list[DNSRecordCheck] = []
-    for sub in EXPECTED_TUNNEL_SUBS:
-        fqdn = f"{sub}.{settings.cf_zone_name}"
-        rec = by_name.get(fqdn)
-        if rec is None:
-            out.append(DNSRecordCheck(name=fqdn, type="—", content="missing", expected=expected, ok=False))
-            continue
-        content = rec.get("content", "")
-        ok = rec.get("type") == "CNAME" and content.endswith("cfargotunnel.com")
+        rtype = rec.get("type", "?")
+        content = str(rec.get("content", ""))
+        if rtype == "CNAME" and content.endswith("cfargotunnel.com"):
+            # Tunnel CNAME — must hit our tunnel id (mis-pointed CNAMEs
+            # silently break the dashboard, so this is the one consistency
+            # check worth surfacing).
+            ok = not expected_tunnel or content == expected_tunnel
+        else:
+            ok = True
         out.append(
             DNSRecordCheck(
-                name=fqdn, type=rec.get("type", "?"), content=content, expected=expected, ok=ok
+                name=name, type=rtype, content=content,
+                expected=expected_tunnel, ok=ok,
             )
         )
+    # Stable order: tunnel-CNAMEs first (by zone alpha), then everything else.
+    out.sort(key=lambda r: (
+        0 if r.content.endswith("cfargotunnel.com") else 1,
+        r.name,
+    ))
     return out
