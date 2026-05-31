@@ -243,7 +243,7 @@ function RequestsCard({
           </div>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11 }}>
             <span className="mono dim">Cache-Hit {analytics.cache_hit_pct == null ? '—' : `${analytics.cache_hit_pct.toFixed(1)}%`}</span>
-            <span className="mono dim">{analytics.threats_total} {analytics.threats_total === 1 ? 'Threat' : 'Threats'}</span>
+            <span className="mono dim">Bandbreite {(analytics.bandwidth_b / 1024 ** 2).toFixed(1)} MB</span>
             <span className="mono dim">Edge: {edgePops ?? '?'} PoPs</span>
             <span className="mono dim" style={{ marginLeft: 'auto' }}>{analytics.requests_total.toLocaleString('de-DE')} req · 60 min</span>
           </div>

@@ -127,25 +127,36 @@ async def test_zone_analytics_no_token_returns_empty(settings):
 @pytest.mark.asyncio
 @respx.mock
 async def test_zone_analytics_aggregates_totals(settings):
-    respx.get(
-        f"{CF}/zones/{settings.cf_zone_id}/analytics/dashboard"
-    ).mock(return_value=httpx.Response(
+    """GraphQL httpRequestsAdaptiveGroups returns one row per minute per
+    cacheStatus; the helper folds them into totals + cache-hit %."""
+    respx.post(f"{CF}/graphql").mock(return_value=httpx.Response(
         200,
         json={
-            "success": True,
-            "errors": [],
-            "messages": [],
-            "result": {
-                "totals": {
-                    "requests": {"all": 1200, "cached": 900},
-                    "bandwidth": {"all": 5_000_000},
-                    "threats": {"all": 4},
-                },
-                "timeseries": [
-                    {"since": "t0", "requests": {"all": 20, "cached": 15}},
-                    {"since": "t1", "requests": {"all": 40, "cached": 30}},
-                ],
-            },
+            "data": {
+                "viewer": {
+                    "zones": [
+                        {
+                            "httpRequestsAdaptiveGroups": [
+                                {
+                                    "count": 600,
+                                    "sum": {"edgeResponseBytes": 3_000_000},
+                                    "dimensions": {"datetimeMinute": "2026-05-30T10:00:00Z", "cacheStatus": "hit"},
+                                },
+                                {
+                                    "count": 200,
+                                    "sum": {"edgeResponseBytes": 1_500_000},
+                                    "dimensions": {"datetimeMinute": "2026-05-30T10:00:00Z", "cacheStatus": "miss"},
+                                },
+                                {
+                                    "count": 400,
+                                    "sum": {"edgeResponseBytes": 500_000},
+                                    "dimensions": {"datetimeMinute": "2026-05-30T10:01:00Z", "cacheStatus": "hit"},
+                                },
+                            ]
+                        }
+                    ]
+                }
+            }
         },
     ))
 
@@ -153,19 +164,32 @@ async def test_zone_analytics_aggregates_totals(settings):
     assert a["reachable"] is True
     assert a["requests_total"] == 1200
     assert a["requests_per_min"] == 20.0
-    assert a["cache_hit_pct"] == 75.0
-    assert a["threats_total"] == 4
+    # 1000 of 1200 are cached (hit) → 83.3%
+    assert a["cache_hit_pct"] == 83.3
     assert a["bandwidth_b"] == 5_000_000
+    # Two minute buckets, one with 800 (hit+miss collapsed), one with 400.
     assert len(a["series"]) == 2
-    assert a["series"][1]["all"] == 40
+    assert a["series"][0]["all"] == 800
+    assert a["series"][1]["all"] == 400
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_zone_analytics_graphql_error_surfaces(settings):
+    respx.post(f"{CF}/graphql").mock(return_value=httpx.Response(
+        200,
+        json={"data": None, "errors": [{"message": "zone not found"}]},
+    ))
+
+    a = await cloudflare.fetch_zone_analytics(settings, minutes=60)
+    assert a["reachable"] is False
+    assert "zone not found" in (a["error"] or "")
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_zone_analytics_http_error_surfaces_as_unreachable(settings):
-    respx.get(
-        f"{CF}/zones/{settings.cf_zone_id}/analytics/dashboard"
-    ).mock(side_effect=httpx.ConnectError("no route"))
+    respx.post(f"{CF}/graphql").mock(side_effect=httpx.ConnectError("no route"))
 
     a = await cloudflare.fetch_zone_analytics(settings, minutes=60)
     assert a["reachable"] is False

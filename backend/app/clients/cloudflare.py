@@ -206,95 +206,129 @@ async def fetch_certs(settings: Settings) -> tuple[list[CertInfo], str | None]:
     return sorted(dedup.values(), key=lambda c: c.days_left), None
 
 
+CACHED_STATES = {"hit", "stale", "revalidated", "updating"}
+
+
+def _empty_analytics(minutes: int, reachable: bool, error: str | None) -> dict:
+    return {
+        "reachable": reachable,
+        "error": error,
+        "minutes": minutes,
+        "requests_total": 0,
+        "requests_per_min": 0.0,
+        "cache_hit_pct": None,
+        "threats_total": 0,
+        "bandwidth_b": 0,
+        "series": [],
+    }
+
+
 async def fetch_zone_analytics(settings: Settings, minutes: int = 60) -> dict:
-    """Pull a zone's request/cache/threat counters for the last ``minutes``.
+    """Pull request + cache counters for the zone via the GraphQL Analytics
+    API (``httpRequestsAdaptiveGroups``). Works on Free Plan; the legacy
+    REST ``/zones/{id}/analytics/dashboard`` endpoint was retired for
+    Free/lower-tier zones around 2023.
 
-    Uses the legacy ``/zones/{zone_id}/analytics/dashboard`` endpoint which is
-    still available to Free + Pro plans and serves minute-bucketed data when
-    ``since`` is negative. We return a flattened view that matches what the
-    dashboard's 'Requests'-Card needs (req/min average, cache-hit %, total
-    threats, sparkline series).
+    The query asks for minute-bucketed groups split by cacheStatus over the
+    last N minutes (capped at 1440 = 24h). We aggregate locally to derive
+    requests/min average + cache-hit %, and emit one timeseries point per
+    minute for the sparkline.
 
-    Token scopes required: ``Zone -> Analytics: Read``. Missing token or
-    missing zone id surfaces as ``reachable=false`` rather than an exception,
-    so the UI can render the empty-state without flaring an error toast.
-    """
+    Token scope required: ``Zone -> Analytics: Read``. Threats are not
+    queried — ``firewallEventsAdaptive`` is gated on Pro+ in practice and
+    Free returns mostly empty results."""
     if not (settings.cf_api_token and settings.cf_zone_id):
-        return {
-            "reachable": False,
-            "error": "CF_API_TOKEN oder CF_ZONE_ID nicht gesetzt",
-            "minutes": minutes,
-            "requests_total": 0,
-            "requests_per_min": 0.0,
-            "cache_hit_pct": None,
-            "threats_total": 0,
-            "bandwidth_b": 0,
-            "series": [],
-        }
-    path = (
-        f"/zones/{settings.cf_zone_id}/analytics/dashboard"
-        f"?since=-{max(1, min(minutes, 1440))}&until=0&continuous=true"
+        return _empty_analytics(minutes, False, "CF_API_TOKEN oder CF_ZONE_ID nicht gesetzt")
+
+    window_min = max(1, min(minutes, 1440))
+    end_dt = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    start_dt = end_dt - timedelta(minutes=window_min)
+    # GraphQL needs an ISO-8601 UTC string, second precision.
+    iso = "%Y-%m-%dT%H:%M:%SZ"
+    query = (
+        "query($zone: String!, $start: Time!, $end: Time!) {"
+        "  viewer { zones(filter: {zoneTag: $zone}) {"
+        "    httpRequestsAdaptiveGroups("
+        "      limit: 5000,"
+        "      filter: {datetime_geq: $start, datetime_lt: $end},"
+        "      orderBy: [datetimeMinute_ASC]"
+        "    ) {"
+        "      count"
+        "      sum { edgeResponseBytes }"
+        "      dimensions { datetimeMinute cacheStatus }"
+        "    }"
+        "  } }"
+        "}"
     )
-    async with httpx.AsyncClient(verify=True, timeout=10.0) as client:
+    payload = {
+        "query": query,
+        "variables": {
+            "zone": settings.cf_zone_id,
+            "start": start_dt.strftime(iso),
+            "end": end_dt.strftime(iso),
+        },
+    }
+    async with httpx.AsyncClient(verify=True, timeout=12.0) as client:
         try:
-            result = await _get(client, settings, path)
+            r = await client.post(
+                f"{CF_API}/graphql", headers=_auth(settings), json=payload
+            )
+            r.raise_for_status()
+            body = r.json()
         except httpx.HTTPError as e:
-            # Free + Pro plans for older zones return 404 on this legacy
-            # endpoint — Cloudflare retired it for low-tier zones years ago.
-            # Surface a short, actionable message instead of the raw httpx
-            # error URL, which is too long to render in the card.
             msg = str(e)
-            short = msg
-            if "404" in msg or "Not Found" in msg:
-                short = "Analytics-Dashboard-API für diese Zone nicht verfügbar (Free Plan?)."
-            elif "403" in msg or "Forbidden" in msg:
+            short = msg if len(msg) <= 140 else msg[:140] + "…"
+            if "403" in msg or "Forbidden" in msg:
                 short = "Token-Scope unzureichend — 'Zone · Analytics: Read' fehlt."
-            elif len(msg) > 140:
-                short = msg[:140] + "…"
-            return {
-                "reachable": False,
-                "error": short,
-                "minutes": minutes,
-                "requests_total": 0,
-                "requests_per_min": 0.0,
-                "cache_hit_pct": None,
-                "threats_total": 0,
-                "bandwidth_b": 0,
-                "series": [],
-            }
-    if not isinstance(result, dict):
-        result = {}
-    totals = result.get("totals") or {}
-    req = totals.get("requests") or {}
-    bw = totals.get("bandwidth") or {}
-    th = totals.get("threats") or {}
-    requests_all = int(req.get("all", 0) or 0)
-    requests_cached = int(req.get("cached", 0) or 0)
-    cache_hit_pct = (
-        round(requests_cached / requests_all * 100, 1) if requests_all > 0 else None
-    )
-    timeseries = result.get("timeseries") or []
-    series = []
-    for bucket in timeseries:
-        if not isinstance(bucket, dict):
+            return _empty_analytics(window_min, False, short)
+        except ValueError as e:
+            return _empty_analytics(window_min, False, f"GraphQL-Antwort unparsbar: {e}")
+
+    # GraphQL errors land in body["errors"], not as HTTP non-2xx.
+    if isinstance(body.get("errors"), list) and body["errors"]:
+        msg = str(body["errors"][0].get("message", "GraphQL-Fehler"))
+        return _empty_analytics(window_min, False, msg[:140])
+
+    try:
+        groups = body["data"]["viewer"]["zones"][0]["httpRequestsAdaptiveGroups"]
+    except (KeyError, IndexError, TypeError):
+        return _empty_analytics(window_min, True, None)
+
+    requests_total = 0
+    cached_total = 0
+    bytes_total = 0
+    per_minute: dict[str, int] = {}
+    for g in groups:
+        if not isinstance(g, dict):
             continue
-        r = bucket.get("requests") or {}
-        series.append(
-            {
-                "since": bucket.get("since"),
-                "all": int(r.get("all", 0) or 0),
-                "cached": int(r.get("cached", 0) or 0),
-            }
-        )
+        count = int(g.get("count", 0) or 0)
+        dims = g.get("dimensions") or {}
+        cache_state = (dims.get("cacheStatus") or "").lower()
+        minute = dims.get("datetimeMinute")
+        bw = (g.get("sum") or {}).get("edgeResponseBytes", 0) or 0
+        requests_total += count
+        bytes_total += int(bw)
+        if cache_state in CACHED_STATES:
+            cached_total += count
+        if minute:
+            per_minute[minute] = per_minute.get(minute, 0) + count
+
+    series = [
+        {"since": ts, "all": v, "cached": 0}
+        for ts, v in sorted(per_minute.items())
+    ]
+    cache_hit_pct = (
+        round(cached_total / requests_total * 100, 1) if requests_total > 0 else None
+    )
     return {
         "reachable": True,
         "error": None,
-        "minutes": minutes,
-        "requests_total": requests_all,
-        "requests_per_min": round(requests_all / max(1, minutes), 1),
+        "minutes": window_min,
+        "requests_total": requests_total,
+        "requests_per_min": round(requests_total / max(1, window_min), 1),
         "cache_hit_pct": cache_hit_pct,
-        "threats_total": int(th.get("all", 0) or 0),
-        "bandwidth_b": int(bw.get("all", 0) or 0),
+        "threats_total": 0,  # WAF on Free is mostly empty; omit from header
+        "bandwidth_b": bytes_total,
         "series": series,
     }
 
