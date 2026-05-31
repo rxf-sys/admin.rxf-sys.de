@@ -42,8 +42,14 @@ export function HostPanel({ host, guests, cpuTrend, diskTrend }: Props) {
   const diskPct = host.disk_total_b > 0 ? (host.disk_used_b / host.disk_total_b) * 100 : 0;
   const status = host.online ? 'ok' : 'err';
   const segments = ramByGuest(guests);
-  const cpuData = cpuTrend && cpuTrend.length > 0 ? cpuTrend : Array.from({ length: 48 }, () => host.cpu_pct);
-  const diskData = diskTrend && diskTrend.length > 0 ? diskTrend : Array.from({ length: 48 }, (_, i) => diskPct - (47 - i) * 0.01);
+  // host_metrics samples every minute, so the chart needs at least ~3 real
+  // samples before its shape is meaningful. Below that, show the current
+  // value as a single bar instead of a faked flat line — easier to read as
+  // "history collecting" than as a wall of identical bars.
+  const hasRealCpuHistory = (cpuTrend?.length ?? 0) >= 3;
+  const hasRealDiskHistory = (diskTrend?.length ?? 0) >= 3;
+  const cpuData = hasRealCpuHistory ? (cpuTrend as number[]) : [host.cpu_pct];
+  const diskData = hasRealDiskHistory ? (diskTrend as number[]) : [diskPct];
   const cpuMax = Math.max(...cpuData);
   const cpuAvg = cpuData.reduce((a, b) => a + b, 0) / cpuData.length;
   const disksLabel = host.disks.length === 0
@@ -71,12 +77,19 @@ export function HostPanel({ host, guests, cpuTrend, diskTrend }: Props) {
       </header>
 
       <div className="host-metric">
-        <div className="host-metric-head"><span>CPU</span><span className="mono dimmer">last 48h</span></div>
+        <div className="host-metric-head">
+          <span>CPU</span>
+          <span className="mono dimmer">{hasRealCpuHistory ? 'last 48h' : 'sammle Daten…'}</span>
+        </div>
         <div className="host-metric-value">
           {host.cpu_pct.toFixed(1)}<span className="pct">%</span>
           <span className="unit-sm">· {host.cpu_cores} cores</span>
         </div>
-        <span className="host-metric-sub">avg {Math.round(cpuAvg)}% · peak {Math.round(cpuMax)}%</span>
+        <span className="host-metric-sub">
+          {hasRealCpuHistory
+            ? `avg ${Math.round(cpuAvg)}% · peak ${Math.round(cpuMax)}%`
+            : `${(cpuTrend?.length ?? 0)}/3 Samples · 1/min`}
+        </span>
         <TrendBars data={cpuData} color="var(--accent)" threshold={cpuMax * 0.85} />
       </div>
 
@@ -100,7 +113,10 @@ export function HostPanel({ host, guests, cpuTrend, diskTrend }: Props) {
       </div>
 
       <div className="host-metric">
-        <div className="host-metric-head"><span>Disk · rpool</span><span className="mono dimmer">usage</span></div>
+        <div className="host-metric-head">
+          <span>Disk · rpool</span>
+          <span className="mono dimmer">{hasRealDiskHistory ? 'usage' : 'sammle Daten…'}</span>
+        </div>
         <div className="host-metric-value">
           {(host.disk_used_b / 1024 ** 3).toFixed(1)}<span className="unit-sm">/ {(host.disk_total_b / 1024 ** 3).toFixed(1)} GB</span>
           <span className="pct">· {Math.round(diskPct)}%</span>

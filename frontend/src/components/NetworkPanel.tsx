@@ -25,7 +25,14 @@ export function NetworkPanel({ network, tunnel, pollMs }: Props) {
     network?.link_down_mbit && network?.link_up_mbit
       ? `${Math.round(network.link_down_mbit)} / ${Math.round(network.link_up_mbit)}`
       : null;
-  const gatewayIp = devices.find((d) => d.is_gateway)?.ip ?? null;
+  // UniFi's Integration API reports the gateway device's `ipAddress` as
+  // the WAN-side IP on UCG/UDM — that's the public address, not the LAN
+  // gateway. Suppress it when it matches publicIp so we don't relabel
+  // the WAN as 'Gateway'; the row falls back to '—' until the
+  // controller starts exposing the LAN side (or we wire up a
+  // gateway_lan_ip field in the snapshot).
+  const rawGatewayIp = devices.find((d) => d.is_gateway)?.ip ?? null;
+  const gatewayIp = rawGatewayIp && rawGatewayIp !== publicIp ? rawGatewayIp : null;
 
   if (errored) {
     return (
