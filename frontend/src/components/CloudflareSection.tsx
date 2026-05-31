@@ -20,14 +20,20 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
   const analytics = usePoll((sig) => api.cfAnalytics(60, sig), pollMs).data;
 
   const dnsStatuses = useMemo(() => {
+    // Tunnel records get the matching service's live status; everything else
+    // (MX / TXT / non-proxied A) gets an idle dot — those rows are
+    // informational, not actively probed.
     const byHost = new Map<string, ServiceStatus>();
     services.forEach((s) => byHost.set(s.sub, s));
     return (certs?.dns ?? []).map((r) => {
+      const isTunnel = r.content.endsWith('cfargotunnel.com');
       const svc = byHost.get(r.name);
-      let status: 'ok' | 'warn' | 'err' = 'ok';
+      let status: 'ok' | 'warn' | 'err' | 'idle';
       if (!r.ok) status = 'err';
-      else if (svc) status = svc.status === 'idle' ? 'ok' : svc.status;
-      return { ...r, status, svc };
+      else if (isTunnel && svc) status = svc.status === 'idle' ? 'ok' : svc.status;
+      else if (isTunnel) status = 'ok';
+      else status = 'idle';
+      return { ...r, status, svc, isTunnel };
     });
   }, [certs, services]);
 
@@ -129,7 +135,7 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
         {/* DNS records */}
         <div className="card col-6">
           <div className="card-h">
-            <h3>DNS Records <span className="h3-sub">· {dnsStatuses.length} hostnames</span></h3>
+            <h3>DNS Records <span className="h3-sub">· {dnsStatuses.length} Einträge</span></h3>
             <a
               className="btn sm"
               href="https://dash.cloudflare.com/"
@@ -142,16 +148,19 @@ export function CloudflareSection({ tunnel, certs, services, zoneName, onSelectS
           </div>
           {dnsStatuses.length === 0 ? (
             <div className="dim mono" style={{ fontSize: 11 }}>
-              Keine DNS-Records — Tunnel-ID konfigurieren.
+              Keine DNS-Records in der Zone — CF_ZONE_ID prüfen.
             </div>
           ) : (
             <div className="dns-list">
               {dnsStatuses.map((r) => {
                 const clickable = !!(onSelectService && r.svc);
                 const onRowClick = clickable ? () => onSelectService!(r.svc!.id) : undefined;
+                // Unique key — a zone can have multiple records sharing a name
+                // (TXT, MX, SPF, …); name alone would collide in React.
+                const rowKey = `${r.name}|${r.type}|${r.content}`;
                 return (
                   <div
-                    key={r.name}
+                    key={rowKey}
                     className="dns-row"
                     onClick={onRowClick}
                     role={onRowClick ? 'button' : undefined}
@@ -234,7 +243,7 @@ function RequestsCard({
           </div>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11 }}>
             <span className="mono dim">Cache-Hit {analytics.cache_hit_pct == null ? '—' : `${analytics.cache_hit_pct.toFixed(1)}%`}</span>
-            <span className="mono dim">{analytics.threats_total} {analytics.threats_total === 1 ? 'Threat' : 'Threats'}</span>
+            <span className="mono dim">Bandbreite {(analytics.bandwidth_b / 1024 ** 2).toFixed(1)} MB</span>
             <span className="mono dim">Edge: {edgePops ?? '?'} PoPs</span>
             <span className="mono dim" style={{ marginLeft: 'auto' }}>{analytics.requests_total.toLocaleString('de-DE')} req · 60 min</span>
           </div>
