@@ -13,6 +13,8 @@ dependencies = [
     "aiosqlite>=0.20",
     "argon2-cffi>=23.1",
     "structlog>=24.4",
+    "pyotp>=2.9",        # TOTP for 2FA
+    "qrcode>=7.4",       # provisioning URI → SVG, embedded in setup response
 ]
 
 [project.optional-dependencies]
@@ -40,4 +42,13 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+# main.py is the ASGI entry point + background-loop wiring — exercised in
+# integration but not unit-testable without spinning up the lifespan, which
+# the test suite intentionally avoids. Exclude it from the gate so the gate
+# tracks the parts the suite actually covers.
+omit = [
+    "app/main.py",
 ]

@@ -2,7 +2,10 @@ import type {
   AccessSessions,
   Account,
   AdminSession,
+  ApiToken,
   AuditJobsList,
+  AutoAuditSettings,
+  CreatedApiToken,
   AuditRun,
   BackupHeatmap,
   BackupSchedule,
@@ -10,6 +13,14 @@ import type {
   BackupSummary,
   CertsSnapshot,
   CloudflareAnalytics,
+  HostHistory,
+  InstanceInfo,
+  NtfyConfig,
+  ReportConfig,
+  SmtpConfig,
+  TotpSetup,
+  TotpStatus,
+  TotpVerifyResult,
   GuestBackups,
   GuestHistory,
   GuestTask,
@@ -74,8 +85,14 @@ export const api = {
 
   // --- Authentication ---
   authMe: (signal?: AbortSignal) => get<{ user: Account }>('/api/auth/me', signal),
-  login: (username: string, password: string) =>
-    post<{ user: Account }>('/api/auth/login', { username, password }),
+  /** Login. Returns ``{user}`` on success. When the account has 2FA enabled
+   * and no ``totp_code`` was sent, returns ``{totp_required: true, username}``
+   * — caller must prompt for the code and re-call with totp_code set. */
+  login: (username: string, password: string, totp_code?: string) =>
+    post<{ user?: Account; totp_required?: boolean; username?: string }>(
+      '/api/auth/login',
+      { username, password, ...(totp_code ? { totp_code } : {}) },
+    ),
   logout: () => post<{ ok: boolean }>('/api/auth/logout'),
 
   // --- Own account ---
@@ -101,8 +118,63 @@ export const api = {
     get<{ sessions: AdminSession[] }>('/api/admin/sessions', signal),
   adminRevokeSession: (token_prefix: string) =>
     send<{ revoked: number }>('DELETE', `/api/admin/sessions/${encodeURIComponent(token_prefix)}`),
+  adminListTokens: (signal?: AbortSignal) =>
+    get<{ tokens: ApiToken[] }>('/api/admin/tokens', signal),
+  adminDeleteToken: (id: number) =>
+    send<{ ok: boolean }>('DELETE', `/api/admin/tokens/${id}`),
+
+  // --- Per-user API tokens ---
+  listMyTokens: (signal?: AbortSignal) =>
+    get<{ tokens: ApiToken[] }>('/api/account/tokens', signal),
+  createMyToken: (body: { name: string; scope: 'read' | 'write' | 'admin'; ttl_days?: number | null }) =>
+    post<CreatedApiToken>('/api/account/tokens', body),
+  deleteMyToken: (id: number) =>
+    send<{ ok: boolean }>('DELETE', `/api/account/tokens/${id}`),
+
+  // --- 2FA (TOTP) ---
+  get2faStatus: (signal?: AbortSignal) =>
+    get<TotpStatus>('/api/account/2fa', signal),
+  begin2faSetup: () =>
+    post<TotpSetup>('/api/account/2fa/setup', {}),
+  verify2faSetup: (code: string) =>
+    post<TotpVerifyResult>('/api/account/2fa/verify', { code }),
+  disable2fa: (password: string) =>
+    send<{ enabled: boolean }>('DELETE', '/api/account/2fa', { password }),
+
+  // --- Instance: runtime-editable branding / locale knobs ---
+  getInstance: (signal?: AbortSignal) => get<InstanceInfo>('/api/instance', signal),
+  updateInstance: (body: Partial<InstanceInfo>) =>
+    send<InstanceInfo>('PUT', '/api/instance', body),
+
+  // --- Auto-audit settings ---
+  getAutoAudit: (signal?: AbortSignal) =>
+    get<AutoAuditSettings>('/api/audit/settings/auto', signal),
+  updateAutoAudit: (body: { enabled: boolean; hour: number }) =>
+    send<{ enabled: boolean; hour: number }>('PUT', '/api/audit/settings/auto', body),
+
+  // --- ntfy push config ---
+  getNtfy: (signal?: AbortSignal) =>
+    get<NtfyConfig>('/api/notifications/ntfy', signal),
+  updateNtfy: (body: { base: string; topic: string; token: string }) =>
+    send<{ ok: boolean }>('PUT', '/api/notifications/ntfy', body),
+  testNtfy: () =>
+    post<{ ok: boolean; url: string }>('/api/notifications/ntfy/test', {}),
+
+  // --- SMTP + weekly report ---
+  getSmtp: (signal?: AbortSignal) =>
+    get<SmtpConfig>('/api/notifications/smtp', signal),
+  updateSmtp: (body: { host: string; port: number; user: string; password: string; starttls: boolean; from_addr: string }) =>
+    send<{ ok: boolean }>('PUT', '/api/notifications/smtp', body),
+  getReportConfig: (signal?: AbortSignal) =>
+    get<ReportConfig>('/api/notifications/report', signal),
+  updateReportConfig: (body: { enabled: boolean; hour: number; to: string }) =>
+    send<{ ok: boolean }>('PUT', '/api/notifications/report', body),
+  sendReportNow: () =>
+    post<{ ok: boolean; to: string; services_count: number }>('/api/notifications/report/send', {}),
 
   system: (signal?: AbortSignal) => get<SystemSnapshot>('/api/system', signal),
+  systemHistory: (hours = 48, signal?: AbortSignal) =>
+    get<HostHistory>(`/api/system/history?hours=${hours}`, signal),
   services: (signal?: AbortSignal) => get<ServiceStatus[]>('/api/services', signal),
   createService: (body: ServiceInput) =>
     post<{ service: Record<string, unknown> }>('/api/services', body),

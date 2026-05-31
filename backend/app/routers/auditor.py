@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
-from .. import auditor
+from .. import accounts, auditor
 from ..audit import record as audit_record
 from ..auth import require_admin
 from ..config import Settings, get_settings
@@ -58,3 +59,38 @@ async def get_job(job_id: str, _: dict = Depends(require_admin)) -> dict:
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job nicht gefunden")
     return run
+
+
+# ---------------------------------------------------------------------------
+# Auto-audit settings (background loop in main.py reads these on every tick)
+# ---------------------------------------------------------------------------
+
+
+class AutoAuditSettings(BaseModel):
+    enabled: bool
+    hour: int = Field(ge=0, le=23, description="Trigger hour in UTC, 0-23")
+
+
+@router.get("/settings/auto", dependencies=[Depends(require_admin)])
+async def get_auto_audit(settings: Settings = Depends(get_settings)) -> dict:
+    """Effective auto-audit config (overrides + .env defaults)."""
+    enabled = await accounts.get_app_setting("audit_auto_enabled")
+    hour = await accounts.get_app_setting("audit_auto_hour")
+    last_run = await accounts.get_app_setting("auto_audit_last_run_date")
+    return {
+        "enabled": (enabled == "true") if enabled is not None else settings.audit_auto_enabled,
+        "hour": int(hour) if hour and hour.isdigit() else settings.audit_auto_hour,
+        "last_run_date": last_run,
+    }
+
+
+@router.put("/settings/auto")
+async def update_auto_audit(
+    body: AutoAuditSettings, admin: dict = Depends(require_admin)
+) -> dict:
+    """Persist enabled + hour into app_settings. The background loop picks
+    up the change on its next 5-minute tick — no restart needed."""
+    await accounts.set_app_setting("audit_auto_enabled", "true" if body.enabled else "false")
+    await accounts.set_app_setting("audit_auto_hour", str(body.hour))
+    audit_record("audit.auto_settings_updated", actor=admin["username"], enabled=body.enabled, hour=body.hour)
+    return {"enabled": body.enabled, "hour": body.hour}

@@ -29,16 +29,27 @@ _DEV_USER: dict[str, Any] = {
 
 
 async def verify_session(request: Request) -> dict[str, Any]:
-    """Resolve the session cookie to a user dict, or raise 401.
+    """Resolve the session cookie OR an API bearer token to a user dict,
+    or raise 401. The decoded user is also stashed on ``request.state.user``
+    so downstream code (e.g. audit logging) can read it without re-querying.
 
-    The decoded user is also stashed on ``request.state.user`` so downstream
-    code (e.g. audit logging) can read it without re-querying.
+    Bearer tokens take precedence — they're explicit, and a client that
+    sends both probably intends to use the token.
     """
     settings: Settings = get_settings()
     if not settings.auth_enabled:
         request.state.user = _DEV_USER
         return _DEV_USER
 
+    # Bearer token path (Authorization: Bearer rxf_…)
+    auth = request.headers.get("Authorization") or ""
+    if auth.lower().startswith("bearer "):
+        user = await accounts.resolve_api_token(auth.split(" ", 1)[1].strip())
+        if user is not None:
+            request.state.user = user
+            return user
+
+    # Session cookie path
     token = request.cookies.get(settings.session_cookie_name, "")
     user = await accounts.resolve_session(token)
     if user is None:
@@ -58,3 +69,21 @@ async def require_admin(user: dict[str, Any] = Depends(verify_session)) -> dict[
             detail="admin privileges required",
         )
     return user
+
+
+def require_role(*allowed_roles: str):
+    """Dependency factory: returns a verify_session-like dep that also asserts
+    the user's role is in ``allowed_roles``. Use for endpoints that should be
+    open to operators but not viewers (e.g. audit run, service CRUD).
+    """
+    allowed = frozenset(allowed_roles)
+
+    async def _dep(user: dict[str, Any] = Depends(verify_session)) -> dict[str, Any]:
+        if user.get("role") not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"requires one of: {', '.join(sorted(allowed))}",
+            )
+        return user
+
+    return _dep

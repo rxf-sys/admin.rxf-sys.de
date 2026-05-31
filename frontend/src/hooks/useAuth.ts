@@ -7,8 +7,10 @@ export type AuthStatus = 'loading' | 'authed' | 'anon';
 export interface AuthState {
   user: Account | null;
   status: AuthStatus;
-  /** Throws on bad credentials — the caller surfaces the message. */
-  login: (username: string, password: string) => Promise<void>;
+  /** Throws on bad credentials — the caller surfaces the message.
+   * Returns true on success; returns false when the server requires a
+   * second factor (caller should re-call with totp_code). */
+  login: (username: string, password: string, totp_code?: string) => Promise<boolean>;
   logout: () => Promise<void>;
   /** Re-check the session against the server (e.g. after a 401 elsewhere). */
   refresh: () => Promise<void>;
@@ -37,10 +39,18 @@ export function useAuth(): AuthState {
     void refresh();
   }, [refresh]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const r = await api.login(username, password);
-    setUser(r.user);
-    setStatus('authed');
+  const login = useCallback(async (username: string, password: string, totp_code?: string) => {
+    const r = await api.login(username, password, totp_code);
+    if (r.totp_required) {
+      // 2FA challenge — caller switches the form to the code prompt and
+      // re-submits with totp_code populated. Session stays anonymous.
+      return false;
+    }
+    if (r.user) {
+      setUser(r.user);
+      setStatus('authed');
+    }
+    return true;
   }, []);
 
   const logout = useCallback(async () => {

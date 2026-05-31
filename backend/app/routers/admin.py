@@ -67,6 +67,26 @@ async def revoke_session(
     return {"revoked": revoked}
 
 
+# ---------------------------------------------------------------------------
+# API tokens — admin can see + revoke every token. The per-user create flow
+# lives on /api/account/tokens (each user manages their own).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/tokens")
+async def list_all_tokens() -> dict:
+    return {"tokens": await accounts.list_api_tokens()}
+
+
+@router.delete("/tokens/{token_id}")
+async def admin_delete_token(token_id: int, admin: dict = Depends(require_admin)) -> dict:
+    ok = await accounts.delete_api_token(token_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token nicht gefunden")
+    audit_record("admin.api_token_revoked", actor=admin["username"], token_id=token_id)
+    return {"ok": True}
+
+
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: CreateUserBody, admin: dict = Depends(require_admin)

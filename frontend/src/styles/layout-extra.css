@@ -621,6 +621,20 @@
 }
 .admin-kpi .kpi-sub { font-size: 11.5px; color: var(--text-3); }
 
+.roles-list { display: flex; flex-direction: column; gap: 8px; }
+.role-row {
+  display: grid;
+  grid-template-columns: 140px 1fr max-content;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.role-row .role-desc { font-size: 12.5px; line-height: 1.4; min-width: 0; }
+.role-row .role-count { font-size: 11px; white-space: nowrap; }
+
 /* Audit summary band — score badge + verdict + count pills */
 .audit-summary {
   display: grid;

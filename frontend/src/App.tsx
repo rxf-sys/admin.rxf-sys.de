@@ -27,7 +27,7 @@ import { useAuth } from './hooks/useAuth';
 import { usePoll } from './hooks/usePoll';
 import { type Section, useSection } from './hooks/useSection';
 import { useResolvedTheme, useUISettings } from './hooks/useTheme';
-import type { Account, BackupSnapshot, Guest, ServiceInput, ServiceStatus } from './types';
+import type { Account, BackupSnapshot, Guest, InstanceInfo, ServiceInput, ServiceStatus } from './types';
 
 const SECTION_KEYS: Section[] = ['overview', 'server', 'network', 'backup', 'cloudflare', 'settings'];
 
@@ -147,11 +147,30 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   const pollBackup = paused ? 0 : ui.pollBackupMs;
   const pollCerts = paused ? 0 : ui.pollCertsMs;
   const sys = usePoll((sig) => api.system(sig), pollFast);
+  // History feeds the HostPanel sparklines on the Overview tab. Refreshes
+  // on the backup tier — host_metrics is sampled once a minute upstream, so
+  // there's no value in polling it every few seconds.
+  const sysHistory = usePoll((sig) => api.systemHistory(48, sig), pollBackup);
   const svc = usePoll((sig) => api.services(sig), pollFast);
   const tun = usePoll((sig) => api.tunnel(sig), pollFast);
   const bkp = usePoll((sig) => api.backups(sig), pollBackup);
   const net = usePoll((sig) => api.network(sig), pollFast);
   const cer = usePoll((sig) => api.certs(sig), pollCerts);
+
+  // Instance branding — loaded once after login and refreshed when the user
+  // saves it in the settings page.
+  const [instance, setInstance] = useState<InstanceInfo | null>(null);
+  const loadInstance = useCallback(async () => {
+    try {
+      setInstance(await api.getInstance());
+    } catch {
+      /* silent — settings stay at compile-time defaults */
+    }
+  }, []);
+  useEffect(() => { void loadInstance(); }, [loadInstance]);
+  useEffect(() => {
+    if (instance?.instance_name) document.title = `${instance.instance_name} · admin`;
+  }, [instance?.instance_name]);
 
   const refreshAll = useCallback(() => {
     sys.refresh();
@@ -379,6 +398,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
         onOpenSettings={() => setSection('settings')}
         onToggleTheme={onToggleTheme}
         isDarkTheme={resolvedTheme === 'dark'}
+        instanceName={instance?.instance_name}
       />
       <SectionNav active={section} onChange={setSection} alerts={alerts} isAdmin={isAdmin} />
       {anyError && (
@@ -405,7 +425,14 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               onInspectService={setSelectedSvc}
               onInspectGuest={onInspectGuest}
             />
-            <HostPanel host={sys.data?.host ?? null} guests={guests} />
+            <HostPanel
+              host={sys.data?.host ?? null}
+              guests={guests}
+              cpuTrend={sysHistory.data?.samples.map((s) => s.cpu_pct)}
+              diskTrend={sysHistory.data?.samples.map((s) =>
+                s.disk_total_b > 0 ? (s.disk_used_b / s.disk_total_b) * 100 : 0,
+              )}
+            />
             <div className="quick-stats">
               <KpiStrip guests={guests} services={services} />
               <AuditLog pollMs={pollFast} />
@@ -501,10 +528,16 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             onLogout={doLogout}
             onPasswordChanged={() => pushToast({ level: 'ok', title: 'Passwort geändert', body: 'Dein Passwort wurde aktualisiert.' })}
             onError={(msg) => pushToast({ level: 'err', title: 'Fehler', body: msg })}
+            onInfo={(msg) => pushToast({ level: 'ok', title: msg, body: '' })}
             system={sys.data}
             tunnel={tun.data}
             backups={bkp.data}
             network={net.data}
+            instance={instance}
+            onInstanceSaved={(next) => {
+              setInstance(next);
+              pushToast({ level: 'ok', title: 'Gespeichert', body: 'Instanz-Einstellungen aktualisiert.' });
+            }}
           />
         )}
       </main>

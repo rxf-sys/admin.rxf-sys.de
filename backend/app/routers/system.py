@@ -37,6 +37,17 @@ async def get_system(settings: Settings = Depends(get_settings)) -> SystemSnapsh
     return await cache.get_or_set("system", settings.cache_ttl_system, loader)
 
 
+@router.get("/history")
+async def get_host_history(hours: int = 48) -> dict:
+    """Time series of the Proxmox host's CPU / RAM / disk samples for the
+    Overview tab. Each sample row is the snapshot the metrics-sample loop
+    persisted that minute. Returns an empty list when storage is disabled
+    or no samples exist yet."""
+    hours = max(1, min(hours, 168))  # 1h … 7d
+    samples = await storage.host_history(hours=hours)
+    return {"hours": hours, "samples": samples, "enabled": storage.is_enabled()}
+
+
 class GuestServiceBody(BaseModel):
     service: str | None = Field(default=None, max_length=120)
 

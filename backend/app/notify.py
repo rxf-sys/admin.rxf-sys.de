@@ -60,6 +60,17 @@ class NotificationCenter:
     async def _send(
         self, title: str, description: str, severity: Severity = "warn"
     ) -> None:
+        """Fan out one notification to every configured channel.
+
+        The webhook (Discord/Slack shape) and ntfy push are independent —
+        either can be on while the other is off. Channel failures don't
+        stop the other channel from firing."""
+        await self._send_webhook(title, description, severity)
+        await self._send_ntfy(title, description, severity)
+
+    async def _send_webhook(
+        self, title: str, description: str, severity: Severity
+    ) -> None:
         url = self.settings.notify_webhook_url
         if not url:
             return
@@ -84,6 +95,56 @@ class NotificationCenter:
                     )
         except httpx.HTTPError as e:
             log.warning("notify.webhook_failed", error=str(e))
+
+    async def _effective_ntfy(self) -> tuple[str, str, str]:
+        """Resolve the active ntfy config: DB overrides > .env defaults.
+
+        Lazy-imports accounts to avoid an import cycle (accounts is purely
+        independent of notify; notify just happens to consume its settings)."""
+        from . import accounts  # local import to break the import cycle
+        base = await accounts.get_app_setting("ntfy_base")
+        topic = await accounts.get_app_setting("ntfy_topic")
+        token = await accounts.get_app_setting("ntfy_token")
+        return (
+            (base if base is not None else self.settings.ntfy_base).rstrip("/"),
+            topic if topic is not None else self.settings.ntfy_topic,
+            token if token is not None else self.settings.ntfy_token,
+        )
+
+    async def _send_ntfy(
+        self, title: str, description: str, severity: Severity
+    ) -> None:
+        """POST a single text body to the configured ntfy topic.
+
+        ntfy maps severity → priority via its X-Priority header (1-5; 3 is
+        default). We use 4 for warn, 5 for err, 2 for info recoveries. Tags
+        get a coloured circle so the push surface in the ntfy app and
+        browser is scannable.
+        """
+        base, topic, token = await self._effective_ntfy()
+        if not base or not topic:
+            return
+        prio = {"info": "2", "warn": "4", "err": "5"}.get(severity, "3")
+        tag = {"info": "white_check_mark", "warn": "warning", "err": "rotating_light"}[severity]
+        headers = {
+            "Title": title,
+            "Priority": prio,
+            "Tags": tag,
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        url = f"{base}/{topic}"
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.post(url, content=description.encode("utf-8"), headers=headers)
+                if r.status_code >= 400:
+                    log.warning(
+                        "notify.ntfy_rejected",
+                        status=r.status_code,
+                        body=r.text[:200],
+                    )
+        except httpx.HTTPError as e:
+            log.warning("notify.ntfy_failed", error=str(e))
 
     async def evaluate_service(
         self, service_id: str, status: str, response_ms: int

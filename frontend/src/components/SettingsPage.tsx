@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { api, apiErrorMessage } from '../api/client';
 import {
   BACKUP_INTERVALS_MS,
@@ -7,7 +7,7 @@ import {
   REFRESH_INTERVALS_MS,
   type UISettings,
 } from '../hooks/useTheme';
-import type { Account, BackupSummary, NetworkSnapshot, SystemSnapshot, TunnelStatus } from '../types';
+import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, NtfyConfig, ReportConfig, SmtpConfig, SystemSnapshot, TotpSetup, TotpStatus, TunnelStatus } from '../types';
 import { Dot, ICONS } from './primitives';
 
 const MIN_PASSWORD_LEN = 8;
@@ -19,11 +19,15 @@ interface Props {
   onLogout: () => void;
   onPasswordChanged: () => void;
   onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
   /** Snapshots used to derive the live connection status of each integration. */
   system: SystemSnapshot | null;
   tunnel: TunnelStatus | null;
   backups: BackupSummary | null;
   network: NetworkSnapshot | null;
+  /** Editable branding / locale knobs persisted in app_settings. */
+  instance: InstanceInfo | null;
+  onInstanceSaved: (next: InstanceInfo) => void;
   appVersion?: string;
 }
 
@@ -138,12 +142,16 @@ export function SettingsPage({
   onLogout,
   onPasswordChanged,
   onError,
+  onInfo,
   system,
   tunnel,
   backups,
   network,
+  instance,
+  onInstanceSaved,
   appVersion,
 }: Props) {
+  const isAdmin = account.role === 'admin';
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   );
@@ -199,8 +207,18 @@ export function SettingsPage({
         <span className="dimmer mono" style={{ fontSize: 11 }}>Auto-Speichern aktiv</span>
       </div>
 
-      {/* Row 1: Konto + Darstellung */}
+      {/* Row 1: Allgemein + Konto */}
       <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-6">
+          <SectionHead title="Allgemein" />
+          <InstanceForm
+            instance={instance}
+            isAdmin={isAdmin}
+            onSaved={onInstanceSaved}
+            onError={onError}
+          />
+        </div>
+
         <div className="card col-6">
           <SectionHead title="Konto" />
           <Row title="Benutzername"><span className="mono">{account.username}</span></Row>
@@ -316,6 +334,15 @@ export function SettingsPage({
               {notifPerm === 'granted' ? 'Erlaubt' : notifPerm === 'denied' ? 'Verweigert' : 'Berechtigung anfordern'}
             </button>
           </Row>
+          <NtfyRows isAdmin={isAdmin} onError={onError} onInfo={onInfo} />
+        </div>
+      </div>
+
+      {/* E-Mail reports — sits alone in a col-12 because the form is wide */}
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-12">
+          <SectionHead title="E-Mail-Reports (SMTP)" />
+          <EmailReportsRows isAdmin={isAdmin} onError={onError} onInfo={onInfo} />
         </div>
       </div>
 
@@ -351,9 +378,8 @@ export function SettingsPage({
           <Row title="Login-Rate-Limit" desc="5 Fehlversuche / 5 min · pro IP.">
             <span className="mono dim" style={{ fontSize: 11 }}>aktiv</span>
           </Row>
-          <Row title="2FA" desc="Noch nicht implementiert.">
-            <span className="dimmer mono" style={{ fontSize: 11 }}>—</span>
-          </Row>
+          <AutoAuditRow isAdmin={isAdmin} onError={onError} />
+          <TwoFactorRow onError={onError} onInfo={onInfo} />
         </div>
       </div>
 
@@ -410,6 +436,633 @@ export function SettingsPage({
         </div>
       </div>
     </section>
+  );
+}
+
+/** SMTP server config + weekly report scheduler in one block. Compact form
+ * because most fields are small; the Test-Send button skips waiting for
+ * Monday. */
+function EmailReportsRows({
+  isAdmin,
+  onError,
+  onInfo,
+}: {
+  isAdmin: boolean;
+  onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
+}) {
+  const [smtp, setSmtp] = useState<SmtpConfig | null>(null);
+  const [report, setReport] = useState<ReportConfig | null>(null);
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [s, r] = await Promise.all([api.getSmtp(), api.getReportConfig()]);
+      setSmtp(s);
+      setReport(r);
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    }
+  }, [onError]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  if (!smtp || !report) return <div className="dim" style={{ fontSize: 12 }}>Lade…</div>;
+
+  const update = <K extends keyof SmtpConfig>(k: K, v: SmtpConfig[K]) => setSmtp({ ...smtp, [k]: v });
+  const updateReport = <K extends keyof ReportConfig>(k: K, v: ReportConfig[K]) => setReport({ ...report, [k]: v });
+
+  const save = async () => {
+    if (!isAdmin || busy) return;
+    setBusy(true);
+    try {
+      await api.updateSmtp({
+        host: smtp.host, port: smtp.port, user: smtp.user,
+        password: pw, starttls: smtp.starttls, from_addr: smtp.from_addr,
+      });
+      await api.updateReportConfig({
+        enabled: report.enabled, hour: report.hour, to: report.to,
+      });
+      setPw('');
+      await load();
+      onInfo('SMTP- und Report-Einstellungen gespeichert');
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendNow = async () => {
+    if (sending) return;
+    setSending(true);
+    try {
+      const r = await api.sendReportNow();
+      onInfo(`Test-Report gesendet an ${r.to}`);
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <>
+      <Row title="SMTP-Server" desc="Host:Port — z.B. smtp.fastmail.com:587">
+        <input
+          className="input mono" style={{ width: 220 }}
+          value={smtp.host}
+          onChange={(e) => update('host', e.target.value)}
+          disabled={!isAdmin}
+          placeholder="smtp.example.com"
+        />
+        <input
+          className="input mono" style={{ width: 70, marginLeft: 6 }}
+          type="number"
+          value={smtp.port}
+          onChange={(e) => update('port', Number(e.target.value))}
+          disabled={!isAdmin}
+        />
+      </Row>
+      <Row title="SMTP-User">
+        <input
+          className="input mono" style={{ width: 260 }}
+          value={smtp.user}
+          onChange={(e) => update('user', e.target.value)}
+          disabled={!isAdmin}
+          placeholder="user@example.com"
+        />
+      </Row>
+      <Row
+        title="SMTP-Passwort"
+        desc={smtp.password_set ? 'Passwort gesetzt · neues eintragen zum Überschreiben.' : 'App-Password empfohlen.'}
+      >
+        <input
+          className="input mono" style={{ width: 260 }}
+          type="password" autoComplete="new-password"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          disabled={!isAdmin}
+          placeholder={smtp.password_set ? '••••••••' : ''}
+        />
+      </Row>
+      <Row title="STARTTLS">
+        <Switch checked={smtp.starttls} onChange={(v) => isAdmin && update('starttls', v)} ariaLabel="STARTTLS" />
+      </Row>
+      <Row title="From-Adresse" desc="Optional · fallback ist SMTP-User.">
+        <input
+          className="input mono" style={{ width: 260 }}
+          value={smtp.from_addr}
+          onChange={(e) => update('from_addr', e.target.value)}
+          disabled={!isAdmin}
+        />
+      </Row>
+      <Row title="Empfänger (Report)" desc="Ein oder mehrere E-Mail-Adressen (Komma-getrennt).">
+        <input
+          className="input mono" style={{ width: 260 }}
+          value={report.to}
+          onChange={(e) => updateReport('to', e.target.value)}
+          disabled={!isAdmin}
+          placeholder="admin@example.com"
+        />
+      </Row>
+      <Row
+        title="Wochenreport"
+        desc={report.last_sent_week ? `Zuletzt versendet: KW ${report.last_sent_week}` : 'Montags automatisch versenden.'}
+      >
+        <Switch
+          checked={report.enabled}
+          onChange={(v) => isAdmin && updateReport('enabled', v)}
+          ariaLabel="Wochenreport aktivieren"
+        />
+      </Row>
+      {report.enabled && (
+        <Row title="Trigger-Uhrzeit" desc="Montag · UTC.">
+          <select
+            className="input" style={{ width: 100 }}
+            value={report.hour}
+            onChange={(e) => updateReport('hour', Number(e.target.value))}
+            disabled={!isAdmin}
+            aria-label="Wochenreport-Stunde"
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>{String(h).padStart(2, '0')}:00 UTC</option>
+            ))}
+          </select>
+        </Row>
+      )}
+      {isAdmin && (
+        <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            className="btn sm"
+            type="button"
+            onClick={sendNow}
+            disabled={!smtp.host || !report.to || sending}
+            title={!smtp.host || !report.to ? 'Zuerst SMTP + Empfänger speichern' : 'Test-Report jetzt senden'}
+          >
+            {sending ? 'Sende…' : 'Test-Report'}
+          </button>
+          <button className="btn primary sm" type="button" onClick={save} disabled={busy}>
+            {busy ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Two-factor authentication (TOTP) — enroll / disable / show remaining
+ * backup codes. Backup codes from a fresh enrollment are kept in component
+ * state until the user explicitly dismisses the dialog (they can't be
+ * fetched again later). */
+function TwoFactorRow({
+  onError,
+  onInfo,
+}: {
+  onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
+}) {
+  const [status, setStatus] = useState<TotpStatus | null>(null);
+  const [setup, setSetup] = useState<TotpSetup | null>(null);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const [disabling, setDisabling] = useState(false);
+  const [disablePw, setDisablePw] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api.get2faStatus());
+    } catch { /* row stays blank */ }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const startSetup = async () => {
+    try {
+      setSetup(await api.begin2faSetup());
+      setVerifyCode('');
+    } catch (e) { onError(apiErrorMessage(e)); }
+  };
+
+  const verifySetup = async (e: FormEvent) => {
+    e.preventDefault();
+    if (verifying) return;
+    setVerifying(true);
+    try {
+      const r = await api.verify2faSetup(verifyCode.trim());
+      setBackupCodes(r.backup_codes);
+      setSetup(null);
+      onInfo('2FA aktiviert');
+      await load();
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const submitDisable = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!disablePw || disabling) return;
+    setDisabling(true);
+    try {
+      await api.disable2fa(disablePw);
+      setDisablePw('');
+      setStatus({ enabled: false, pending: false, backup_codes_remaining: 0 });
+      onInfo('2FA deaktiviert');
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setDisabling(false);
+    }
+  };
+
+  if (!status) return <Row title="2FA"><span className="dim">Lade…</span></Row>;
+
+  return (
+    <>
+      <Row
+        title="2FA"
+        desc={
+          status.enabled
+            ? `Aktiv · ${status.backup_codes_remaining} Backup-Codes übrig.`
+            : 'Zweiter Faktor per TOTP (Aegis, 1Password, Google Authenticator).'
+        }
+      >
+        {status.enabled ? (
+          <span className="role-pill admin">AKTIV</span>
+        ) : (
+          <button type="button" className="btn sm" onClick={startSetup}>
+            {ICONS.shield} Aktivieren
+          </button>
+        )}
+      </Row>
+
+      {setup && (
+        <form
+          onSubmit={verifySetup}
+          style={{ marginTop: 8, padding: 12, border: '1px solid var(--border)', borderRadius: 'var(--r-2)' }}
+        >
+          <div className="dim" style={{ fontSize: 12, marginBottom: 8 }}>
+            Scanne den QR-Code mit deiner Authenticator-App und gib dann den 6-stelligen Code ein.
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div
+              style={{ width: 140, height: 140, background: '#fff', padding: 6, borderRadius: 8 }}
+              dangerouslySetInnerHTML={{ __html: setup.qr_svg }}
+            />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="dim" style={{ fontSize: 11, marginBottom: 4 }}>Geheimnis (manuell):</div>
+              <code className="mono" style={{ fontSize: 11, wordBreak: 'break-all', userSelect: 'all' }}>
+                {setup.secret_b32}
+              </code>
+              <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                <label className="login-field" style={{ flex: 1 }}>
+                  <span>6-stelliger Code</span>
+                  <input
+                    className="input mono" type="text" inputMode="numeric"
+                    value={verifyCode}
+                    onChange={(e) => setVerifyCode(e.target.value)}
+                    autoFocus
+                    placeholder="123456"
+                  />
+                </label>
+                <button className="btn primary sm" type="submit" disabled={verifying} style={{ height: 36 }}>
+                  {verifying ? 'Prüfe…' : 'Bestätigen'}
+                </button>
+                <button className="btn sm" type="button" onClick={() => setSetup(null)} style={{ height: 36 }}>
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          </div>
+        </form>
+      )}
+
+      {backupCodes && (
+        <div
+          style={{ marginTop: 8, padding: 12, border: '1px solid var(--warn)', borderRadius: 'var(--r-2)', background: 'var(--warn-soft)' }}
+        >
+          <div className="dim" style={{ fontSize: 12, color: 'var(--warn)', marginBottom: 8 }}>
+            Notiere diese 8 Backup-Codes — jeder funktioniert genau einmal und sie werden NICHT erneut angezeigt.
+          </div>
+          <code
+            className="mono"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: 6,
+              fontSize: 13,
+              padding: 10,
+              background: 'var(--surface-1)',
+              borderRadius: 4,
+              userSelect: 'all',
+            }}
+          >
+            {backupCodes.map((c) => <span key={c}>{c}</span>)}
+          </code>
+          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+            <button className="btn primary sm" type="button" onClick={() => setBackupCodes(null)}>
+              Notiert
+            </button>
+          </div>
+        </div>
+      )}
+
+      {status.enabled && !setup && (
+        <form onSubmit={submitDisable} style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <label className="login-field" style={{ flex: 1 }}>
+            <span>2FA deaktivieren · Passwort bestätigen</span>
+            <input
+              className="input" type="password" autoComplete="current-password"
+              value={disablePw}
+              onChange={(e) => setDisablePw(e.target.value)}
+              placeholder="Passwort"
+            />
+          </label>
+          <button className="btn danger sm" type="submit" disabled={!disablePw || disabling} style={{ height: 36 }}>
+            {disabling ? 'Deaktiviere…' : 'Deaktivieren'}
+          </button>
+        </form>
+      )}
+    </>
+  );
+}
+
+/** ntfy push config rows — server URL, topic, optional bearer token + test. */
+function NtfyRows({
+  isAdmin,
+  onError,
+  onInfo,
+}: {
+  isAdmin: boolean;
+  onError: (msg: string) => void;
+  onInfo: (msg: string) => void;
+}) {
+  const [cfg, setCfg] = useState<NtfyConfig | null>(null);
+  const [base, setBase] = useState('');
+  const [topic, setTopic] = useState('');
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    api.getNtfy()
+      .then((c) => { setCfg(c); setBase(c.base); setTopic(c.topic); })
+      .catch(() => { /* row stays blank */ });
+  }, []);
+
+  if (!cfg) {
+    return <Row title="Push (ntfy)"><span className="dim">Lade…</span></Row>;
+  }
+
+  const dirty = base !== cfg.base || topic !== cfg.topic || token !== '';
+
+  const save = async () => {
+    if (!isAdmin || !dirty || busy) return;
+    setBusy(true);
+    try {
+      await api.updateNtfy({ base, topic, token });
+      const next = await api.getNtfy();
+      setCfg(next);
+      setToken('');
+      onInfo('ntfy-Einstellungen gespeichert');
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendTest = async () => {
+    if (testing) return;
+    setTesting(true);
+    try {
+      await api.testNtfy();
+      onInfo('Test-Push gesendet');
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <>
+      <Row title="ntfy-Server" desc="z.B. https://ntfy.rxf-sys.de — leer = ntfy aus.">
+        <input
+          className="input mono" style={{ width: 240 }}
+          value={base}
+          onChange={(e) => setBase(e.target.value)}
+          disabled={!isAdmin}
+          aria-label="ntfy-Basis-URL"
+          placeholder="https://ntfy.example.com"
+        />
+      </Row>
+      <Row title="ntfy-Topic">
+        <input
+          className="input mono" style={{ width: 240 }}
+          value={topic}
+          onChange={(e) => setTopic(e.target.value)}
+          disabled={!isAdmin}
+          aria-label="ntfy-Topic"
+          placeholder="rxf-admin"
+        />
+      </Row>
+      <Row
+        title="ntfy-Token"
+        desc={cfg.token_set ? 'Token gesetzt · neuen eintragen zum Überschreiben.' : 'Optional · für geschützte Topics.'}
+      >
+        <input
+          className="input mono" style={{ width: 240 }}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          type="password"
+          autoComplete="new-password"
+          disabled={!isAdmin}
+          aria-label="ntfy-Token"
+          placeholder={cfg.token_set ? '••••••••' : ''}
+        />
+      </Row>
+      {isAdmin && (
+        <div style={{ marginTop: 6, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            className="btn sm"
+            type="button"
+            onClick={sendTest}
+            disabled={!cfg.base || !cfg.topic || testing}
+            title={!cfg.base || !cfg.topic ? 'Zuerst speichern' : 'Test-Push schicken'}
+          >
+            {testing ? 'Sende…' : 'Test-Push'}
+          </button>
+          <button
+            className="btn primary sm"
+            type="button"
+            onClick={save}
+            disabled={!dirty || busy}
+          >
+            {busy ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Auto-Audit row — toggle + hour picker. Loads its own state on mount. */
+function AutoAuditRow({ isAdmin, onError }: { isAdmin: boolean; onError: (msg: string) => void }) {
+  const [state, setState] = useState<{ enabled: boolean; hour: number; last?: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getAutoAudit()
+      .then((s) => setState({ enabled: s.enabled, hour: s.hour, last: s.last_run_date ?? null }))
+      .catch(() => { /* row stays blank */ });
+  }, []);
+
+  const save = async (next: { enabled: boolean; hour: number }) => {
+    if (!isAdmin || busy) return;
+    setBusy(true);
+    try {
+      await api.updateAutoAudit(next);
+      setState((cur) => cur ? { ...cur, ...next } : { ...next, last: null });
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!state) return <Row title="Auto-Audit"><span className="dim">Lade…</span></Row>;
+  return (
+    <>
+      <Row
+        title="Auto-Audit"
+        desc={state.last ? `Letzter Auto-Lauf: ${state.last}` : 'Täglich automatisch ausführen.'}
+      >
+        <Switch
+          checked={state.enabled}
+          onChange={(v) => isAdmin && save({ enabled: v, hour: state.hour })}
+          ariaLabel="Auto-Audit aktivieren"
+        />
+      </Row>
+      {state.enabled && (
+        <Row title="Trigger-Uhrzeit" desc="UTC. Loop prüft alle 5 min.">
+          <select
+            className="input" style={{ width: 100 }}
+            value={state.hour}
+            onChange={(e) => save({ enabled: true, hour: Number(e.target.value) })}
+            disabled={!isAdmin}
+            aria-label="Auto-Audit-Stunde"
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>{String(h).padStart(2, '0')}:00 UTC</option>
+            ))}
+          </select>
+        </Row>
+      )}
+    </>
+  );
+}
+
+/** Editable instance branding form. Non-admins see the values read-only. */
+function InstanceForm({
+  instance,
+  isAdmin,
+  onSaved,
+  onError,
+}: {
+  instance: InstanceInfo | null;
+  isAdmin: boolean;
+  onSaved: (next: InstanceInfo) => void;
+  onError: (msg: string) => void;
+}) {
+  const [name, setName] = useState(instance?.instance_name ?? '');
+  const [tz, setTz] = useState(instance?.default_timezone ?? '');
+  const [fmt, setFmt] = useState<'12h' | '24h'>(instance?.time_format ?? '24h');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (instance) {
+      setName(instance.instance_name);
+      setTz(instance.default_timezone);
+      setFmt(instance.time_format);
+    }
+  }, [instance]);
+
+  if (!instance) {
+    return <div className="dim" style={{ fontSize: 12 }}>Lade…</div>;
+  }
+
+  const dirty = name !== instance.instance_name
+    || tz !== instance.default_timezone
+    || fmt !== instance.time_format;
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin || !dirty || busy) return;
+    setBusy(true);
+    try {
+      const next = await api.updateInstance({
+        instance_name: name,
+        default_timezone: tz,
+        time_format: fmt,
+      });
+      onSaved(next);
+    } catch (err) {
+      onError(apiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={save}>
+      <Row title="Instanz-Name" desc="Erscheint im Header und im Browser-Tab.">
+        <input
+          className="input" style={{ width: 200 }}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={!isAdmin}
+          aria-label="Instanz-Name"
+        />
+      </Row>
+      <Row title="Zeitzone" desc="IANA-Format, z.B. Europe/Berlin.">
+        <input
+          className="input mono" style={{ width: 200 }}
+          value={tz}
+          onChange={(e) => setTz(e.target.value)}
+          disabled={!isAdmin}
+          aria-label="Zeitzone"
+        />
+      </Row>
+      <Row title="Zeitformat">
+        <select
+          className="input" style={{ width: 100 }}
+          value={fmt}
+          onChange={(e) => setFmt(e.target.value as '12h' | '24h')}
+          disabled={!isAdmin}
+          aria-label="Zeitformat"
+        >
+          <option value="24h">24h</option>
+          <option value="12h">12h</option>
+        </select>
+      </Row>
+      {isAdmin && (
+        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            className="btn primary sm"
+            type="submit"
+            disabled={!dirty || busy}
+          >
+            {busy ? 'Speichern…' : 'Speichern'}
+          </button>
+        </div>
+      )}
+    </form>
   );
 }
 

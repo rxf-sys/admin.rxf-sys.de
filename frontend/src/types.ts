@@ -185,13 +185,20 @@ export interface CertsSnapshot {
   error: string | null;
 }
 
-export type Role = 'admin' | 'user';
+export type Role = 'admin' | 'operator' | 'viewer' | 'user';
 
 export interface Account {
   id: number;
   username: string;
   email: string | null;
   role: Role;
+  /** Identity realm — local (this dashboard), pve / pbs / external when an
+   * upstream owns the credentials. Only 'local' is populated today; the
+   * column exists so PVE/PBS-imported users can be tagged in a follow-up. */
+  realm: string;
+  /** How the account got into the system — dashboard (UI), bootstrap
+   * (env-driven first admin), import (future bulk-import). */
+  source: string;
   disabled: boolean;
   created_at: number;
   last_login_at: number | null;
@@ -264,6 +271,74 @@ export interface NetworkThroughput {
   peak_down_mbit: number;
   peak_up_mbit: number;
   samples: NetworkThroughputSample[];
+}
+
+export interface InstanceInfo {
+  instance_name: string;
+  default_timezone: string;
+  time_format: '12h' | '24h';
+}
+
+export interface AutoAuditSettings {
+  enabled: boolean;
+  hour: number;
+  last_run_date?: string | null;
+}
+
+export interface NtfyConfig {
+  base: string;
+  topic: string;
+  /** True when a token is stored — the actual token is never returned. */
+  token_set: boolean;
+}
+
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  password_set: boolean;
+  starttls: boolean;
+  from_addr: string;
+}
+
+export interface ReportConfig {
+  enabled: boolean;
+  hour: number;
+  to: string;
+  last_sent_week: string | null;
+}
+
+export interface TotpStatus {
+  enabled: boolean;
+  pending: boolean;
+  backup_codes_remaining: number;
+}
+
+export interface TotpSetup {
+  secret_b32: string;
+  provisioning_uri: string;
+  qr_svg: string;
+}
+
+export interface TotpVerifyResult {
+  enabled: boolean;
+  backup_codes: string[];
+}
+
+export interface HostMetricsSample {
+  ts: number;
+  cpu_pct: number;
+  ram_used_b: number;
+  ram_total_b: number;
+  disk_used_b: number;
+  disk_total_b: number;
+  cpu_temp_c: number | null;
+}
+
+export interface HostHistory {
+  hours: number;
+  samples: HostMetricsSample[];
+  enabled: boolean;
 }
 
 export interface BackupHeatmapCell {
@@ -362,6 +437,23 @@ export interface AdminSession {
   created_at: number;
   expires_at: number;
   last_seen_at: number;
+}
+
+export interface ApiToken {
+  id: number;
+  user_id: number;
+  username: string;
+  name: string;
+  token_prefix: string;
+  scope: 'read' | 'write' | 'admin';
+  created_at: number;
+  expires_at: number | null;
+  last_used_at: number | null;
+}
+
+export interface CreatedApiToken {
+  token: string;
+  meta: ApiToken;
 }
 
 export interface AuditFinding {

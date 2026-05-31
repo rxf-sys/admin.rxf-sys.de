@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { api, apiErrorMessage } from '../api/client';
-import type { Account, AdminSession, Role } from '../types';
+import type { Account, AdminSession, ApiToken, CreatedApiToken, Role } from '../types';
 import { ICONS, fmtTimeAgo } from './primitives';
 
 interface Props {
@@ -15,21 +15,37 @@ const MIN_PW = 8;
 export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
   const [users, setUsers] = useState<Account[] | null>(null);
   const [sessions, setSessions] = useState<AdminSession[] | null>(null);
+  const [tokens, setTokens] = useState<ApiToken[] | null>(null);
   const [creating, setCreating] = useState(false);
+  const [creatingToken, setCreatingToken] = useState(false);
+  const [revealToken, setRevealToken] = useState<CreatedApiToken | null>(null);
   const [pwTarget, setPwTarget] = useState<Account | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [u, s] = await Promise.all([
+      const [u, s, t] = await Promise.all([
         api.adminListUsers(),
         api.adminListSessions(),
+        api.adminListTokens(),
       ]);
       setUsers(u.users);
       setSessions(s.sessions);
+      setTokens(t.tokens);
     } catch (e) {
       onError(apiErrorMessage(e));
     }
   }, [onError]);
+
+  const revokeToken = async (t: ApiToken) => {
+    if (!window.confirm(`Token „${t.name}" (${t.username}) revoken?`)) return;
+    try {
+      await api.adminDeleteToken(t.id);
+      onInfo(`Token ${t.token_prefix}… revoked`);
+      await load();
+    } catch (e) {
+      onError(apiErrorMessage(e));
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -54,6 +70,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
   const adminCount = users?.filter((u) => u.role === 'admin' && !u.disabled).length ?? 0;
   const disabledCount = users?.filter((u) => u.disabled).length ?? 0;
   const sessionCount = sessions?.length ?? 0;
+  const tokenCount = tokens?.length ?? 0;
 
   const updateUser = async (
     id: number,
@@ -95,8 +112,8 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
       <div className="grid-12" style={{ marginBottom: 16 }}>
         <KpiTile label="Benutzer" value={userCount} sub={`${userCount - disabledCount} aktiv`} tone="info" />
         <KpiTile label="Administratoren" value={adminCount} sub="volle Rechte" tone="ok" />
-        <KpiTile label="Deaktiviert" value={disabledCount} sub={disabledCount ? 'gesperrt' : 'keine'} tone={disabledCount > 0 ? 'warn' : 'info'} />
         <KpiTile label="Aktive Sessions" value={sessionCount} sub="laufende Logins" tone="info" />
+        <KpiTile label="API-Tokens" value={tokenCount} sub={tokenCount ? `${tokenCount} Bearer` : 'keine'} tone="info" />
       </div>
 
       {creating && (
@@ -130,7 +147,9 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
                 <tr>
                   <th>Benutzer</th>
                   <th>E-Mail</th>
+                  <th>Realm</th>
                   <th>Rolle</th>
+                  <th>Quelle</th>
                   <th>Status</th>
                   <th>Letzter Login</th>
                   <th style={{ textAlign: 'right' }}>Aktionen</th>
@@ -151,6 +170,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
                           onSave={(email) => updateUser(u.id, { email })}
                         />
                       </td>
+                      <td className="mono dim" style={{ fontSize: 11 }}>{u.realm}</td>
                       <td>
                         <select
                           className="hours-select"
@@ -158,10 +178,13 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
                           onChange={(e) => updateUser(u.id, { role: e.target.value as Role })}
                           aria-label={`Rolle von ${u.username}`}
                         >
-                          <option value="user">user</option>
                           <option value="admin">admin</option>
+                          <option value="operator">operator</option>
+                          <option value="viewer">viewer</option>
+                          <option value="user">user (legacy)</option>
                         </select>
                       </td>
+                      <td className="mono dim" style={{ fontSize: 11 }}>{u.source}</td>
                       <td>
                         <span className={`role-pill ${u.disabled ? 'user' : 'admin'}`}>
                           {u.disabled ? 'deaktiviert' : 'aktiv'}
@@ -205,6 +228,15 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
               </tbody>
             </table>
           )}
+        </div>
+      </div>
+
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Rollen</h3>
+      </div>
+      <div className="grid-12" style={{ marginBottom: 16 }}>
+        <div className="card col-12">
+          <RolesTable users={users ?? []} />
         </div>
       </div>
 
@@ -263,6 +295,86 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
         </div>
       </div>
 
+      <div className="dash-section-head" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+          API-Tokens <span className="h3-sub">· {tokenCount}</span>
+        </h3>
+        <div className="section-tools">
+          <button className="btn sm primary" type="button" onClick={() => setCreatingToken(true)}>
+            {ICONS.key} Token erstellen
+          </button>
+        </div>
+      </div>
+
+      <div className="grid-12">
+        <div className="card col-12" style={{ padding: 0 }}>
+          {tokens === null ? (
+            <div className="dim" style={{ fontSize: 12, padding: 18 }}>Lade Tokens…</div>
+          ) : tokens.length === 0 ? (
+            <div className="dim" style={{ fontSize: 12, padding: 18 }}>
+              Noch keine API-Tokens. Klicke „Token erstellen", um den ersten Bearer-Token anzulegen.
+            </div>
+          ) : (
+            <table className="user-table">
+              <thead>
+                <tr>
+                  <th>Token-ID</th>
+                  <th>Name</th>
+                  <th>Besitzer</th>
+                  <th>Scope</th>
+                  <th>Erstellt</th>
+                  <th>Läuft ab</th>
+                  <th>Zuletzt genutzt</th>
+                  <th style={{ textAlign: 'right' }}>Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((t) => (
+                  <tr key={t.id}>
+                    <td className="mono dim" style={{ fontSize: 11 }}>{t.token_prefix}…</td>
+                    <td style={{ fontWeight: 600 }}>{t.name}</td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>{t.username}</td>
+                    <td>
+                      <span className={`role-pill ${t.scope === 'admin' ? 'admin' : 'user'}`}>{t.scope}</span>
+                    </td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>
+                      {fmtTimeAgo(new Date(t.created_at * 1000).toISOString())}
+                    </td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>
+                      {t.expires_at ? fmtTimeAgo(new Date(t.expires_at * 1000).toISOString()) : 'nie'}
+                    </td>
+                    <td className="mono dim" style={{ fontSize: 11 }}>
+                      {t.last_used_at ? fmtTimeAgo(new Date(t.last_used_at * 1000).toISOString()) : 'nie'}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button className="btn sm danger" type="button" onClick={() => revokeToken(t)}>
+                        Revoken
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {creatingToken && (
+        <CreateTokenModal
+          onClose={() => setCreatingToken(false)}
+          onCreated={(created) => {
+            setCreatingToken(false);
+            setRevealToken(created);
+            void load();
+          }}
+          onError={onError}
+        />
+      )}
+
+      {revealToken && (
+        <RevealTokenModal token={revealToken} onClose={() => setRevealToken(null)} />
+      )}
+
       {pwTarget && (
         <PasswordModal
           user={pwTarget}
@@ -275,6 +387,150 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
         />
       )}
     </section>
+  );
+}
+
+/** Compact roles overview — one row per role with its description + member count. */
+function RolesTable({ users }: { users: Account[] }) {
+  const rolesInfo: { role: Role; label: string; desc: string }[] = [
+    { role: 'admin',    label: 'Administrator', desc: 'Vollzugriff auf alle Ressourcen, Konten- und Audit-Verwaltung.' },
+    { role: 'operator', label: 'Operator',      desc: 'Service-CRUD, Audit ausführen, Sessions verwalten. Keine Konten-Verwaltung.' },
+    { role: 'viewer',   label: 'Viewer',        desc: 'Nur Lesen — alle Tabs sichtbar, keine schreibenden Aktionen.' },
+    { role: 'user',     label: 'User (legacy)', desc: 'Alter Bestandswert vor Rollen-Refactor. Behandelt wie viewer.' },
+  ];
+  const counts = users.reduce<Record<string, number>>((acc, u) => {
+    acc[u.role] = (acc[u.role] ?? 0) + 1;
+    return acc;
+  }, {});
+  return (
+    <div className="roles-list">
+      {rolesInfo.map((r) => (
+        <div key={r.role} className="role-row">
+          <span className={`role-pill ${r.role === 'admin' ? 'admin' : 'user'}`}>
+            {r.label}
+          </span>
+          <div className="role-desc dim">{r.desc}</div>
+          <span className="mono dim role-count">{counts[r.role] ?? 0} Nutzer</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CreateTokenModal({
+  onClose,
+  onCreated,
+  onError,
+}: {
+  onClose: () => void;
+  onCreated: (t: CreatedApiToken) => void;
+  onError: (msg: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [scope, setScope] = useState<'read' | 'write' | 'admin'>('read');
+  const [ttlDays, setTtlDays] = useState<number | ''>(90);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    try {
+      const created = await api.createMyToken({
+        name: name.trim(),
+        scope,
+        ttl_days: ttlDays === '' ? null : Number(ttlDays),
+      });
+      onCreated(created);
+    } catch (err) {
+      onError(apiErrorMessage(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="modal-h">
+          <h3>Neuer API-Token</h3>
+          <button className="btn icon" type="button" onClick={onClose} aria-label="Schließen">{ICONS.x}</button>
+        </div>
+        <div className="modal-b">
+          <label className="login-field">
+            <span>Name</span>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="z.B. monitoring-bot" />
+          </label>
+          <label className="login-field" style={{ marginTop: 12 }}>
+            <span>Scope</span>
+            <select className="input" value={scope} onChange={(e) => setScope(e.target.value as 'read' | 'write' | 'admin')}>
+              <option value="read">read (nur GET)</option>
+              <option value="write">write (POST/PATCH/DELETE)</option>
+              <option value="admin">admin (volle Rechte)</option>
+            </select>
+          </label>
+          <label className="login-field" style={{ marginTop: 12 }}>
+            <span>Gültigkeitsdauer (Tage, leer = unbegrenzt)</span>
+            <input
+              className="input" type="number" min={1} max={3650}
+              value={ttlDays}
+              onChange={(e) => setTtlDays(e.target.value === '' ? '' : Number(e.target.value))}
+            />
+          </label>
+          <button className="btn primary" type="submit" disabled={busy} style={{ marginTop: 14, width: '100%', justifyContent: 'center', height: 38 }}>
+            {busy ? 'Erstelle…' : 'Token erstellen'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function RevealTokenModal({ token, onClose }: { token: CreatedApiToken; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(token.token);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — user can select manually */
+    }
+  };
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+        <div className="modal-h">
+          <h3>Token erstellt · {token.meta.name}</h3>
+          <button className="btn icon" type="button" onClick={onClose} aria-label="Schließen">{ICONS.x}</button>
+        </div>
+        <div className="modal-b">
+          <div className="dim" style={{ fontSize: 12, marginBottom: 10, color: 'var(--warn)' }}>
+            Dieser Token wird nur jetzt angezeigt. Kopiere ihn jetzt — er kann später nicht erneut abgerufen werden.
+          </div>
+          <code
+            className="mono"
+            style={{
+              display: 'block',
+              padding: '12px 14px',
+              background: 'var(--surface-1)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r-2)',
+              fontSize: 12,
+              wordBreak: 'break-all',
+              userSelect: 'all',
+            }}
+          >
+            {token.token}
+          </code>
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button className="btn sm" type="button" onClick={copy}>
+              {ICONS.copy} {copied ? 'Kopiert!' : 'Kopieren'}
+            </button>
+            <button className="btn primary sm" type="button" onClick={onClose}>Verstanden</button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -361,7 +617,7 @@ function CreateUserForm({
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role>('user');
+  const [role, setRole] = useState<Role>('viewer');
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -409,8 +665,9 @@ function CreateUserForm({
         <label className="login-field" style={{ flex: '0 0 120px' }}>
           <span>Rolle</span>
           <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-            <option value="user">user</option>
             <option value="admin">admin</option>
+            <option value="operator">operator</option>
+            <option value="viewer">viewer</option>
           </select>
         </label>
         <button className="btn primary" type="submit" disabled={busy} style={{ height: 38 }}>

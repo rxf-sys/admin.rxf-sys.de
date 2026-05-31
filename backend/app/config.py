@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     # When False, all requests resolve to a synthetic admin identity (dev only).
     auth_enabled: bool = True
 
+    # ---- Branding / UI defaults (admin-editable at runtime via app_settings) ----
+    # These are read from .env on first start and then mirrored into the
+    # app_settings table; from then on the runtime value wins. Admins can
+    # change them in the Einstellungen tab without redeploying.
+    instance_name: str = "rxf-sys Control"
+    default_timezone: str = "Europe/Berlin"
+    time_format: str = "24h"
+
     # ---- Account auth (session cookies, replaces Cloudflare Access) ----
     # Lifetime of a login session before it expires and the user must
     # re-authenticate.
@@ -133,6 +141,13 @@ class Settings(BaseSettings):
     notify_cert_days: int = 14
     # Loop interval for the notification background task.
     notify_interval_s: int = 60
+    # ntfy push — second-channel notifications alongside the legacy webhook.
+    # NTFY_BASE is the server root (e.g. https://ntfy.rxf-sys.de or
+    # https://ntfy.sh); NTFY_TOPIC is the topic name; NTFY_TOKEN is the
+    # optional Bearer token for protected topics. Empty NTFY_BASE disables.
+    ntfy_base: str = ""
+    ntfy_topic: str = "rxf-admin"
+    ntfy_token: str = ""
 
     # ---- Audit script ----
     # Path to the bundled audit shell script. Empty = use the default path
@@ -146,6 +161,29 @@ class Settings(BaseSettings):
     audit_ssh_user: str = "root"
     # Optional explicit private-key path; leave empty to use the SSH default.
     audit_ssh_key_path: str = ""
+    # Auto-Audit: when enabled, the background scheduler triggers the audit
+    # script once per day at ``audit_auto_hour`` (UTC). Persists the last
+    # run timestamp in app_settings so a restart doesn't re-trigger.
+    audit_auto_enabled: bool = False
+    audit_auto_hour: int = 6  # 06:00 UTC by default — quiet hour for most
+
+    # ---- Weekly report (SMTP) ----
+    # Empty smtp_host disables the report regardless of any DB overrides.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+    # From-address used as the envelope sender + From header. Empty falls back
+    # to smtp_user when sending.
+    smtp_from: str = ""
+    # Recipient(s) for the weekly report — single address or comma-separated.
+    report_to: str = ""
+    # When True, the background loop sends a report every Monday at
+    # ``report_hour`` UTC. The loop also surfaces a manual-trigger endpoint
+    # so admins can test without waiting for the schedule.
+    weekly_report_enabled: bool = False
+    report_hour: int = 8  # 08:00 UTC Monday
 
 
 @lru_cache(maxsize=1)

@@ -4,12 +4,13 @@ import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import accounts, auditor, registry, storage
+from . import accounts, auditor, registry, storage, weekly_report
 from .auth import verify_session
 from .clients import cloudflare, pbs, probes, proxmox, unifi
 from .config import get_settings
@@ -24,7 +25,9 @@ from .routers import (
     backups,
     certs,
     cloudflare as cloudflare_router,
+    instance as instance_router,
     network,
+    notifications as notifications_router,
     services,
     system,
     tunnel,
@@ -91,6 +94,90 @@ async def _gather_notify_snapshot() -> dict:
     }
 
 
+async def _auto_audit_loop() -> None:
+    """Trigger the audit script once a day around ``audit_auto_hour`` (UTC).
+
+    Uses ``app_settings['auto_audit_last_run_date']`` as a date-stamp guard so
+    a restart inside the trigger window doesn't fire a second audit, and so
+    the loop's tick interval can stay coarse (5 min). The trigger fires for
+    the first matching tick after the hour rolls over; any later ticks on
+    the same UTC day are skipped because the date stamp already matches.
+    """
+    log_ = structlog.get_logger("auto_audit")
+    while True:
+        try:
+            await asyncio.sleep(300)  # check every 5 minutes
+            s = get_settings()
+            # DB-stored app_settings override the .env defaults so admins can
+            # flip the switch without redeploying.
+            enabled_str = await accounts.get_app_setting("audit_auto_enabled")
+            enabled = (enabled_str == "true") if enabled_str is not None else s.audit_auto_enabled
+            if not enabled:
+                continue
+            hour_str = await accounts.get_app_setting("audit_auto_hour")
+            target_hour = int(hour_str) if hour_str and hour_str.isdigit() else s.audit_auto_hour
+            target_hour = max(0, min(23, target_hour))
+            now = datetime.now(timezone.utc)
+            if now.hour != target_hour:
+                continue
+            today_stamp = now.strftime("%Y-%m-%d")
+            last = await accounts.get_app_setting("auto_audit_last_run_date")
+            if last == today_stamp:
+                continue
+            try:
+                job_id = await auditor.start_run(s, started_by="auto-audit")
+                await accounts.set_app_setting("auto_audit_last_run_date", today_stamp)
+                log_.info("auto_audit.triggered", job_id=job_id, date=today_stamp)
+            except auditor.AuditorBusy as e:
+                log_.info("auto_audit.skipped_busy", running_job=str(e))
+            except Exception as e:  # noqa: BLE001
+                log_.error("auto_audit.start_failed", error=str(e))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - never let the loop die
+            log_.error("auto_audit.loop_error", error=str(e), error_type=type(e).__name__)
+
+
+async def _weekly_report_loop() -> None:
+    """Send the weekly report every Monday at ``report_hour`` UTC.
+
+    Same date-stamp guard as the auto-audit loop so a restart inside the
+    trigger window doesn't double-send. Settings are read from app_settings
+    (with .env fallback) on every tick so runtime config changes take effect
+    without restarting.
+    """
+    log_ = structlog.get_logger("weekly_report")
+    while True:
+        try:
+            await asyncio.sleep(300)
+            s = get_settings()
+            enabled_str = await accounts.get_app_setting("weekly_report_enabled")
+            enabled = (enabled_str == "true") if enabled_str is not None else s.weekly_report_enabled
+            if not enabled:
+                continue
+            hour_str = await accounts.get_app_setting("report_hour")
+            target_hour = int(hour_str) if hour_str and hour_str.isdigit() else s.report_hour
+            target_hour = max(0, min(23, target_hour))
+            now = datetime.now(timezone.utc)
+            # Monday is weekday 0 in Python's ISO calendar.
+            if now.weekday() != 0 or now.hour != target_hour:
+                continue
+            stamp = now.strftime("%G-W%V")  # ISO year + week → one send per week
+            last = await accounts.get_app_setting("weekly_report_last_week")
+            if last == stamp:
+                continue
+            try:
+                await weekly_report.send_report(s)
+                await accounts.set_app_setting("weekly_report_last_week", stamp)
+                log_.info("weekly_report.sent", week=stamp)
+            except Exception as e:  # noqa: BLE001
+                log_.error("weekly_report.send_failed", error=str(e))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log_.error("weekly_report.loop_error", error=str(e))
+
+
 async def _history_cleanup_loop() -> None:
     """Periodically drop old metric samples and expired login sessions."""
     while True:
@@ -143,9 +230,10 @@ async def _metrics_sample_loop() -> None:
         try:
             await asyncio.sleep(interval)
             guests_task = asyncio.create_task(proxmox.fetch_guests(_settings))
+            host_task = asyncio.create_task(proxmox.fetch_host_status(_settings))
             net_task = asyncio.create_task(unifi.fetch_network_snapshot(_settings))
-            guests, net = await asyncio.gather(
-                guests_task, net_task, return_exceptions=True
+            guests, host, net = await asyncio.gather(
+                guests_task, host_task, net_task, return_exceptions=True
             )
             if isinstance(guests, list):
                 rows = [
@@ -156,6 +244,17 @@ async def _metrics_sample_loop() -> None:
                 await storage.record_guest_metrics(rows)
             else:
                 log_.info("metrics.guests_skip", error=str(guests))
+            if not isinstance(host, BaseException) and host.online:
+                await storage.record_host_metrics(
+                    cpu_pct=float(host.cpu_pct),
+                    ram_used_b=int(host.ram_used_b),
+                    ram_total_b=int(host.ram_total_b),
+                    disk_used_b=int(host.disk_used_b),
+                    disk_total_b=int(host.disk_total_b),
+                    cpu_temp_c=host.cpu_temp_c,
+                )
+            elif isinstance(host, BaseException):
+                log_.info("metrics.host_skip", error=str(host))
             if not isinstance(net, BaseException) and net.reachable:
                 await storage.record_network_metrics(
                     float(net.throughput_down_mbit), float(net.throughput_up_mbit)
@@ -176,6 +275,8 @@ async def lifespan(app: FastAPI):
     cleanup_task: asyncio.Task | None = None
     metrics_task: asyncio.Task | None = None
     probe_task: asyncio.Task | None = None
+    auto_audit_task: asyncio.Task | None = None
+    weekly_report_task: asyncio.Task | None = None
 
     # Account auth is mandatory — its schema + first-admin bootstrap run
     # before anything else so the API is never up without a way to log in.
@@ -211,20 +312,31 @@ async def lifespan(app: FastAPI):
             )
         probe_task = asyncio.create_task(_service_probe_loop())
 
-    if _settings.notify_webhook_url:
+    # Auto-audit loop runs unconditionally; it checks the audit_auto_enabled
+    # setting on every tick so an admin can flip the switch at runtime
+    # without bouncing the backend.
+    auto_audit_task = asyncio.create_task(_auto_audit_loop())
+    weekly_report_task = asyncio.create_task(_weekly_report_loop())
+
+    if _settings.notify_webhook_url or _settings.ntfy_base:
         center = NotificationCenter(settings=_settings)
         notify_task = asyncio.create_task(
             run_notification_loop(
                 center, _gather_notify_snapshot, interval_s=_settings.notify_interval_s
             )
         )
-        structlog.get_logger().info("notify.enabled", interval_s=_settings.notify_interval_s)
+        structlog.get_logger().info(
+            "notify.enabled",
+            interval_s=_settings.notify_interval_s,
+            webhook=bool(_settings.notify_webhook_url),
+            ntfy=bool(_settings.ntfy_base),
+        )
     else:
         structlog.get_logger().info("notify.disabled")
     try:
         yield
     finally:
-        for task in (notify_task, cleanup_task, metrics_task, probe_task):
+        for task in (notify_task, cleanup_task, metrics_task, probe_task, auto_audit_task, weekly_report_task):
             if task is None:
                 continue
             task.cancel()
@@ -273,6 +385,8 @@ async def me(user: dict = Depends(verify_session)) -> dict:
 app.include_router(auth_router.router)
 app.include_router(account_router.router)
 app.include_router(admin_router.router)
+app.include_router(instance_router.router)
+app.include_router(notifications_router.router)
 app.include_router(system.router)
 app.include_router(services.router)
 app.include_router(tunnel.router)

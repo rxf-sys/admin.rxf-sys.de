@@ -73,6 +73,18 @@ CREATE TABLE IF NOT EXISTS network_metrics (
 );
 CREATE INDEX IF NOT EXISTS idx_network_metrics_ts
     ON network_metrics (ts);
+
+CREATE TABLE IF NOT EXISTS host_metrics (
+    ts           INTEGER NOT NULL,
+    cpu_pct      REAL    NOT NULL,
+    ram_used_b   INTEGER NOT NULL,
+    ram_total_b  INTEGER NOT NULL,
+    disk_used_b  INTEGER NOT NULL,
+    disk_total_b INTEGER NOT NULL,
+    cpu_temp_c   REAL
+);
+CREATE INDEX IF NOT EXISTS idx_host_metrics_ts
+    ON host_metrics (ts);
 """
 
 _enabled: bool = False
@@ -391,6 +403,84 @@ async def record_network_metrics(down_mbit: float, up_mbit: float) -> None:
         log.warning("storage.network_metrics_failed", error=str(e))
 
 
+async def record_host_metrics(
+    cpu_pct: float,
+    ram_used_b: int,
+    ram_total_b: int,
+    disk_used_b: int,
+    disk_total_b: int,
+    cpu_temp_c: float | None = None,
+) -> None:
+    """Append one row to ``host_metrics`` — called from the metrics-sample loop
+    every minute so the Overview tab can plot real CPU / DISK trends instead
+    of a flat line."""
+    if not _enabled:
+        return
+    try:
+        async with aiosqlite.connect(_db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO host_metrics
+                  (ts, cpu_pct, ram_used_b, ram_total_b, disk_used_b, disk_total_b, cpu_temp_c)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(time.time()),
+                    float(cpu_pct),
+                    int(ram_used_b),
+                    int(ram_total_b),
+                    int(disk_used_b),
+                    int(disk_total_b),
+                    float(cpu_temp_c) if cpu_temp_c is not None else None,
+                ),
+            )
+            await db.commit()
+    except aiosqlite.Error as e:
+        log.warning("storage.host_metrics_failed", error=str(e))
+
+
+async def host_history(hours: int = 48, limit: int = 4000) -> list[dict]:
+    """Most-recent ``host_metrics`` samples in the window, oldest-first.
+
+    The Overview tab asks for 48h by default to drive the CPU sparkline and
+    Disk-growth chart. Returns an empty list when storage is disabled or no
+    samples exist yet — frontend treats that the same as "no data, draw flat
+    line"."""
+    if not _enabled:
+        return []
+    cutoff = int(time.time()) - hours * 3600
+    try:
+        async with aiosqlite.connect(_db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT ts, cpu_pct, ram_used_b, ram_total_b,
+                       disk_used_b, disk_total_b, cpu_temp_c
+                FROM host_metrics
+                WHERE ts >= ?
+                ORDER BY ts ASC
+                LIMIT ?
+                """,
+                (cutoff, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [
+                    {
+                        "ts": int(r["ts"]),
+                        "cpu_pct": float(r["cpu_pct"]),
+                        "ram_used_b": int(r["ram_used_b"]),
+                        "ram_total_b": int(r["ram_total_b"]),
+                        "disk_used_b": int(r["disk_used_b"]),
+                        "disk_total_b": int(r["disk_total_b"]),
+                        "cpu_temp_c": float(r["cpu_temp_c"]) if r["cpu_temp_c"] is not None else None,
+                    }
+                    for r in rows
+                ]
+    except aiosqlite.Error as e:
+        log.warning("storage.host_history_failed", error=str(e))
+        return []
+
+
 async def network_history(hours: int = 1, limit: int = 2000) -> list[dict]:
     if not _enabled:
         return []
@@ -442,6 +532,7 @@ async def cleanup_old(retention_days: int) -> int:
                 ("DELETE FROM probe_history WHERE ts < ?", (cutoff,)),
                 ("DELETE FROM guest_metrics WHERE ts < ?", (cutoff,)),
                 ("DELETE FROM network_metrics WHERE ts < ?", (cutoff,)),
+                ("DELETE FROM host_metrics WHERE ts < ?", (cutoff,)),
                 (
                     "DELETE FROM service_incidents WHERE ended_ts IS NOT NULL AND ended_ts < ?",
                     (cutoff,),

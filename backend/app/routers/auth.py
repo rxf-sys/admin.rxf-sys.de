@@ -8,7 +8,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
-from .. import accounts
+from .. import accounts, totp
 from ..audit import record as audit_record
 from ..auth import verify_session
 from ..config import Settings, get_settings
@@ -50,6 +50,9 @@ def _clear_fails(ip: str) -> None:
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=256)
+    # Optional second-factor — present on the second roundtrip after the
+    # first /login responded with totp_required=True.
+    totp_code: str | None = Field(default=None, max_length=20)
 
 
 def _set_session_cookie(response: Response, token: str, settings: Settings) -> None:
@@ -85,10 +88,25 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Benutzername oder Passwort falsch",
         )
+
+    # 2FA gate — if the user has TOTP enabled, require a valid code on the
+    # same login call. The first request returns totp_required so the client
+    # can render the second-factor prompt and resend with the code.
+    if await totp.is_enabled(user["id"]):
+        if not body.totp_code:
+            return {"totp_required": True, "username": user["username"]}
+        if not await totp.verify_login_code(user["id"], body.totp_code):
+            _record_fail(ip)
+            log.info("auth.totp_failed", username=user["username"], ip=ip)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="2FA-Code ungültig",
+            )
+
     _clear_fails(ip)
     token = await accounts.create_session(user["id"], settings.session_ttl_hours)
     _set_session_cookie(response, token, settings)
-    audit_record("auth.login", user=user["username"], ip=ip)
+    audit_record("auth.login", user=user["username"], ip=ip, two_factor=await totp.is_enabled(user["id"]))
     log.info("auth.login_ok", username=user["username"], ip=ip)
     return {"user": user}
 
