@@ -103,7 +103,7 @@ if [[ -r "$SSHD" ]]; then
             ;;
     esac
 else
-    add_finding "ssh.config" "$SKIP" "SSH-Config" "sshd_config nicht lesbar"
+    add_finding "ssh.config" "$SKIP" "SSH-Config" "sshd_config nicht lesbar — Audit aus Container ausgeführt, SSH-Setup zum Host nötig (AUDIT_SSH_HOST)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ if [[ "$fw_handled" -eq 0 ]] && has iptables; then
     fi
 fi
 if [[ "$fw_handled" -eq 0 ]]; then
-    add_finding "firewall" "$SKIP" "Firewall" "Weder nft noch iptables verfügbar"
+    add_finding "firewall" "$SKIP" "Firewall" "Weder nft noch iptables verfügbar — Container-Audit sieht nur Container-Netz, AUDIT_SSH_HOST setzen für Host-Firewall"
 fi
 
 # ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ if has ss; then
         add_finding "ports.listening" "$OK" "Lauschende TCP-Ports" "${port_count} Ports: ${ports}"
     fi
 else
-    add_finding "ports.listening" "$SKIP" "Lauschende TCP-Ports" "'ss' nicht verfügbar"
+    add_finding "ports.listening" "$SKIP" "Lauschende TCP-Ports" "'ss' nicht im PATH — sollte im Backend-Container vorhanden sein, ggf. Image neu bauen"
 fi
 
 # ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ if has smartctl; then
         fi
     fi
 else
-    add_finding "disks.smart" "$SKIP" "Disk-SMART" "'smartctl' nicht verfügbar"
+    add_finding "disks.smart" "$SKIP" "Disk-SMART" "smartctl braucht echten Disk-Zugriff — entweder SSH zum Proxmox-Host (AUDIT_SSH_HOST) oder /dev-Bind-Mount"
 fi
 
 # ---------------------------------------------------------------------------
@@ -212,7 +212,123 @@ if has systemctl; then
         add_finding "systemd.failed" "$ERR" "Fehlgeschlagene Dienste" "${failed_count} Dienste: ${names}"
     fi
 else
-    add_finding "systemd.failed" "$SKIP" "Fehlgeschlagene Dienste" "'systemctl' nicht verfügbar"
+    add_finding "systemd.failed" "$SKIP" "Fehlgeschlagene Dienste" "systemctl im Container nicht aussagekräftig — Host-Audit via SSH setzen (AUDIT_SSH_HOST)"
+fi
+
+# ---------------------------------------------------------------------------
+# 8) Storage: /data mount + write access + free space
+# ---------------------------------------------------------------------------
+DATA_DIR="${RXF_DATA_DIR:-/data}"
+if [[ -d "$DATA_DIR" ]]; then
+    if touch "${DATA_DIR}/.audit_probe" 2>/dev/null; then
+        rm -f "${DATA_DIR}/.audit_probe"
+        if has df; then
+            usage=$(df -P "$DATA_DIR" 2>/dev/null | awk 'NR==2 {print $5}' | tr -d '%')
+            avail=$(df -Ph "$DATA_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
+            if [[ -n "$usage" ]]; then
+                if [[ "$usage" -gt 90 ]]; then
+                    add_finding "storage.data" "$ERR" "Storage /data" "${usage}% belegt, nur ${avail} frei — kritisch" \
+                        "storage" "Größeres Volume mounten oder alte Backups prunen"
+                elif [[ "$usage" -gt 75 ]]; then
+                    add_finding "storage.data" "$WARN" "Storage /data" "${usage}% belegt, ${avail} frei" "storage"
+                else
+                    add_finding "storage.data" "$OK" "Storage /data" "${usage}% belegt, ${avail} frei" "storage"
+                fi
+            else
+                add_finding "storage.data" "$OK" "Storage /data" "beschreibbar (df-Output unparsbar)" "storage"
+            fi
+        else
+            add_finding "storage.data" "$OK" "Storage /data" "beschreibbar (df nicht verfügbar)" "storage"
+        fi
+    else
+        add_finding "storage.data" "$ERR" "Storage /data" "Verzeichnis nicht beschreibbar — Volume-Permissions prüfen" \
+            "storage" "chown -R \$(id -u):\$(id -g) /data im Container"
+    fi
+else
+    add_finding "storage.data" "$WARN" "Storage /data" "${DATA_DIR} existiert nicht — Volume-Mount prüfen" "storage"
+fi
+
+# ---------------------------------------------------------------------------
+# 9) Memory usage
+# ---------------------------------------------------------------------------
+if [[ -r /proc/meminfo ]]; then
+    mem_total=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+    mem_avail=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
+    if [[ -n "$mem_total" && -n "$mem_avail" && "$mem_total" -gt 0 ]]; then
+        used_pct=$(( (mem_total - mem_avail) * 100 / mem_total ))
+        used_mb=$(( (mem_total - mem_avail) / 1024 ))
+        total_mb=$(( mem_total / 1024 ))
+        if [[ "$used_pct" -gt 90 ]]; then
+            add_finding "memory.usage" "$ERR" "Speicher" "${used_pct}% belegt (${used_mb} MB / ${total_mb} MB)" "system"
+        elif [[ "$used_pct" -gt 80 ]]; then
+            add_finding "memory.usage" "$WARN" "Speicher" "${used_pct}% belegt (${used_mb} MB / ${total_mb} MB)" "system"
+        else
+            add_finding "memory.usage" "$OK" "Speicher" "${used_pct}% belegt (${used_mb} MB / ${total_mb} MB)" "system"
+        fi
+    else
+        add_finding "memory.usage" "$SKIP" "Speicher" "MemTotal/MemAvailable nicht lesbar" "system"
+    fi
+else
+    add_finding "memory.usage" "$SKIP" "Speicher" "/proc/meminfo nicht lesbar" "system"
+fi
+
+# ---------------------------------------------------------------------------
+# 10) Load average vs CPU count
+# ---------------------------------------------------------------------------
+if [[ -r /proc/loadavg ]]; then
+    load1=$(awk '{print $1}' /proc/loadavg)
+    cpus=$(nproc 2>/dev/null || awk '/^processor/ {n++} END {print n+0}' /proc/cpuinfo)
+    [[ "$cpus" -lt 1 ]] && cpus=1
+    # bash can't do float math — compare as scaled int (×100).
+    load_scaled=$(awk -v l="$load1" 'BEGIN{printf "%d", l*100}')
+    threshold_warn=$((cpus * 100))    # load == cpu count = 100%
+    threshold_err=$((cpus * 200))     # 2× cpu count = severe overload
+    if [[ "$load_scaled" -gt "$threshold_err" ]]; then
+        add_finding "system.load" "$ERR" "Last (1 min)" "${load1} auf ${cpus} Kerne — überlastet" "system"
+    elif [[ "$load_scaled" -gt "$threshold_warn" ]]; then
+        add_finding "system.load" "$WARN" "Last (1 min)" "${load1} auf ${cpus} Kerne — hoch" "system"
+    else
+        add_finding "system.load" "$OK" "Last (1 min)" "${load1} auf ${cpus} Kerne" "system"
+    fi
+else
+    add_finding "system.load" "$SKIP" "Last (1 min)" "/proc/loadavg nicht lesbar" "system"
+fi
+
+# ---------------------------------------------------------------------------
+# 11) DNS lookup of the zone — confirms outbound DNS works + zone resolves
+# ---------------------------------------------------------------------------
+DNS_TARGET="${CF_ZONE_NAME:-rxf-sys.de}"
+if has dig; then
+    a_record=$(dig +short +time=3 +tries=1 "$DNS_TARGET" A 2>/dev/null | head -1)
+    if [[ -n "$a_record" ]]; then
+        add_finding "dns.zone" "$OK" "DNS-Auflösung (${DNS_TARGET})" "A → ${a_record}" "network"
+    else
+        add_finding "dns.zone" "$WARN" "DNS-Auflösung (${DNS_TARGET})" "Kein A-Record auflösbar" "network" \
+            "Outbound-DNS prüfen (resolv.conf, Firewall)"
+    fi
+elif has getent; then
+    if a_record=$(getent hosts "$DNS_TARGET" 2>/dev/null | awk '{print $1; exit}'); then
+        add_finding "dns.zone" "$OK" "DNS-Auflösung (${DNS_TARGET})" "→ ${a_record}" "network"
+    else
+        add_finding "dns.zone" "$WARN" "DNS-Auflösung (${DNS_TARGET})" "Lookup fehlgeschlagen" "network"
+    fi
+else
+    add_finding "dns.zone" "$SKIP" "DNS-Auflösung" "weder dig noch getent verfügbar" "network"
+fi
+
+# ---------------------------------------------------------------------------
+# 12) Container/host uptime sanity — flag very-fresh reboots so the operator
+#     sees that the host bounced recently when interpreting the report
+# ---------------------------------------------------------------------------
+if [[ -r /proc/uptime ]]; then
+    uptime_s=$(awk '{printf "%d", $1}' /proc/uptime)
+    if [[ "$uptime_s" -lt 600 ]]; then
+        add_finding "system.uptime" "$WARN" "Uptime" "weniger als 10 min — kürzlich neugestartet" "system"
+    elif [[ "$uptime_s" -lt 86400 ]]; then
+        add_finding "system.uptime" "$OK" "Uptime" "$(( uptime_s / 3600 ))h $(( (uptime_s % 3600) / 60 ))min" "system"
+    else
+        add_finding "system.uptime" "$OK" "Uptime" "$(( uptime_s / 86400 ))d $(( (uptime_s % 86400) / 3600 ))h" "system"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

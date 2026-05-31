@@ -79,6 +79,19 @@ cd /opt/rxf-admin/backend && python -m tools.promote_admin <username>
 Das Script ist idempotent (zweimal aufgerufen meldet "already an active admin")
 und reaktiviert nebenbei einen ggf. deaktivierten Account.
 
+## Roadmap (ausstehend)
+
+Wird angegangen, wenn alles andere stabil läuft:
+
+- **i18n (DE/EN-Switch via `react-i18next`)** — ~6 h, boilerplate-intensiv
+  weil alle UI-Strings extrahiert werden müssen. Setup für die Toolchain
+  + Translation-Dateien + Sprach-Selector im SettingsPage.
+- **Onboarding-Wizard** — ~15 h, der dicke Brocken am Ende. First-Login
+  zeigt eine Schritt-für-Schritt-Maske: API-Keys eingeben (PVE, PBS,
+  Cloudflare, UniFi, optional ntfy/SMTP), Test-Probe pro Integration,
+  Tab-Auswahl (welche Tabs der User aktivieren möchte). Pro-User-Config
+  persistieren + dynamisches Tab-Rendering basierend darauf.
+
 ## CI/CD
 
 - **CI** (`.github/workflows/ci.yml`): Lint + Tests + Coverage + Build bei Push/PR auf `main`
