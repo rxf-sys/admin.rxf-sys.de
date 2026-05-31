@@ -312,7 +312,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
             <div className="dim" style={{ fontSize: 12, padding: 18 }}>Lade Tokens…</div>
           ) : tokens.length === 0 ? (
             <div className="dim" style={{ fontSize: 12, padding: 18 }}>
-              Noch keine API-Tokens. Klicke „Token erstellen", um den ersten Bearer-Token anzulegen.
+              Noch keine API-Tokens. Klicke &bdquo;Token erstellen&ldquo;, um den ersten Bearer-Token anzulegen.
             </div>
           ) : (
             <table className="user-table">

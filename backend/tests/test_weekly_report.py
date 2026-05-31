@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from app import accounts, weekly_report
-from app.models import HostStatus, ServiceStatus
+from app.models import ServiceStatus
 
 
 @pytest.fixture
