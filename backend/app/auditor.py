@@ -203,7 +203,18 @@ def _build_command(settings: Settings, script: Path) -> tuple[list[str], bytes, 
     """Return (argv, stdin_bytes, location_label) for the audit run."""
     script_bytes = script.read_bytes()
     if settings.audit_ssh_host:
-        argv = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
+        # Pin known_hosts onto the /data volume so the host fingerprint
+        # survives container restarts — without this, every redeploy
+        # would silently re-accept the host key (StrictHostKeyChecking
+        # accept-new) which defeats the point of the check.
+        known_hosts = "/data/.ssh_known_hosts"
+        argv = [
+            "ssh",
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", f"UserKnownHostsFile={known_hosts}",
+            "-o", "ConnectTimeout=10",
+        ]
         if settings.audit_ssh_key_path:
             argv += ["-i", settings.audit_ssh_key_path]
         argv += [f"{settings.audit_ssh_user}@{settings.audit_ssh_host}", "bash", "-s"]
