@@ -147,10 +147,6 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   const pollBackup = paused ? 0 : ui.pollBackupMs;
   const pollCerts = paused ? 0 : ui.pollCertsMs;
   const sys = usePoll((sig) => api.system(sig), pollFast);
-  // History feeds the HostPanel sparklines on the Overview tab. Refreshes
-  // on the backup tier — host_metrics is sampled once a minute upstream, so
-  // there's no value in polling it every few seconds.
-  const sysHistory = usePoll((sig) => api.systemHistory(48, sig), pollBackup);
   const svc = usePoll((sig) => api.services(sig), pollFast);
   const tun = usePoll((sig) => api.tunnel(sig), pollFast);
   const bkp = usePoll((sig) => api.backups(sig), pollBackup);
@@ -400,7 +396,9 @@ function Dashboard({ user, onLogout }: DashboardProps) {
         isDarkTheme={resolvedTheme === 'dark'}
         instanceName={instance?.instance_name}
       />
+      <div className="dash-body">
       <SectionNav active={section} onChange={setSection} alerts={alerts} isAdmin={isAdmin} />
+      <div className="dash-content">
       {anyError && (
         <div className="error-banner">
           <strong>API-Fehler:</strong> {anyError.message}
@@ -413,6 +411,14 @@ function Dashboard({ user, onLogout }: DashboardProps) {
         </div>
       )}
       <main className="dash-main" id={`section-${section}`} role="tabpanel" aria-label={SECTION_LABELS[section]}>
+        <div className="section-title-block">
+          <h1>{SECTION_LABELS[section]}</h1>
+          <div className="section-crumb mono">
+            <span>{instance?.instance_name ? `${instance.instance_name}` : 'admin.rxf-sys.de'}</span>
+            <span className="crumb-sep">/</span>
+            <span>{SECTION_LABELS[section]}</span>
+          </div>
+        </div>
         {section === 'overview' && (
           <>
             <AttentionHero
@@ -425,14 +431,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
               onInspectService={setSelectedSvc}
               onInspectGuest={onInspectGuest}
             />
-            <HostPanel
-              host={sys.data?.host ?? null}
-              guests={guests}
-              cpuTrend={sysHistory.data?.samples.map((s) => s.cpu_pct)}
-              diskTrend={sysHistory.data?.samples.map((s) =>
-                s.disk_total_b > 0 ? (s.disk_used_b / s.disk_total_b) * 100 : 0,
-              )}
-            />
+            <HostPanel host={sys.data?.host ?? null} guests={guests} />
             <div className="quick-stats">
               <KpiStrip guests={guests} services={services} />
               <AuditLog pollMs={pollFast} />
@@ -541,6 +540,8 @@ function Dashboard({ user, onLogout }: DashboardProps) {
           />
         )}
       </main>
+      </div>
+      </div>
 
       <Drawer
         open={!!selectedSvcObj}
