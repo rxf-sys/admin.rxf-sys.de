@@ -39,6 +39,10 @@ export function SectionNav({ active, onChange, alerts, isAdmin }: Props) {
         {tabs.map((t) => {
           const isActive = t.id === active;
           const meta: SectionMeta = { ...t, alerts: alerts[t.id] ?? 0 };
+          const alertSuffix =
+            meta.alerts > 0
+              ? ` · ${meta.alerts} Auffälligkeit${meta.alerts === 1 ? '' : 'en'}`
+              : '';
           return (
             <li key={t.id} role="presentation">
               <button
@@ -46,18 +50,19 @@ export function SectionNav({ active, onChange, alerts, isAdmin }: Props) {
                 type="button"
                 aria-selected={isActive}
                 aria-controls={`section-${t.id}`}
+                aria-label={t.label}
+                title={`${t.label}${alertSuffix}`}
                 className={`section-tab ${isActive ? 'active' : ''}`}
                 onClick={() => onChange(t.id)}
               >
                 <span className="section-tab-icon" aria-hidden="true">
                   {ICONS[t.icon] ?? '·'}
                 </span>
-                <span className="section-tab-label">{t.label}</span>
+                <span className="section-tab-label sr-only">{t.label}</span>
                 {meta.alerts > 0 && (
                   <span
                     className="section-tab-alerts"
                     aria-label={`${meta.alerts} Warnung${meta.alerts === 1 ? '' : 'en'}`}
-                    title={`${meta.alerts} Auffälligkeit${meta.alerts === 1 ? '' : 'en'}`}
                   >
                     {meta.alerts}
                   </span>
