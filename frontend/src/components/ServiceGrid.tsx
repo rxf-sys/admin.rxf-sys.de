@@ -22,6 +22,14 @@ function pushHistory(id: string, ms: number): number[] {
   return next;
 }
 
+/** Drop history buckets for services that no longer exist, so the module-level
+ * map doesn't accumulate entries for deleted services for the page lifetime. */
+function pruneHistory(liveIds: Set<string>): void {
+  for (const id of Object.keys(history)) {
+    if (!liveIds.has(id)) delete history[id];
+  }
+}
+
 export function ServiceGrid({
   services,
   onSelect,
@@ -37,6 +45,7 @@ export function ServiceGrid({
     if (sig === lastSig.current) return;
     lastSig.current = sig;
     services.forEach((s) => pushHistory(s.id, s.ms));
+    pruneHistory(new Set(services.map((s) => s.id)));
   }, [sig, services]);
 
   const affected = services.filter((s) => s.status !== 'ok').length;

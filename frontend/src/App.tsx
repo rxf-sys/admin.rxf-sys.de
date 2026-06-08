@@ -81,12 +81,27 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [paused, setPaused] = useState(false);
   const toastIdRef = useRef(1);
+  // Track pending auto-dismiss timers so we can clear them on unmount and
+  // avoid a setState-after-unmount when the dashboard remounts on logout.
+  const toastTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const isAdmin = user.role === 'admin';
 
   const pushToast = useCallback((t: Omit<Toast, 'id'>) => {
     const id = toastIdRef.current++;
     setToasts((s) => [...s, { id, ...t }]);
-    setTimeout(() => setToasts((s) => s.filter((x) => x.id !== id)), 4500);
+    const timer = setTimeout(() => {
+      setToasts((s) => s.filter((x) => x.id !== id));
+      toastTimers.current.delete(timer);
+    }, 4500);
+    toastTimers.current.add(timer);
+  }, []);
+
+  useEffect(() => {
+    const timers = toastTimers.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
   }, []);
 
   // --- Per-user settings sync ---
@@ -111,13 +126,29 @@ function Dashboard({ user, onLogout }: DashboardProps) {
     };
   }, [mergeUI]);
 
+  // Only surface a sync failure once per error streak — a persistently
+  // unreachable server shouldn't fire a toast on every settings change.
+  const settingsSyncFailed = useRef(false);
   useEffect(() => {
     if (!settingsHydrated.current) return;
     const t = setTimeout(() => {
-      api.putAccountSettings(ui as unknown as Record<string, unknown>).catch(() => {});
+      api
+        .putAccountSettings(ui as unknown as Record<string, unknown>)
+        .then(() => {
+          settingsSyncFailed.current = false;
+        })
+        .catch(() => {
+          if (settingsSyncFailed.current) return;
+          settingsSyncFailed.current = true;
+          pushToast({
+            level: 'warn',
+            title: 'Einstellungen nicht synchronisiert',
+            body: 'Lokal gespeichert, aber serverseitige Sync schlug fehl.',
+          });
+        });
     }, 800);
     return () => clearTimeout(t);
-  }, [ui]);
+  }, [ui, pushToast]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

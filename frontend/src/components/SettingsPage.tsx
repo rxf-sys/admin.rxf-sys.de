@@ -5,9 +5,11 @@ import {
   CERT_INTERVALS_MS,
   CERT_WARN_DAYS,
   REFRESH_INTERVALS_MS,
+  STORAGE_KEY,
   type UISettings,
 } from '../hooks/useTheme';
 import type { Account, BackupSummary, InstanceInfo, NetworkSnapshot, NtfyConfig, ReportConfig, SmtpConfig, SystemSnapshot, TotpSetup, TotpStatus, TunnelStatus } from '../types';
+import { ConfirmModal } from './ConfirmModal';
 import { Dot, ICONS } from './primitives';
 
 const MIN_PASSWORD_LEN = 8;
@@ -160,6 +162,7 @@ export function SettingsPage({
   appVersion,
 }: Props) {
   const isAdmin = account.role === 'admin';
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   );
@@ -196,12 +199,14 @@ export function SettingsPage({
   );
 
   const clearLocalCache = () => {
-    if (!window.confirm('Lokalen Cache + Verlauf leeren? Theme + Polling-Einstellungen bleiben erhalten.')) return;
+    setConfirmClearOpen(false);
     try {
-      // Wipe everything except the persisted UI settings.
-      const keep = localStorage.getItem('rxf-ui');
+      // Wipe everything except the persisted UI settings. STORAGE_KEY is the
+      // single source of truth (useTheme.ts) — reading the wrong key here used
+      // to silently drop theme + polling prefs despite the dialog promise.
+      const keep = localStorage.getItem(STORAGE_KEY);
       localStorage.clear();
-      if (keep) localStorage.setItem('rxf-ui', keep);
+      if (keep) localStorage.setItem(STORAGE_KEY, keep);
       window.location.reload();
     } catch (e) {
       onError(`Cache-Clear fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`);
@@ -432,7 +437,7 @@ export function SettingsPage({
               <h4>Cache &amp; Verlauf leeren</h4>
               <p className="dim">Alle lokal gespeicherten Probe-Historien entfernen. Theme + Polling bleiben.</p>
             </div>
-            <button type="button" className="btn" onClick={clearLocalCache}>Leeren</button>
+            <button type="button" className="btn" onClick={() => setConfirmClearOpen(true)}>Leeren</button>
           </div>
           <div className="settings-danger-row">
             <div>
@@ -443,6 +448,20 @@ export function SettingsPage({
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmClearOpen}
+        title="Lokalen Cache leeren?"
+        message={
+          <p style={{ margin: 0 }}>
+            Lokaler Cache + Verlauf werden geleert und die Seite neu geladen. Theme- und
+            Polling-Einstellungen <strong>bleiben erhalten</strong>.
+          </p>
+        }
+        confirmLabel="Leeren"
+        onConfirm={clearLocalCache}
+        onCancel={() => setConfirmClearOpen(false)}
+      />
     </section>
   );
 }

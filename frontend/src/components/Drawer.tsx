@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { Guest, GuestTask, ProbeSample, ServiceHistory, ServiceStatus } from '../types';
 import { Dot, ICONS, Num, Sparkline, fmtTimeAgo, fmtUptime } from './primitives';
 import { getServiceHistory } from './ServiceGrid';
@@ -20,6 +21,19 @@ interface AuditEvent {
   [k: string]: unknown;
 }
 
+/** Runtime guard for the untyped /api/events payload — keeps only objects
+ * that actually carry the `ts:number` + `event:string` shape we render, so a
+ * backend change can't crash the drawer on `e.ts`/`e.event`. */
+function parseAuditEvents(raw: Record<string, unknown>[]): AuditEvent[] {
+  return raw.filter(
+    (e): e is AuditEvent =>
+      typeof e === 'object' &&
+      e !== null &&
+      typeof (e as Record<string, unknown>).ts === 'number' &&
+      typeof (e as Record<string, unknown>).event === 'string',
+  );
+}
+
 function badgeLabel(s: ServiceStatus['status']): string {
   return s === 'ok' ? 'HEALTHY' : s === 'warn' ? 'DEGRADED' : s === 'err' ? 'DOWN' : 'IDLE';
 }
@@ -33,6 +47,8 @@ export function Drawer({ open, svc, guests, onClose, isAdmin, onEdit, onDelete }
 
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  useFocusTrap(asideRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -110,12 +126,9 @@ export function Drawer({ open, svc, guests, onClose, isAdmin, onEdit, onDelete }
     api
       .events(50, ctrl.signal)
       .then((r) => {
-        const all = r.events as unknown as AuditEvent[];
-        const filtered = all.filter((e) => {
-          if (typeof e !== 'object' || e === null) return false;
-          const blob = JSON.stringify(e).toLowerCase();
-          return blob.includes(svc.id.toLowerCase());
-        });
+        const all = parseAuditEvents(r.events);
+        const needle = svc.id.toLowerCase();
+        const filtered = all.filter((e) => JSON.stringify(e).toLowerCase().includes(needle));
         setEvents(filtered.slice(0, 8));
       })
       .catch(() => {
@@ -152,6 +165,7 @@ export function Drawer({ open, svc, guests, onClose, isAdmin, onEdit, onDelete }
     <>
       <div className={`drawer-backdrop ${open ? 'open' : ''}`} onClick={onClose} />
       <aside
+        ref={asideRef}
         className={`drawer ${open ? 'open' : ''}`}
         aria-hidden={!open}
         role="dialog"

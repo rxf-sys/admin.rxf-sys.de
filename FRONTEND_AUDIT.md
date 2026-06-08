@@ -3,6 +3,17 @@
 Stand: 2026-06-08 · Branch `claude/affectionate-gauss-bVelI`
 Umfang: `frontend/src` (~9.700 LOC, 30 Komponenten, 6 Hooks, API-Client)
 
+> **Status: alle Funde umgesetzt** (Commit folgt). Kurzüberblick:
+> - **P1** Cache-Key-Bug gefixt (`STORAGE_KEY` exportiert + verwendet), Settings-Sync
+>   feuert jetzt einen Warn-Toast (entdrosselt).
+> - **P2** Alle `window.confirm` (AdminPanel 3×, SettingsPage 1×) → `ConfirmModal`.
+>   `ServiceFormModal` hat `role="dialog"`/`aria-modal`. Neuer `useFocusTrap`-Hook
+>   in allen 4 Modals + Drawer.
+> - **P3** Toast-Timer werden bei Unmount geräumt, `parseAuditEvents`-Runtime-Guard
+>   im Drawer, `ServiceGrid`-History räumt gelöschte Services.
+> - **P4** `@vitest/coverage-v8` + `test:cov`-Script, 19 neue Tests
+>   (`AttentionHero` Health-Logik + `useFocusTrap`). 57/57 grün, ~59% Coverage.
+
 ## Status quo (gut)
 
 - **Tests grün**: 38/38 in 9 Test-Dateien. CI läuft `tsc -b` + `eslint` + `vitest` + `build`.

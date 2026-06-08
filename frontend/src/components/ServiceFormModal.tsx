@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, apiErrorMessage } from '../api/client';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { ServiceInput } from '../types';
 import { ICONS } from './primitives';
 
@@ -27,6 +28,8 @@ export function ServiceFormModal({ mode, editId, initial, onClose, onSaved, onEr
   const [icon, setIcon] = useState(initial?.icon ?? 'cloud');
   const [desc, setDesc] = useState(initial?.desc ?? '');
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFocusTrap(formRef, true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -71,9 +74,17 @@ export function ServiceFormModal({ mode, editId, initial, onClose, onSaved, onEr
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+      <form
+        ref={formRef}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="service-form-title"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={submit}
+      >
         <div className="modal-h">
-          <h3>{mode === 'edit' ? 'Service bearbeiten' : 'Service hinzufügen'}</h3>
+          <h3 id="service-form-title">{mode === 'edit' ? 'Service bearbeiten' : 'Service hinzufügen'}</h3>
           <button className="btn icon" type="button" onClick={onClose} aria-label="Schließen">
             {ICONS.x}
           </button>

@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, apiErrorMessage } from '../api/client';
 import type { Account, AdminSession, ApiToken, CreatedApiToken, Role } from '../types';
+import { ConfirmModal } from './ConfirmModal';
 import { ICONS, fmtTimeAgo } from './primitives';
+
+/** A pending destructive action awaiting confirmation via ConfirmModal. */
+interface ConfirmAction {
+  title: string;
+  message: ReactNode;
+  confirmLabel: string;
+  run: () => Promise<void>;
+}
 
 interface Props {
   /** The currently logged-in admin — used to disable self-destructive actions. */
@@ -20,6 +29,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
   const [creatingToken, setCreatingToken] = useState(false);
   const [revealToken, setRevealToken] = useState<CreatedApiToken | null>(null);
   const [pwTarget, setPwTarget] = useState<Account | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -36,34 +46,58 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
     }
   }, [onError]);
 
-  const revokeToken = async (t: ApiToken) => {
-    if (!window.confirm(`Token „${t.name}" (${t.username}) revoken?`)) return;
-    try {
-      await api.adminDeleteToken(t.id);
-      onInfo(`Token ${t.token_prefix}… revoked`);
-      await load();
-    } catch (e) {
-      onError(apiErrorMessage(e));
-    }
+  const revokeToken = (t: ApiToken) => {
+    setConfirmAction({
+      title: 'Token revoken?',
+      message: (
+        <p style={{ margin: 0 }}>
+          Token <strong>{t.name}</strong> ({t.username}) wird sofort ungültig. Anwendungen,
+          die ihn nutzen, verlieren den Zugriff.
+        </p>
+      ),
+      confirmLabel: 'Revoken',
+      run: async () => {
+        try {
+          await api.adminDeleteToken(t.id);
+          onInfo(`Token ${t.token_prefix}… revoked`);
+          await load();
+        } catch (e) {
+          onError(apiErrorMessage(e));
+        }
+      },
+    });
   };
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const revokeSession = async (s: AdminSession) => {
+  const revokeSession = (s: AdminSession) => {
     const isSelf = s.user_id === currentUserId;
-    const confirmMsg = isSelf
-      ? `Eigene Session „${s.token_prefix}…" beenden? Du wirst sofort ausgeloggt.`
-      : `Session von „${s.username}" (${s.token_prefix}…) revoken?`;
-    if (!window.confirm(confirmMsg)) return;
-    try {
-      await api.adminRevokeSession(s.token_prefix);
-      onInfo(`Session ${s.token_prefix}… revoked`);
-      await load();
-    } catch (e) {
-      onError(apiErrorMessage(e));
-    }
+    setConfirmAction({
+      title: isSelf ? 'Eigene Session beenden?' : 'Session revoken?',
+      message: isSelf ? (
+        <p style={{ margin: 0 }}>
+          Session <span className="mono">{s.token_prefix}…</span> beenden? Du wirst sofort
+          ausgeloggt.
+        </p>
+      ) : (
+        <p style={{ margin: 0 }}>
+          Session von <strong>{s.username}</strong> (<span className="mono">{s.token_prefix}…</span>)
+          revoken? Der Nutzer wird ausgeloggt.
+        </p>
+      ),
+      confirmLabel: isSelf ? 'Ausloggen' : 'Revoken',
+      run: async () => {
+        try {
+          await api.adminRevokeSession(s.token_prefix);
+          onInfo(`Session ${s.token_prefix}… revoked`);
+          await load();
+        } catch (e) {
+          onError(apiErrorMessage(e));
+        }
+      },
+    });
   };
 
   const userCount = users?.length ?? 0;
@@ -84,17 +118,26 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
     }
   };
 
-  const deleteUser = async (u: Account) => {
-    if (!window.confirm(`Konto „${u.username}" wirklich löschen? Das kann nicht rückgängig gemacht werden.`)) {
-      return;
-    }
-    try {
-      await api.adminDeleteUser(u.id);
-      onInfo(`Konto „${u.username}" gelöscht`);
-      await load();
-    } catch (e) {
-      onError(apiErrorMessage(e));
-    }
+  const deleteUser = (u: Account) => {
+    setConfirmAction({
+      title: 'Konto löschen?',
+      message: (
+        <p style={{ margin: 0 }}>
+          Konto <strong>{u.username}</strong> wird endgültig gelöscht. Das kann{' '}
+          <strong>nicht rückgängig</strong> gemacht werden.
+        </p>
+      ),
+      confirmLabel: 'Löschen',
+      run: async () => {
+        try {
+          await api.adminDeleteUser(u.id);
+          onInfo(`Konto „${u.username}" gelöscht`);
+          await load();
+        } catch (e) {
+          onError(apiErrorMessage(e));
+        }
+      },
+    });
   };
 
   return (
@@ -386,6 +429,20 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
           onError={onError}
         />
       )}
+
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title ?? ''}
+        message={confirmAction?.message ?? null}
+        confirmLabel={confirmAction?.confirmLabel ?? 'Bestätigen'}
+        danger
+        onConfirm={() => {
+          const action = confirmAction;
+          setConfirmAction(null);
+          void action?.run();
+        }}
+        onCancel={() => setConfirmAction(null)}
+      />
     </section>
   );
 }

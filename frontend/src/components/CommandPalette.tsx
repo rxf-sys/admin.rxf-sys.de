@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { Section } from '../hooks/useSection';
 import type { Guest, ServiceStatus } from '../types';
 import { Dot, ICONS } from './primitives';
@@ -67,6 +68,8 @@ export function CommandPalette({
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, open);
 
   const allActions = useMemo<CommandAction[]>(() => {
     const out: CommandAction[] = [];
@@ -215,7 +218,7 @@ export function CommandPalette({
       aria-modal="true"
       aria-label="Befehlspalette"
     >
-      <div className="cmdk" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="cmdk" onClick={(e) => e.stopPropagation()}>
         <div className="cmdk-input-wrap">
           <span className="cmdk-search-icon" aria-hidden="true">
             {ICONS.search ?? '⌕'}

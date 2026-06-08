@@ -32,7 +32,9 @@ export interface UISettings {
   certWarnDays: CertWarnDays;
 }
 
-const STORAGE_KEY = 'rxf-admin-ui';
+/** localStorage key for persisted UI settings. Exported so the settings
+ * page can preserve it across a "clear local cache" wipe. */
+export const STORAGE_KEY = 'rxf-admin-ui';
 const DEFAULTS: UISettings = {
   theme: 'auto',
   density: 'compact',

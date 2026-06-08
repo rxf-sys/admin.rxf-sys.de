@@ -48,7 +48,7 @@ const HEALTH_WEIGHTS = {
   tunnel_down: 15,
 } as const;
 
-function deriveAlerts(p: Props): Alert[] {
+export function deriveAlerts(p: Props): Alert[] {
   const out: Alert[] = [];
   for (const g of p.guests) {
     const ramPct = g.ram_total_b > 0 ? (g.ram_used_b / g.ram_total_b) * 100 : 0;
@@ -146,7 +146,7 @@ function deriveAlerts(p: Props): Alert[] {
   return out;
 }
 
-function computeHealth(alerts: Alert[]): number {
+export function computeHealth(alerts: Alert[]): number {
   let penalty = 0;
   for (const a of alerts) {
     if (a.id.startsWith('svc-')) penalty += a.level === 'crit' ? HEALTH_WEIGHTS.svc_err : HEALTH_WEIGHTS.svc_warn;

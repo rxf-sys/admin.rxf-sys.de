@@ -23,6 +23,7 @@ node_modules/
 dist/
 .vite/
 *.tsbuildinfo
+coverage/
 
 # --- IDE / OS ---
 .idea/
