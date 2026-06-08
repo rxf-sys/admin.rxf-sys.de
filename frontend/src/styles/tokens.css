@@ -224,7 +224,11 @@ html, body {
 .btn.primary { background: var(--accent); color: #1a1d2e; border-color: transparent; font-weight: 600; }
 .btn.primary:hover { background: var(--accent-2); color: #1a1d2e; }
 .btn.icon { width: 30px; padding: 0; justify-content: center; }
-.btn.icon svg { width: 15px; height: 15px; }
+/* Default sizing for any svg inside a button — without this, inline SVGs
+ * with only a viewBox render at the UA default (often 300×150) and overflow
+ * the button, which is what made the header refresh/pause/snapshot buttons
+ * look empty on a 30 px chip. */
+.btn svg { width: 15px; height: 15px; flex-shrink: 0; }
 .btn.danger:hover { background: var(--err-soft); color: var(--err); border-color: var(--err); }
 .btn.ghost { background: transparent; border-color: transparent; }
 .btn.ghost:hover { background: var(--surface-3); }

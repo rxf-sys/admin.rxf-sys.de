@@ -361,11 +361,25 @@ function Dashboard({ user, onLogout }: DashboardProps) {
     if (g) setLogsGuest(g);
   };
 
+  // Apply the resolved theme on <html>, not the dashboard wrapper, so the
+  // light overrides in tokens.css cascade to body, scrollbars, modal/drawer
+  // portals (which render outside .dashboard) and the document background.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = resolvedTheme;
+    root.dataset.themePref = ui.theme;
+    return () => {
+      delete root.dataset.theme;
+      delete root.dataset.themePref;
+    };
+  }, [resolvedTheme, ui.theme]);
+
   const onToggleTheme = useCallback(() => {
-    const order: ('dark' | 'light' | 'auto')[] = ['dark', 'light', 'auto'];
-    const next = order[(order.indexOf(ui.theme) + 1) % order.length];
-    setUI('theme', next);
-  }, [ui.theme, setUI]);
+    // Simple toggle: flip the currently-rendered theme. "auto" stays
+    // accessible via the settings page; clicking the header button always
+    // produces a visible, predictable change.
+    setUI('theme', resolvedTheme === 'dark' ? 'light' : 'dark');
+  }, [resolvedTheme, setUI]);
 
   const doLogout = useCallback(async () => {
     await onLogout();
@@ -374,8 +388,6 @@ function Dashboard({ user, onLogout }: DashboardProps) {
   return (
     <div
       className="dashboard"
-      data-theme={resolvedTheme}
-      data-theme-pref={ui.theme}
       data-density={ui.density}
       data-reduce-motion={ui.reduceMotion ? '1' : undefined}
       data-section={section}
@@ -391,7 +403,6 @@ function Dashboard({ user, onLogout }: DashboardProps) {
         paused={paused}
         onTogglePause={() => setPaused((p) => !p)}
         onSnapshot={onSnapshot}
-        onOpenSettings={() => setSection('settings')}
         onToggleTheme={onToggleTheme}
         isDarkTheme={resolvedTheme === 'dark'}
         instanceName={instance?.instance_name}

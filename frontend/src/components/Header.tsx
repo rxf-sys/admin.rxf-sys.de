@@ -11,7 +11,6 @@ interface HeaderProps {
   paused: boolean;
   onTogglePause: () => void;
   onSnapshot: () => void;
-  onOpenSettings: () => void;
   onToggleTheme: () => void;
   isDarkTheme: boolean;
   /** Branding name shown in the logo; falls back to 'rxf-sys'. */
@@ -115,15 +114,6 @@ export function Header(p: HeaderProps) {
           type="button"
         >
           {p.isDarkTheme ? ICONS.sun : ICONS.moon}
-        </button>
-        <button
-          className="btn icon"
-          onClick={p.onOpenSettings}
-          title="Einstellungen"
-          aria-label="Einstellungen"
-          type="button"
-        >
-          {ICONS.settings}
         </button>
         <div className="avatar" title={p.email ?? 'unbekannt'}>{initials}</div>
       </div>

@@ -24,13 +24,35 @@ interface Props {
   onInspectGuest?: (id: number) => void;
 }
 
-const HEALTH_WEIGHTS = { svc_err: 15, svc_warn: 6, ram_crit: 12, ram_warn: 5, cert_crit: 10, cert_warn: 4, backup_fail: 8, tunnel_down: 15 } as const;
+// Health-Score-Schwellen — die Wahl bestimmt, wann ein Gast einen Alert
+// triggert UND wie viele Punkte er vom Health-Score abzieht.
+//   RAM > 90 %  ⇒ crit  (–12)   — Risiko von OOM-Kills bei VM/CT
+//   RAM > 80 %  ⇒ warn (–5)     — sollte zeitnah angeschaut werden
+//   CPU > 90 %  ⇒ warn (–4)     — Dauerlast, evtl. Engpass
+// Service-Probes (err/warn), Cert-Ablauf, PBS-Erreichbarkeit und
+// Cloudflare-Tunnel ergänzen die Gesamtwertung. Score = 100 − Σ penalty,
+// auf [0, 100] gekappt.
+const RAM_CRIT_PCT = 90;
+const RAM_WARN_PCT = 80;
+const CPU_WARN_PCT = 90;
+
+const HEALTH_WEIGHTS = {
+  svc_err: 15,
+  svc_warn: 6,
+  ram_crit: 12,
+  ram_warn: 5,
+  cpu_warn: 4,
+  cert_crit: 10,
+  cert_warn: 4,
+  backup_fail: 8,
+  tunnel_down: 15,
+} as const;
 
 function deriveAlerts(p: Props): Alert[] {
   const out: Alert[] = [];
   for (const g of p.guests) {
     const ramPct = g.ram_total_b > 0 ? (g.ram_used_b / g.ram_total_b) * 100 : 0;
-    if (ramPct > 95) {
+    if (ramPct > RAM_CRIT_PCT) {
       out.push({
         id: `ram-${g.id}`,
         level: 'crit',
@@ -41,7 +63,18 @@ function deriveAlerts(p: Props): Alert[] {
         actions: ['inspect', 'restart'],
         onClick: () => p.onInspectGuest?.(g.id),
       });
-    } else if (g.cpu_pct > 90) {
+    } else if (ramPct > RAM_WARN_PCT) {
+      out.push({
+        id: `ram-${g.id}`,
+        level: 'warn',
+        target: g.name,
+        sub: g.ip ?? `CT/VM ${g.id}`,
+        msg: `RAM-Auslastung erhöht (${Math.round(ramPct)}%)`,
+        iso: null,
+        actions: ['inspect'],
+        onClick: () => p.onInspectGuest?.(g.id),
+      });
+    } else if (g.cpu_pct > CPU_WARN_PCT) {
       out.push({
         id: `cpu-${g.id}`,
         level: 'warn',
@@ -117,8 +150,8 @@ function computeHealth(alerts: Alert[]): number {
   let penalty = 0;
   for (const a of alerts) {
     if (a.id.startsWith('svc-')) penalty += a.level === 'crit' ? HEALTH_WEIGHTS.svc_err : HEALTH_WEIGHTS.svc_warn;
-    else if (a.id.startsWith('ram-')) penalty += HEALTH_WEIGHTS.ram_crit;
-    else if (a.id.startsWith('cpu-')) penalty += HEALTH_WEIGHTS.ram_warn;
+    else if (a.id.startsWith('ram-')) penalty += a.level === 'crit' ? HEALTH_WEIGHTS.ram_crit : HEALTH_WEIGHTS.ram_warn;
+    else if (a.id.startsWith('cpu-')) penalty += HEALTH_WEIGHTS.cpu_warn;
     else if (a.id.startsWith('cert-')) penalty += a.level === 'crit' ? HEALTH_WEIGHTS.cert_crit : HEALTH_WEIGHTS.cert_warn;
     else if (a.id.startsWith('backup-')) penalty += HEALTH_WEIGHTS.backup_fail;
     else if (a.id.startsWith('tunnel-')) penalty += a.level === 'crit' ? HEALTH_WEIGHTS.tunnel_down : HEALTH_WEIGHTS.cert_warn;

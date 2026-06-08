@@ -132,6 +132,14 @@ function deriveIntegrations(
           ? 'Cookie auth'
           : network?.error ?? '—',
     },
+    {
+      name: 'UniFi Site Manager',
+      endpoint: 'Pull · api.ui.com',
+      reachable: network?.isp_metrics ? true : null,
+      detail: network?.isp_metrics
+        ? `ISM aktiv · ${network.isp_metrics.isp_name ?? 'ISP n/a'}`
+        : 'API-Key in der .env (UNIFI_SITE_MANAGER_API_KEY) hinterlegen',
+    },
   ];
 }
 

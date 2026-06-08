@@ -147,6 +147,16 @@ export interface UnifiDevice {
   ports_total: number | null;
 }
 
+export interface IspMetrics {
+  isp_name: string | null;
+  latency_ms: number | null;
+  jitter_ms: number | null;
+  packet_loss_pct: number | null;
+  download_mbit: number | null;
+  upload_mbit: number | null;
+  host_name: string | null;
+}
+
 export interface NetworkSnapshot {
   wan_ip: string | null;
   isp: string | null;
@@ -159,6 +169,7 @@ export interface NetworkSnapshot {
   clients_wired: number;
   clients_wireless: number;
   devices: UnifiDevice[];
+  isp_metrics: IspMetrics | null;
   reachable: boolean;
   error: string | null;
   auth_mode: 'api-key' | 'cookie' | 'none';
