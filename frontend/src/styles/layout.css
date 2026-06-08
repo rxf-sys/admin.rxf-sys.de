@@ -697,11 +697,153 @@
 .modal-h h3 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-3); }
 .modal-b { padding: 14px 18px; overflow-y: auto; }
 
-.cmdk-input { width: 100%; }
-.cmdk-list { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; }
-.cmdk-list li { padding: 8px 12px; border-radius: var(--r-2); cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
-.cmdk-list li.active, .cmdk-list li:hover { background: var(--surface-3); color: var(--text-1); }
-.cmdk-list .cmdk-section { font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-4); padding: 8px 12px 4px; }
+/* ============ COMMAND PALETTE (Cmd/Ctrl-K) ============ */
+.cmdk-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 200;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 100px 16px 16px;
+}
+.cmdk {
+  width: min(620px, 100%);
+  max-height: calc(100vh - 140px);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.cmdk-input-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
+}
+.cmdk-search-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.cmdk-search-icon svg { width: 16px; height: 16px; }
+.cmdk-input {
+  flex: 1;
+  height: 28px;
+  background: transparent;
+  border: 0;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.cmdk-input::placeholder { color: var(--text-4); }
+.cmdk-kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.cmdk-empty {
+  padding: 28px 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-4);
+}
+.cmdk-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.cmdk-list > .cmdk-group { padding: 4px 0 8px; }
+.cmdk-list > .cmdk-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cmdk-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-4);
+  padding: 4px 10px;
+}
+.cmdk-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 13px;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.cmdk-row.active,
+.cmdk-row:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+.cmdk-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  color: var(--text-4);
+}
+.cmdk-mark.mono { font-family: var(--font-mono); }
+.cmdk-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmdk-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+.cmdk-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-1);
+  font-size: 11px;
+  color: var(--text-4);
+}
+.cmdk-foot kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  color: var(--text-3);
+  margin-right: 3px;
+}
+
+@media (max-width: 700px) {
+  .cmdk-backdrop { padding: 60px 12px 12px; }
+  .cmdk-hint { display: none; }
+  .cmdk-foot { gap: 10px; flex-wrap: wrap; }
+}
 
 .kbd-grid { display: grid; grid-template-columns: 1fr auto; gap: 6px 18px; font-size: 12.5px; }
 .kbd-grid kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 2px 6px; background: var(--surface-3); border: 1px solid var(--border-2); border-radius: 3px; }

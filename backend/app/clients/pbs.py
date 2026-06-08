@@ -224,8 +224,13 @@ async def fetch_backup_summary(settings: Settings) -> BackupSummary:
 
     jobs.sort(key=lambda j: j.when_iso, reverse=True)
 
+    # Return every snapshot inside the PBS retention window — the heatmap +
+    # storage-by-guest aggregations need full coverage, and the jobs table on
+    # the frontend already paginates client-side. A previous ``jobs[:30]``
+    # cap meant heavy installs (12+ guests × daily backups) only ever saw
+    # ~2 days of history regardless of the 30-day chart range.
     return BackupSummary(
-        jobs=jobs[:30],
+        jobs=jobs,
         datastore=datastore,
         last_success_iso=(
             datetime.fromtimestamp(last_success, tz=timezone.utc).isoformat() if last_success else None

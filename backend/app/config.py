@@ -79,6 +79,18 @@ class Settings(BaseSettings):
     unifi_site: str = "default"
     unifi_verify_tls: bool = False
 
+    # ---- UniFi Site Manager API (api.ui.com) ----
+    # Cloud-side companion API. Generate a key at unifi.ui.com →
+    # Settings → Control Plane → Integrations → API Keys. Fills in the
+    # data the local Integration API does not expose: ISP name + live
+    # WAN throughput / latency / jitter / packet loss. Leave empty to
+    # disable — the panel then falls back to GeoIP-based ISP lookup
+    # without throughput metrics.
+    unifi_site_manager_api_key: str = ""
+    # When you manage multiple consoles, restrict to one host id. Empty =
+    # first host returned by the API.
+    unifi_site_manager_host_id: str = ""
+
     # ---- Service probes ----
     # Maps subdomain -> internal LAN URL for the "INT" reachability check.
     # Public host is derived as <name>.{cf_zone_name}.

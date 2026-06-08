@@ -155,6 +155,24 @@ class UnifiDevice(BaseModel):
     ports_total: int | None = None
 
 
+class IspMetrics(BaseModel):
+    """Internet Status Monitor sample from the Site Manager API.
+
+    All fields are optional — the controller only reports them when an ISM
+    speed test has run on the WAN port.
+    """
+
+    isp_name: str | None = None
+    latency_ms: float | None = None
+    jitter_ms: float | None = None
+    packet_loss_pct: float | None = None
+    download_mbit: float | None = None
+    upload_mbit: float | None = None
+    # Cloud host label (e.g. "rxf-ucg"); useful for the dashboard sub-badge
+    # so the user can see *which* console reported the sample.
+    host_name: str | None = None
+
+
 class NetworkSnapshot(BaseModel):
     wan_ip: str | None = None
     isp: str | None = None
@@ -167,6 +185,8 @@ class NetworkSnapshot(BaseModel):
     clients_wired: int = 0
     clients_wireless: int = 0
     devices: list[UnifiDevice] = Field(default_factory=list)
+    # Populated from the Site Manager API when a key is configured.
+    isp_metrics: IspMetrics | None = None
     reachable: bool = True
     error: str | None = None
     auth_mode: Literal["api-key", "cookie", "none"] = "none"
