@@ -136,6 +136,7 @@ export interface UnifiDevice {
   name: string;
   model: string | null;
   ip: string | null;
+  mac: string | null;
   state: string;
   firmware: string | null;
   is_gateway: boolean;
@@ -149,11 +150,14 @@ export interface UnifiDevice {
 
 export interface IspMetrics {
   isp_name: string | null;
+  isp_asn: string | null;
+  public_ip: string | null;
   latency_ms: number | null;
   jitter_ms: number | null;
   packet_loss_pct: number | null;
   download_mbit: number | null;
   upload_mbit: number | null;
+  uptime_pct: number | null;
   host_name: string | null;
 }
 

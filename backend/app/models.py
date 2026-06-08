@@ -141,6 +141,9 @@ class UnifiDevice(BaseModel):
     name: str
     model: str | None = None
     ip: str | None = None
+    # MAC is the only stable cross-API key (legacy stat/device uses MAC,
+    # Integration v1 uses a UUID), so we keep it to merge the two.
+    mac: str | None = None
     state: str = "UNKNOWN"
     firmware: str | None = None
     is_gateway: bool = False
@@ -163,11 +166,17 @@ class IspMetrics(BaseModel):
     """
 
     isp_name: str | None = None
+    isp_asn: str | None = None
+    public_ip: str | None = None
     latency_ms: float | None = None
     jitter_ms: float | None = None
     packet_loss_pct: float | None = None
     download_mbit: float | None = None
     upload_mbit: float | None = None
+    # 0-100 — percentage of the sampling window the WAN link was up. Useful
+    # as a sanity badge when latency / loss look fine but the customer is
+    # complaining.
+    uptime_pct: float | None = None
     # Cloud host label (e.g. "rxf-ucg"); useful for the dashboard sub-badge
     # so the user can see *which* console reported the sample.
     host_name: str | None = None
