@@ -341,12 +341,14 @@ async def _try_integration(
             wan_ip = d.get("ipAddress")
         dev_id = d.get("id") or ""
         stats = detail if isinstance(detail, dict) else {}
+        mac = d.get("macAddress") or d.get("mac")
         devices.append(
             UnifiDevice(
                 id=str(dev_id),
                 name=str(d.get("name") or d.get("model") or "?"),
                 model=d.get("model"),
                 ip=d.get("ipAddress"),
+                mac=str(mac).lower() if mac else None,
                 state=str(d.get("state") or "UNKNOWN"),
                 firmware=d.get("firmwareVersion"),
                 is_gateway=is_gw,
@@ -503,6 +505,123 @@ async def _try_legacy(
     )
 
 
+async def _enrich_with_legacy(
+    client: httpx.AsyncClient, settings: Settings, snap: NetworkSnapshot
+) -> NetworkSnapshot:
+    """Augment an Integration-API snapshot with data the public API omits.
+
+    On UniFi OS 4.x the Integration API does not return per-device CPU/MEM
+    nor live WAN throughput. The legacy cookie-auth endpoints still do, so
+    when local-admin credentials are configured we fetch them on the side
+    and patch the snapshot. The integration auth_mode is preserved — the
+    front-end source-badge still reads "Integration API".
+    """
+    if not (settings.unifi_username and settings.unifi_password):
+        return snap
+
+    site = settings.unifi_site
+    try:
+        device_r = await _legacy_request(
+            client, settings, "GET", f"/proxy/network/api/s/{site}/stat/device"
+        )
+        health_r = await _legacy_request(
+            client, settings, "GET", f"/proxy/network/api/s/{site}/stat/health"
+        )
+    except (httpx.HTTPError, asyncio.TimeoutError) as e:
+        log.info("unifi.legacy_enrich_failed", error=str(e))
+        return snap
+
+    update: dict[str, object] = {}
+
+    # WAN throughput / link speed from /stat/health WAN subsystem.
+    try:
+        for sub in health_r.json().get("data", []):
+            if sub.get("subsystem") != "wan":
+                continue
+            if sub.get("rx-bytes-r") is not None:
+                update["throughput_down_mbit"] = round(
+                    float(sub["rx-bytes-r"]) * 8 / 1_000_000, 2
+                )
+            if sub.get("tx-bytes-r") is not None:
+                update["throughput_up_mbit"] = round(
+                    float(sub["tx-bytes-r"]) * 8 / 1_000_000, 2
+                )
+            if sub.get("xput_down"):
+                update["link_down_mbit"] = float(sub["xput_down"])
+            if sub.get("xput_up"):
+                update["link_up_mbit"] = float(sub["xput_up"])
+            if not snap.isp and sub.get("isp_name"):
+                update["isp"] = sub["isp_name"]
+            break
+    except (ValueError, KeyError):
+        pass
+
+    # Per-device CPU / MEM from /stat/device. Map by MAC since the
+    # Integration device id is a UUID that legacy doesn't know about.
+    try:
+        legacy_devices = device_r.json().get("data", [])
+    except ValueError:
+        legacy_devices = []
+
+    by_mac: dict[str, dict] = {}
+    for d in legacy_devices:
+        mac = (d.get("mac") or "").lower()
+        if mac:
+            by_mac[mac] = d
+
+    if by_mac and snap.devices:
+        new_devices = []
+        any_updated = False
+        for dev in snap.devices:
+            legacy = by_mac.get(dev.mac) if dev.mac else None
+            if legacy is None:
+                # MAC missing or unmatched (gateway WAN IP confusion) —
+                # fall back to IP for APs, which share the same LAN address
+                # in both APIs.
+                legacy = next(
+                    (d for d in legacy_devices if d.get("ip") == dev.ip),
+                    None,
+                )
+            if legacy is None:
+                new_devices.append(dev)
+                continue
+            sys_stats = (
+                legacy.get("system-stats")
+                or legacy.get("sys-stats")
+                or {}
+            )
+            cpu_raw = sys_stats.get("cpu") if isinstance(sys_stats, dict) else None
+            mem_raw = sys_stats.get("mem") if isinstance(sys_stats, dict) else None
+            try:
+                cpu_val = float(cpu_raw) if cpu_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                cpu_val = None
+            try:
+                mem_val = float(mem_raw) if mem_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                mem_val = None
+            if cpu_val is None and mem_val is None:
+                new_devices.append(dev)
+                continue
+            any_updated = True
+            new_devices.append(
+                dev.model_copy(
+                    update={
+                        "cpu_pct": round(cpu_val, 1) if cpu_val is not None else dev.cpu_pct,
+                        "mem_pct": round(mem_val, 1) if mem_val is not None else dev.mem_pct,
+                        "uptime_s": int(legacy.get("uptime") or dev.uptime_s),
+                    }
+                )
+            )
+        if any_updated:
+            update["devices"] = new_devices
+
+    if update:
+        log.info("unifi.legacy_enrich_ok", patched=list(update.keys()))
+        return snap.model_copy(update=update)
+    return snap
+
+
 async def fetch_network_snapshot(settings: Settings) -> NetworkSnapshot:
     if not (
         settings.unifi_api_key
@@ -517,7 +636,7 @@ async def fetch_network_snapshot(settings: Settings) -> NetworkSnapshot:
     async with httpx.AsyncClient(verify=settings.unifi_verify_tls, timeout=8.0) as client:
         snap = await _try_integration(client, settings)
         if snap is not None and snap.reachable:
-            return snap
+            return await _enrich_with_legacy(client, settings, snap)
 
         snap2 = await _try_legacy(client, settings)
         if snap2 is not None:
