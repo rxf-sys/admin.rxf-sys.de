@@ -1,7 +1,7 @@
 /* v2 sections + drawer + settings — 1:1 from handoff/reference/v2/layout-extra.css */
 
 /* ============ GRID HELPERS — for nested 12-col layouts inside sections ============ */
-.grid-12 { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+.grid-12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; min-width: 0; }
 .col-1  { grid-column: span 1; }
 .col-2  { grid-column: span 2; }
 .col-3  { grid-column: span 3; }
@@ -13,15 +13,15 @@
 .col-9  { grid-column: span 9; }
 .col-10 { grid-column: span 10; }
 .col-11 { grid-column: span 11; }
-.col-12 { grid-column: span 12; }
+.col-12 { grid-column: 1 / -1; }
 
 @media (max-width: 1100px) {
-  .grid-12 { grid-template-columns: repeat(6, 1fr); }
-  .col-5, .col-6, .col-7, .col-8 { grid-column: span 6; }
+  .grid-12 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .col-3, .col-4, .col-5, .col-6, .col-7, .col-8, .col-9, .col-10, .col-11 { grid-column: span 6; }
 }
 @media (max-width: 700px) {
   .grid-12 { grid-template-columns: 1fr; }
-  .col-1, .col-2, .col-3, .col-4, .col-5, .col-6, .col-7, .col-8, .col-9, .col-10, .col-11, .col-12 { grid-column: span 1; }
+  .col-1, .col-2, .col-3, .col-4, .col-5, .col-6, .col-7, .col-8, .col-9, .col-10, .col-11 { grid-column: 1 / -1; }
 }
 
 /* ============ KV STACK ============ */
@@ -70,8 +70,8 @@
 .vlan-bar > div { height: 100%; border-radius: 3px; transition: width var(--t-med); }
 
 /* Network / Backup / Cloudflare section column shorthands */
-.network-section, .backup-section, .cloudflare-section { grid-column: span 12; }
-.server-section { grid-column: span 12; display: flex; flex-direction: column; gap: 16px; }
+.network-section, .backup-section, .cloudflare-section { grid-column: 1 / -1; min-width: 0; }
+.server-section { grid-column: 1 / -1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 /* In the Server tab the KPI strip stretches full width — 4 KPIs in one row
  * (collapses to 2x2 at narrow viewports). The default .kpi-strip in
  * .quick-stats (Overview) stays 2x2 since it lives in a 33% sidebar. */
@@ -306,7 +306,7 @@
 .settings-layout { display: contents; }
 /* Single-page settings layout (sidebar-nav was removed in favour of an
  * all-cards-visible page that matches the Konten / Audit tabs). */
-.settings-section { grid-column: span 12; }
+.settings-section { grid-column: 1 / -1; min-width: 0; }
 .settings-section-h + .settings-row { margin-top: 4px; }
 
 /* Integrationen — one row per upstream with a status badge on the right */
@@ -603,8 +603,13 @@
 .login-foot { font-size: 11px; color: var(--text-4); font-family: var(--font-mono); }
 
 /* ============ ADMIN · user management ============ */
-.admin-section { grid-column: span 12; }
-.audit-section { grid-column: span 12; }
+.admin-section { grid-column: 1 / -1; min-width: 0; }
+.audit-section { grid-column: 1 / -1; min-width: 0; }
+
+/* Horizontal scroll utility for wide tables (user/admin lists, jobs). */
+.card-scroll-x { overflow-x: auto; }
+.card-scroll-x > table { min-width: 640px; }
+.job-table { min-width: 640px; }
 .admin-kpi {
   display: flex;
   flex-direction: column;

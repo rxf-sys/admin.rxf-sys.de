@@ -187,16 +187,18 @@
   margin: 0 auto;
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 20px;
+  min-width: 0;
 }
 
 /* Section title block — large heading + breadcrumb at top of main */
 .section-title-block {
-  grid-column: span 12;
+  grid-column: 1 / -1;
   display: flex; flex-direction: column;
   gap: 2px;
   margin: 0 0 4px;
+  min-width: 0;
 }
 .section-title-block h1 {
   margin: 0;
@@ -217,7 +219,7 @@
 .dash-section-head {
   display: flex; align-items: baseline; justify-content: space-between;
   margin: 8px 0 0;
-  grid-column: span 12;
+  grid-column: 1 / -1;
 }
 .dash-section-head h2 {
   margin: 0;
@@ -232,9 +234,9 @@
 
 /* ============ ATTENTION HERO ============ */
 .attention {
-  grid-column: span 12;
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
   gap: 16px;
   padding: 20px 24px;
   background: var(--surface-2);
@@ -260,7 +262,10 @@
   text-transform: uppercase;
   color: var(--text-3);
   font-weight: 600;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
+.health-score { min-width: 0; }
 .health-score-value {
   display: flex; align-items: baseline; gap: 8px;
   font-family: var(--font-display);
@@ -408,6 +413,8 @@
 .host-row .row-value .val-sub { color: var(--text-3); font-weight: 500; }
 .host-row .row-value .val-strong { font-weight: 700; }
 .host-row .row-bar {
+  display: block;
+  width: 100%;
   height: 6px;
   background: var(--surface-4);
   border-radius: 999px;
@@ -415,6 +422,7 @@
   position: relative;
 }
 .host-row .row-bar .fill {
+  display: block;
   height: 100%;
   border-radius: 999px;
   background: var(--ok);
@@ -495,7 +503,12 @@
   position: relative;
   overflow: hidden;
 }
-.kpi-label { font-size: 10.5px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-3); font-weight: 600; }
+.kpi-label {
+  font-size: 10.5px; letter-spacing: 0.6px;
+  text-transform: uppercase; color: var(--text-3); font-weight: 600;
+  white-space: normal; overflow-wrap: break-word; word-break: break-word;
+  min-width: 0;
+}
 .kpi-value {
   font-family: var(--font-mono);
   font-size: 22px; font-weight: 700;
@@ -539,7 +552,7 @@
 .activity-row .a-time { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-4); white-space: nowrap; }
 
 /* ============ SERVICE GRID — richer tiles ============ */
-.svc-section { grid-column: span 12; }
+.svc-section { grid-column: 1 / -1; min-width: 0; }
 .svc-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -619,8 +632,9 @@
 }
 
 /* ============ VM TABLE — sticky header, problem rows ============ */
-.vm-section { grid-column: span 12; }
-.vm-table-wrap { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-3); overflow: hidden; }
+.vm-section { grid-column: 1 / -1; min-width: 0; }
+.vm-table-wrap { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-3); overflow-x: auto; overflow-y: hidden; }
+.vm-table { min-width: 720px; }
 .vm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .vm-table thead th {
   text-align: left;
@@ -702,19 +716,31 @@
 .toast strong { font-size: 13px; }
 .toast small { font-size: 11.5px; color: var(--text-3); }
 
-/* Tablet breakpoint */
+/* Tablet breakpoint — collapse multi-column layouts and stack the
+ * host-panel / quick-stats pairing instead of squeezing it. */
 @media (max-width: 1100px) {
-  .dash-main { grid-template-columns: repeat(6, 1fr); }
-  .attention { grid-template-columns: 1fr; grid-column: span 6; }
-  .host-panel { grid-column: span 6; grid-template-columns: 1fr 1fr; }
-  .quick-stats { grid-column: span 6; }
-  .svc-section, .vm-section { grid-column: span 6; }
-  .svc-grid { grid-template-columns: repeat(2, 1fr); }
+  .dash-main { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .attention { grid-template-columns: 1fr; }
+  .host-panel { grid-column: 1 / -1; }
+  .quick-stats { grid-column: 1 / -1; }
+  .svc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .health-score-desc { max-width: none; }
 }
 
 @media (max-width: 700px) {
-  .dash-header { grid-template-columns: 1fr auto; padding: 10px 14px; }
+  .dash-header { grid-template-columns: 1fr auto; padding: 10px 14px; gap: 8px; }
   .hdr-mid { display: none; }
+  .hdr-left { min-width: 0; }
+  .hdr-left .hdr-sep, .hdr-left .hdr-crumb { display: none; }
+  .hdr-right { gap: 4px; }
+  /* Collapse the cmd-K trigger to an icon-only chip. */
+  .cmdk-trigger { min-width: 0; padding: 0 8px; gap: 0; }
+  .cmdk-trigger span, .cmdk-trigger kbd { display: none; }
+  /* Trim the refresh/pause/snapshot toolbar to just the refresh button. */
+  .hdr-group .sep,
+  .hdr-group .btn[aria-label*="pausieren"i],
+  .hdr-group .btn[aria-label*="fortsetzen"i],
+  .hdr-group .btn[aria-label*="Snapshot"i] { display: none; }
   .dash-main { grid-template-columns: 1fr; padding: 16px 14px 40px; }
   .host-panel { padding: 14px 16px; }
   .host-row { grid-template-columns: 48px minmax(96px, auto) 1fr; gap: 10px; }

@@ -86,7 +86,9 @@ export function BackupsSection({ backups, guests, onVerify, onOpenGuest }: Props
               <h3>Jobs heute <span className="h3-sub">· {backups?.jobs.length ?? 0} Einträge</span></h3>
             </div>
           </div>
-          <JobsTable backups={backups} guests={guests} onVerify={onVerify} onOpenGuest={onOpenGuest} />
+          <div className="card-scroll-x">
+            <JobsTable backups={backups} guests={guests} onVerify={onVerify} onOpenGuest={onOpenGuest} />
+          </div>
         </div>
       </div>
     </section>

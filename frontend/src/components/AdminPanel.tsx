@@ -138,7 +138,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
       </div>
 
       <div className="grid-12" style={{ marginBottom: 16 }}>
-        <div className="card col-12" style={{ padding: 0 }}>
+        <div className="card col-12 card-scroll-x" style={{ padding: 0 }}>
           {users === null ? (
             <div className="dim" style={{ fontSize: 12, padding: 18 }}>Lade Konten…</div>
           ) : (
@@ -247,7 +247,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
       </div>
 
       <div className="grid-12">
-        <div className="card col-12" style={{ padding: 0 }}>
+        <div className="card col-12 card-scroll-x" style={{ padding: 0 }}>
           {sessions === null ? (
             <div className="dim" style={{ fontSize: 12, padding: 18 }}>Lade Sessions…</div>
           ) : sessions.length === 0 ? (
@@ -307,7 +307,7 @@ export function AdminPanel({ currentUserId, onError, onInfo }: Props) {
       </div>
 
       <div className="grid-12">
-        <div className="card col-12" style={{ padding: 0 }}>
+        <div className="card col-12 card-scroll-x" style={{ padding: 0 }}>
           {tokens === null ? (
             <div className="dim" style={{ fontSize: 12, padding: 18 }}>Lade Tokens…</div>
           ) : tokens.length === 0 ? (
