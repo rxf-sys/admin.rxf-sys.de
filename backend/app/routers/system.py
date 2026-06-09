@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from .. import registry, storage
 from ..audit import record as audit_record
-from ..auth import require_admin, verify_session
+from ..auth import require_admin, require_role, verify_session
 from ..cache import cache
 from ..clients import pbs, proxmox
 from ..config import Settings, get_settings
@@ -90,8 +90,10 @@ async def restart(
     request: Request,
     type: str = "lxc",
     settings: Settings = Depends(get_settings),
-    claims: dict = Depends(verify_session),
+    claims: dict = Depends(require_role("admin", "operator")),
 ) -> dict:
+    """Restart a single LXC / VM. Operator+ only — a viewer can't disrupt
+    running workloads."""
     if type not in ("lxc", "qemu", "ct", "vm"):
         raise HTTPException(status_code=400, detail="type must be lxc|qemu|ct|vm")
     actor = claims.get("email") or claims.get("username") or "unknown"

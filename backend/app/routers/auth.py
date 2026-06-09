@@ -28,7 +28,25 @@ _WINDOW_S = 300
 _fails: dict[str, list[float]] = {}
 
 
-def _client_ip(request: Request) -> str:
+def _client_ip(request: Request, settings: Settings | None = None) -> str:
+    """Best-effort client-IP extraction for per-IP rate limiting.
+
+    When ``trust_proxy_headers`` is on we prefer headers a known reverse
+    proxy will set (CF-Connecting-IP from Cloudflare's tunnel, then the
+    first hop in X-Forwarded-For, then X-Real-IP). Otherwise we fall back
+    to the direct socket peer. The settings are looked up here lazily so
+    callers don't have to thread them through the rate-limit helpers."""
+    s = settings or get_settings()
+    if s.trust_proxy_headers:
+        for header in ("cf-connecting-ip", "x-real-ip"):
+            v = request.headers.get(header)
+            if v:
+                return v.strip()
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            # First entry is the original client, subsequent ones are
+            # the proxy chain.
+            return xff.split(",", 1)[0].strip()
     return request.client.host if request.client else "unknown"
 
 
@@ -74,7 +92,7 @@ async def login(
     response: Response,
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    ip = _client_ip(request)
+    ip = _client_ip(request, settings)
     if _rate_limited(ip):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
