@@ -71,6 +71,7 @@ export function NetworkPanel({ network, tunnel, pollMs }: Props) {
           gatewayIp={gatewayIp}
           linkDown={network?.link_down_mbit ?? null}
           linkUp={network?.link_up_mbit ?? null}
+          ispMetrics={ispMetrics}
         />
         <ThroughputCard
           throughput={throughput}
@@ -114,14 +115,25 @@ function WanCard({
   gatewayIp,
   linkDown,
   linkUp,
+  ispMetrics,
 }: {
   publicIp: string | null;
   ispName: string | null;
   gatewayIp: string | null;
   linkDown: number | null;
   linkUp: number | null;
+  ispMetrics: IspMetrics | null;
 }) {
-  const linkStr = linkDown && linkUp ? `${Math.round(linkDown)} / ${Math.round(linkUp)} Mbit` : null;
+  // Negotiated link rate isn't exposed by the Integration API. Fall back to
+  // the ISM speed-test result as the effective WAN speed — for a home line
+  // that's the meaningful "how fast is my internet" number.
+  const speedDown = linkDown ?? ispMetrics?.download_mbit ?? null;
+  const speedUp = linkUp ?? ispMetrics?.upload_mbit ?? null;
+  const speedStr =
+    speedDown != null && speedUp != null
+      ? `${Math.round(speedDown)} / ${Math.round(speedUp)} Mbit`
+      : null;
+  const uptimePct = ispMetrics?.uptime_pct ?? null;
   return (
     <div className="card col-4">
       <div className="card-h">
@@ -140,13 +152,22 @@ function WanCard({
           <span className="kv-v">{ispName ?? '—'}</span>
         </div>
         <div className="kv-row">
-          <span className="kv-k">Link</span>
-          <span className="kv-v mono">{linkStr ?? '—'}</span>
+          <span className="kv-k">WAN-Speed</span>
+          <span className="kv-v mono">{speedStr ?? '—'}</span>
         </div>
-        <div className="kv-row">
-          <span className="kv-k">Gateway</span>
-          <span className="kv-v mono">{gatewayIp ?? '—'}</span>
-        </div>
+        {/* Prefer a distinct LAN gateway when known; otherwise show the WAN
+            uptime % from ISM, which is more useful than a blank row. */}
+        {gatewayIp ? (
+          <div className="kv-row">
+            <span className="kv-k">Gateway</span>
+            <span className="kv-v mono">{gatewayIp}</span>
+          </div>
+        ) : (
+          <div className="kv-row">
+            <span className="kv-k">WAN-Uptime</span>
+            <span className="kv-v mono">{uptimePct != null ? `${uptimePct.toFixed(1)}%` : '—'}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -220,17 +241,34 @@ function ThroughputCard({
   const samples = throughput?.samples ?? [];
   const downs = samples.map((s) => s.down_mbit);
   const ups = samples.map((s) => s.up_mbit);
-  const noHistory = samples.length < 2;
-  const curDown = downs.length ? downs[downs.length - 1] : liveDown;
-  const curUp = ups.length ? ups[ups.length - 1] : liveUp;
-  // Without legacy auth or Site Manager metrics, the live values are 0 —
-  // tell the user explicitly instead of showing a misleading "0.0 Mbit/s".
-  const noLiveData = curDown === 0 && curUp === 0 && !ispMetrics;
-  const sourceLabel = ispMetrics
-    ? 'live · Site Manager'
-    : authMode === 'cookie'
-      ? 'live'
-      : 'snapshot';
+  // "Real" continuous throughput only exists when something actually
+  // measured non-zero traffic (legacy cookie auth, or a live counter).
+  // The Integration API reports zeros, so a flat 0-line is NOT live data.
+  const hasLiveThroughput =
+    downs.some((d) => d > 0) || ups.some((u) => u > 0) || liveDown > 0 || liveUp > 0;
+  const hasHistory = samples.length >= 2 && hasLiveThroughput;
+
+  // Display preference:
+  //   1. real live throughput (legacy / counter) → current sample, sparkline
+  //   2. ISM speed-test result (Site Manager)     → last measured down/up
+  //   3. nothing                                   → honest empty state
+  let curDown: number;
+  let curUp: number;
+  let sourceLabel: string;
+  if (hasLiveThroughput) {
+    curDown = downs.length ? downs[downs.length - 1] : liveDown;
+    curUp = ups.length ? ups[ups.length - 1] : liveUp;
+    sourceLabel = authMode === 'cookie' ? 'live' : 'Verlauf';
+  } else if (ispMetrics && (ispMetrics.download_mbit != null || ispMetrics.upload_mbit != null)) {
+    curDown = ispMetrics.download_mbit ?? 0;
+    curUp = ispMetrics.upload_mbit ?? 0;
+    sourceLabel = 'Speedtest · ISM';
+  } else {
+    curDown = 0;
+    curUp = 0;
+    sourceLabel = 'snapshot';
+  }
+  const noLiveData = !hasLiveThroughput && curDown === 0 && curUp === 0;
 
   return (
     <div className="card col-4">
@@ -239,24 +277,25 @@ function ThroughputCard({
       </div>
       {noLiveData ? (
         <div className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>
-          Integration API liefert keinen Live-Durchsatz. Site-Manager-API-Key
-          unter <strong>Einstellungen → UniFi</strong> hinterlegen für ISM-Daten.
+          Kein Live-Durchsatz verfügbar. Die Integration API liefert keine
+          Byte-Raten; ein Site-Manager-API-Key (Speedtest) oder Legacy-Login
+          (Live-Zähler) füllt diese Karte.
         </div>
       ) : (
         <div className="throughput-pair">
           <div className="throughput-tile">
             <div className="t-label">↓ Down</div>
             <div className="t-value mono">{curDown.toFixed(1)} <span className="t-unit">Mbit/s</span></div>
-            {!noHistory && <Sparkline data={downs} width={140} height={32} area color="var(--info)" />}
+            {hasHistory && <Sparkline data={downs} width={140} height={32} area color="var(--info)" />}
           </div>
           <div className="throughput-tile">
             <div className="t-label">↑ Up</div>
             <div className="t-value mono">{curUp.toFixed(1)} <span className="t-unit">Mbit/s</span></div>
-            {!noHistory && <Sparkline data={ups} width={140} height={32} area color="var(--accent)" />}
+            {hasHistory && <Sparkline data={ups} width={140} height={32} area color="var(--accent)" />}
           </div>
         </div>
       )}
-      {!noLiveData && (
+      {hasHistory && (
         <div className="throughput-foot" style={{ marginTop: 8 }}>
           <span className="dimmer mono" style={{ fontSize: 11 }}>
             Peak ↓ {throughput?.peak_down_mbit ?? 0} Mbit/s
@@ -266,29 +305,43 @@ function ThroughputCard({
           </span>
         </div>
       )}
+      {!hasHistory && !noLiveData && (
+        <div className="throughput-foot" style={{ marginTop: 8 }}>
+          <span className="dimmer mono" style={{ fontSize: 11 }}>
+            letzte ISM-Messung · keine kontinuierliche Historie
+          </span>
+        </div>
+      )}
     </div>
   );
 }
 
 function IspQualityCard({ metrics }: { metrics: IspMetrics }) {
   const latency = metrics.latency_ms;
-  const jitter = metrics.jitter_ms;
+  // ISM exposes maxLatency (peak) but no jitter — show the peak instead of a
+  // permanently-empty jitter tile. Fall back to jitter if a future firmware
+  // ever populates it.
+  const peak = metrics.max_latency_ms ?? metrics.jitter_ms;
+  const peakLabel = metrics.max_latency_ms != null ? 'Max-Latenz' : 'Jitter';
   const loss = metrics.packet_loss_pct;
   // Status klassifiziert anhand der ISM-Werte (ITU-T Y.1541 G-class
   // Anhaltspunkt: <40 ms latenz ok, 40–100 ms warn, sonst err).
   const latencyTone = latency == null ? 'idle' : latency < 40 ? 'ok' : latency < 100 ? 'warn' : 'err';
-  const jitterTone = jitter == null ? 'idle' : jitter < 5 ? 'ok' : jitter < 15 ? 'warn' : 'err';
+  const peakTone = peak == null ? 'idle' : peak < 60 ? 'ok' : peak < 150 ? 'warn' : 'err';
   const lossTone = loss == null ? 'idle' : loss < 1 ? 'ok' : loss < 3 ? 'warn' : 'err';
   return (
     <div className="grid-12" style={{ marginBottom: 16 }}>
       <div className="card col-12">
         <div className="card-h">
           <h3>ISP-Qualität <span className="h3-sub">· letzte 5 min · Internet Status Monitor</span></h3>
-          <span className="dimmer mono" style={{ fontSize: 11 }}>{metrics.isp_name ?? 'unbekannt'}</span>
+          <span className="dimmer mono" style={{ fontSize: 11 }}>
+            {metrics.isp_name ?? 'unbekannt'}
+            {metrics.isp_asn ? ` · AS${metrics.isp_asn}` : ''}
+          </span>
         </div>
         <div className="isp-quality-grid">
           <IspQualityTile label="Latenz" value={latency} unit="ms" tone={latencyTone} />
-          <IspQualityTile label="Jitter" value={jitter} unit="ms" tone={jitterTone} />
+          <IspQualityTile label={peakLabel} value={peak} unit="ms" tone={peakTone} />
           <IspQualityTile label="Paketverlust" value={loss} unit="%" tone={lossTone} />
           <IspQualityTile label="Download" value={metrics.download_mbit} unit="Mbit/s" />
           <IspQualityTile label="Upload" value={metrics.upload_mbit} unit="Mbit/s" />
@@ -348,8 +401,20 @@ function DeviceCard({ device }: { device: UnifiDevice }) {
         )}
       </div>
       <div className="device-metrics">
-        <DeviceMetricBar label="CPU" pct={device.cpu_pct} />
-        <DeviceMetricBar label="RAM" pct={device.mem_pct} />
+        {device.cpu_pct == null && device.mem_pct == null ? (
+          <div className="dev-metric" style={{ gridColumn: '1 / -1' }}>
+            <span className="dev-metric-label">CPU / RAM</span>
+            <span className="dim" style={{ fontSize: 11, lineHeight: 1.4 }}>
+              Nicht über die Integration API verfügbar — Legacy-Login (UniFi
+              Username/Passwort) nötig.
+            </span>
+          </div>
+        ) : (
+          <>
+            <DeviceMetricBar label="CPU" pct={device.cpu_pct} />
+            <DeviceMetricBar label="RAM" pct={device.mem_pct} />
+          </>
+        )}
         {device.is_gateway && device.ports_total != null && device.ports_total > 0 ? (
           <div className="dev-metric">
             <span className="dev-metric-label">Ports</span>

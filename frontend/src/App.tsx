@@ -543,7 +543,7 @@ function Dashboard({ user, onLogout }: DashboardProps) {
             tunnel={tun.data}
             certs={cer.data}
             services={services}
-            zoneName="rxf-sys.de"
+            zoneName={instance?.zone_name ?? 'rxf-sys.de'}
             onSelectService={setSelectedSvc}
             pollMs={pollCerts}
           />

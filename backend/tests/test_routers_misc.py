@@ -193,6 +193,8 @@ async def test_instance_get_returns_defaults(client):
     # INSTANCE_NAME=rxf-test set in the fixture; defaults survive the round-trip.
     assert body["instance_name"] == "rxf-test"
     assert body["time_format"] in ("12h", "24h")
+    # zone_name is read-only infra config exposed for the Cloudflare tab.
+    assert "zone_name" in body
 
 
 async def test_instance_put_persists_overrides(client):

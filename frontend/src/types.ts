@@ -153,6 +153,7 @@ export interface IspMetrics {
   isp_asn: string | null;
   public_ip: string | null;
   latency_ms: number | null;
+  max_latency_ms: number | null;
   jitter_ms: number | null;
   packet_loss_pct: number | null;
   download_mbit: number | null;
@@ -292,6 +293,8 @@ export interface InstanceInfo {
   instance_name: string;
   default_timezone: string;
   time_format: '12h' | '24h';
+  /** Read-only: the Cloudflare zone this deployment fronts (e.g. rxf-sys.de). */
+  zone_name?: string;
 }
 
 export interface AutoAuditSettings {

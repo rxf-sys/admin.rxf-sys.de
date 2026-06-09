@@ -50,7 +50,7 @@ export function Header(p: HeaderProps) {
           </div>
         </div>
         <span className="hdr-sep" aria-hidden="true" />
-        <span className="hdr-crumb mono">admin.rxf-sys.de</span>
+        <span className="hdr-crumb mono">{typeof window !== 'undefined' ? window.location.host : 'admin'}</span>
       </div>
 
       <div className="hdr-mid">
