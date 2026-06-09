@@ -105,6 +105,43 @@ async def test_happy_path_extracts_ism_sample_real_shape():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_extracts_max_latency_and_leaves_jitter_none():
+    """ISM exposes maxLatency (peak) but no jitter field. We surface
+    max_latency_ms and leave jitter_ms None rather than inventing it."""
+    s = Settings(unifi_site_manager_api_key="abc123")
+    base = unifi_remote.API_BASE
+    respx.get(f"{base}/hosts").respond(200, json={"data": [{"id": "h"}]})
+    respx.get(f"{base}/sites").respond(200, json={"data": [{"siteId": "s"}]})
+    respx.get(f"{base}/isp-metrics/5m").respond(
+        200,
+        json={
+            "data": [
+                {
+                    "periods": [
+                        {
+                            "data": {
+                                "wan": {
+                                    "avgLatency": 7,
+                                    "maxLatency": 23,
+                                    "packetLoss": 0,
+                                    "ispName": "Telekom",
+                                }
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+    metric = await unifi_remote.fetch_isp_metrics(s)
+    assert metric is not None
+    assert metric["latency_ms"] == 7
+    assert metric["max_latency_ms"] == 23
+    assert metric["jitter_ms"] is None
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_skips_empty_period_falls_back_to_last_real_one():
     """Some firmware drops an empty placeholder period at the head of the
     chronological array. Walk backwards until we find a real sample."""

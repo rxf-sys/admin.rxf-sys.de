@@ -31,13 +31,13 @@ async def get_network(settings: Settings = Depends(get_settings)) -> NetworkSnap
                 update["isp_metrics"] = metrics
                 if metrics.isp_name and not snap.isp:
                     update["isp"] = metrics.isp_name
-                # Use the ISM speed sample as a live readout if the local
-                # snapshot doesn't have its own throughput numbers (the
-                # Integration API only reports zeros).
-                if metrics.download_mbit is not None and snap.throughput_down_mbit == 0:
-                    update["throughput_down_mbit"] = metrics.download_mbit
-                if metrics.upload_mbit is not None and snap.throughput_up_mbit == 0:
-                    update["throughput_up_mbit"] = metrics.upload_mbit
+                # NOTE: we deliberately do NOT copy the ISM download/upload
+                # into ``throughput_down/up_mbit``. Those fields are live WAN
+                # throughput (bytes/sec right now); the ISM numbers are a
+                # periodic *speed-test* result (link capacity). Conflating
+                # them made the dashboard's "Durchsatz" card show the speed
+                # test as if it were live traffic. The frontend reads the
+                # speed-test figures from ``isp_metrics`` directly instead.
 
         # GeoIP fallback for ISP name — only when Site Manager didn't supply one.
         isp_after_sm = update.get("isp") or snap.isp

@@ -38,11 +38,17 @@ async def _resolve(key: str, default: str) -> str:
 
 @router.get("", dependencies=[Depends(verify_session)])
 async def get_instance(settings: Settings = Depends(get_settings)) -> dict:
-    """Returns the effective instance settings (overrides + .env defaults)."""
+    """Returns the effective instance settings (overrides + .env defaults).
+
+    ``zone_name`` is read-only infrastructure config (the Cloudflare zone
+    this deployment fronts) — exposed here so the frontend can label the
+    Cloudflare tab dynamically instead of hardcoding the domain.
+    """
     return {
         "instance_name": await _resolve("instance_name", settings.instance_name),
         "default_timezone": await _resolve("default_timezone", settings.default_timezone),
         "time_format": await _resolve("time_format", settings.time_format),
+        "zone_name": settings.cf_zone_name,
     }
 
 
@@ -75,5 +81,6 @@ async def update_instance(
         "instance_name": await _resolve("instance_name", settings.instance_name),
         "default_timezone": await _resolve("default_timezone", settings.default_timezone),
         "time_format": await _resolve("time_format", settings.time_format),
+        "zone_name": settings.cf_zone_name,
         "_": admin["username"],  # actor for audit trail downstream
     }

@@ -186,6 +186,9 @@ def _wan_to_metric(wan: dict) -> dict[str, Any]:
         "isp_asn": _pick(wan, "ispAsn", "ispASN"),
         "public_ip": _pick(wan, "wanIp", "publicIp", "ip"),
         "latency_ms": _num(_pick(wan, "avgLatency", "latencyAvg", "latency", "wanLatencyAvgMs")),
+        "max_latency_ms": _num(_pick(wan, "maxLatency", "latencyMax", "wanLatencyMaxMs")),
+        # ISM does not currently expose jitter; kept for forward-compat in
+        # case a future firmware adds it. _pick returns None when absent.
         "jitter_ms": _num(_pick(wan, "avgJitter", "jitterAvg", "jitter", "wanJitterAvgMs")),
         "packet_loss_pct": _num(_pick(wan, "packetLoss", "avgPacketLoss", "wanPacketLoss")),
         "download_mbit": to_mbit(download_kbps, download_mbps),

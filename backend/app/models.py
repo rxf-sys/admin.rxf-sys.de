@@ -169,6 +169,10 @@ class IspMetrics(BaseModel):
     isp_asn: str | None = None
     public_ip: str | None = None
     latency_ms: float | None = None
+    # Peak latency over the sampling window. ISM exposes ``maxLatency``
+    # alongside ``avgLatency`` but does NOT report jitter, so this is the
+    # closest signal for "latency spikes" the API actually provides.
+    max_latency_ms: float | None = None
     jitter_ms: float | None = None
     packet_loss_pct: float | None = None
     download_mbit: float | None = None
