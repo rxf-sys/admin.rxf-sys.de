@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # `manage.py create-admin` helper or another already-existing admin).
     bootstrap_admin_user: str = "admin"
     bootstrap_admin_password: str = ""
+    # Trust upstream-proxy IP headers (CF-Connecting-IP, X-Forwarded-For,
+    # X-Real-IP — in that order). Leave False unless the backend ONLY
+    # receives traffic from a known proxy (Cloudflare Tunnel, nginx,
+    # Caddy) — anyone who can reach the socket directly can otherwise
+    # spoof headers to escape the per-IP login rate limit. Enabled in
+    # docker-compose where Caddy fronts the backend.
+    trust_proxy_headers: bool = False
 
     # ---- Proxmox VE ----
     proxmox_host: str = "192.168.2.200"

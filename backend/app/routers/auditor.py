@@ -29,9 +29,15 @@ async def run_audit(
     try:
         job_id = await auditor.start_run(settings, started_by=actor)
     except auditor.AuditorBusy as e:
+        # FastAPI passes ``detail`` straight through to JSON, so a dict here
+        # makes the frontend's apiErrorMessage() render "[object Object]".
+        # Keep the human message in ``detail`` and surface the running job
+        # via an X-Running-Job-Id response header for clients that want to
+        # poll the in-flight run instead of failing.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"message": "audit already running", "job_id": str(e)},
+            detail="audit already running",
+            headers={"X-Running-Job-Id": str(e)},
         ) from e
     audit_record(
         "audit.started",

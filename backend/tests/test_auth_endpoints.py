@@ -138,3 +138,79 @@ async def test_login_rate_limited_after_repeated_failures(client):
         await _login(client, "admin", "wrong")
     r = await _login(client, "admin", "admin-password")
     assert r.status_code == 429
+
+
+# ---- Proxy-aware rate-limit IP extraction ---------------------------------
+
+async def test_rate_limit_keys_off_socket_when_proxy_untrusted(client, monkeypatch):
+    """Default config: header is ignored, so two clients with different
+    X-Forwarded-For values still share the per-socket bucket."""
+    auth_router._fails.clear()
+    for _ in range(5):
+        # Each attempt claims to be a different "real" client via the header;
+        # without trust_proxy_headers the rate limit must still trip.
+        await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "wrong"},
+            headers={"X-Forwarded-For": f"10.0.0.{_}"},
+        )
+    r = await client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "admin-password"},
+        headers={"X-Forwarded-For": "10.0.0.99"},
+    )
+    assert r.status_code == 429
+
+
+async def test_rate_limit_uses_forwarded_header_when_proxy_trusted(client, monkeypatch):
+    """With trust_proxy_headers=true, each X-Forwarded-For value gets its
+    own bucket so one bad client can't lock out everyone behind the proxy."""
+    auth_router._fails.clear()
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+    get_settings.cache_clear()
+    try:
+        # 5 fails as 10.0.0.1 — trips the limit for that IP only.
+        for _ in range(5):
+            await client.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "wrong"},
+                headers={"X-Forwarded-For": "10.0.0.1"},
+            )
+        blocked = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "admin-password"},
+            headers={"X-Forwarded-For": "10.0.0.1"},
+        )
+        assert blocked.status_code == 429
+
+        # A different forwarded IP starts with a fresh bucket.
+        ok = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "admin-password"},
+            headers={"X-Forwarded-For": "10.0.0.2"},
+        )
+        assert ok.status_code == 200
+    finally:
+        get_settings.cache_clear()
+
+
+async def test_cf_connecting_ip_header_takes_precedence(client, monkeypatch):
+    auth_router._fails.clear()
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+    get_settings.cache_clear()
+    try:
+        for _ in range(5):
+            await client.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "wrong"},
+                headers={"CF-Connecting-IP": "1.2.3.4", "X-Forwarded-For": "5.6.7.8"},
+            )
+        # Still blocked when CF-Connecting-IP matches, even though XFF differs.
+        blocked = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "admin-password"},
+            headers={"CF-Connecting-IP": "1.2.3.4", "X-Forwarded-For": "9.9.9.9"},
+        )
+        assert blocked.status_code == 429
+    finally:
+        get_settings.cache_clear()

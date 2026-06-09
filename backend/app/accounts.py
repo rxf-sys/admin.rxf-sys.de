@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-    token        TEXT    PRIMARY KEY,
+    token_hash   TEXT    PRIMARY KEY,
+    token_prefix TEXT    NOT NULL,
     user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at   INTEGER NOT NULL,
     expires_at   INTEGER NOT NULL,
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_prefix ON sessions (token_prefix);
 
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
@@ -130,10 +132,44 @@ async def ensure_schema(settings: Settings) -> None:
     parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(_db_path) as db:
         await db.execute("PRAGMA foreign_keys = ON")
+        # Drop a legacy plaintext-token `sessions` table BEFORE the schema
+        # script runs — the new schema declares an index over the new
+        # ``token_prefix`` column, which executescript would otherwise try
+        # to create against the stale table and fail.
+        await _migrate_sessions_predrop(db)
         await db.executescript(_SCHEMA)
         await _migrate_users(db)
         await db.commit()
     log.info("accounts.ready", db=_db_path)
+
+
+async def _migrate_sessions_predrop(db: aiosqlite.Connection) -> None:
+    """If the existing ``sessions`` table is from the pre-hash era, drop it.
+
+    Pre-migration rows kept the raw session token as the primary key, which
+    meant a stolen DB file gave the attacker every active cookie. The new
+    layout stores ``sha256(token)`` as ``token_hash`` (matching how API
+    tokens have always been stored) plus an 8-char ``token_prefix`` so
+    admin's "Active Sessions" view and the revoke-by-prefix flow keep
+    working without a way to recover the plaintext.
+
+    Existing sessions on a freshly-upgraded DB can't be hashed in place —
+    we don't have the plaintext to hash. Drop them; users log in again
+    once. That trade-off is cheaper than leaving plaintext tokens behind
+    for the lifetime of the cookie. Also drops the now-unused indexes so
+    the schema script can recreate them clean against the new columns."""
+    async with db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'"
+    ) as cur:
+        existed = await cur.fetchone()
+    if not existed:
+        return
+    async with db.execute("PRAGMA table_info(sessions)") as cur:
+        cols = {row[1] for row in await cur.fetchall()}
+    if "token_hash" in cols:
+        return  # already migrated
+    log.info("accounts.migrated_sessions", note="dropped legacy plaintext-token rows")
+    await db.execute("DROP TABLE sessions")
 
 
 async def _migrate_users(db: aiosqlite.Connection) -> None:
@@ -152,6 +188,8 @@ async def _migrate_users(db: aiosqlite.Connection) -> None:
     if "source" not in cols:
         await db.execute("ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'dashboard'")
         log.info("accounts.migrated", column="source")
+
+
 
 
 def _connect() -> aiosqlite.Connection:
@@ -397,15 +435,24 @@ _DUMMY_HASH = _ph.hash("rxf-sys-timing-equaliser")
 
 
 async def create_session(user_id: int, ttl_hours: int) -> str:
+    """Create a new session and return the plaintext token.
+
+    The plaintext is **only** returned here; the DB stores
+    ``sha256(token)`` as the primary key. That mirrors the API-token shape:
+    a leak of the SQLite file can't be replayed as a live cookie.
+    """
     token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(token)
+    prefix = token[:8]
     now = int(time.time())
     async with _connect() as db:
         await db.execute(
             """
-            INSERT INTO sessions (token, user_id, created_at, expires_at, last_seen_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sessions
+              (token_hash, token_prefix, user_id, created_at, expires_at, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (token, user_id, now, now + ttl_hours * 3600, now),
+            (token_hash, prefix, user_id, now, now + ttl_hours * 3600, now),
         )
         await db.commit()
     return token
@@ -419,17 +466,19 @@ async def resolve_session(token: str) -> dict[str, Any] | None:
     """
     if not token:
         return None
+    token_hash = _hash_token(token)
     now = int(time.time())
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT user_id, expires_at FROM sessions WHERE token = ?", (token,)
+            "SELECT user_id, expires_at FROM sessions WHERE token_hash = ?",
+            (token_hash,),
         ) as cur:
             srow = await cur.fetchone()
         if srow is None:
             return None
         if int(srow["expires_at"]) < now:
-            await db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            await db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
             await db.commit()
             return None
         async with db.execute(
@@ -437,19 +486,24 @@ async def resolve_session(token: str) -> dict[str, Any] | None:
         ) as cur:
             urow = await cur.fetchone()
         if urow is None or bool(urow["disabled"]):
-            await db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            await db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
             await db.commit()
             return None
         await db.execute(
-            "UPDATE sessions SET last_seen_at = ? WHERE token = ?", (now, token)
+            "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?",
+            (now, token_hash),
         )
         await db.commit()
         return _row_to_user(urow)
 
 
 async def delete_session(token: str) -> None:
+    if not token:
+        return
     async with _connect() as db:
-        await db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        await db.execute(
+            "DELETE FROM sessions WHERE token_hash = ?", (_hash_token(token),)
+        )
         await db.commit()
 
 
@@ -484,14 +538,14 @@ async def list_active_sessions() -> list[dict[str, Any]]:
 
     Used by the admin's 'Aktive Sessions' card. Returns one row per live
     session with the basic user identity attached and ordered by recency
-    (last_seen_at, descending). Tokens are returned truncated — we never
-    expose the full token to the UI."""
+    (last_seen_at, descending). Only the stored 8-char prefix is exposed —
+    the full token is never recoverable from the DB."""
     now = int(time.time())
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             """
-            SELECT s.token, s.user_id, s.created_at, s.expires_at, s.last_seen_at,
+            SELECT s.token_prefix, s.user_id, s.created_at, s.expires_at, s.last_seen_at,
                    u.username, u.email, u.role
             FROM sessions s
             JOIN users u ON u.id = s.user_id
@@ -503,7 +557,7 @@ async def list_active_sessions() -> list[dict[str, Any]]:
             rows = await cur.fetchall()
     return [
         {
-            "token_prefix": (row["token"] or "")[:8],
+            "token_prefix": row["token_prefix"] or "",
             "user_id": int(row["user_id"]),
             "username": row["username"],
             "email": row["email"],
@@ -517,17 +571,17 @@ async def list_active_sessions() -> list[dict[str, Any]]:
 
 
 async def revoke_session(token_prefix: str) -> int:
-    """Delete sessions whose token starts with ``token_prefix``.
+    """Delete sessions whose ``token_prefix`` matches.
 
-    Admins identify sessions by their 8-char prefix (the full token is never
-    sent to the UI); the prefix space is large enough to make collisions
-    rare but we still return the rowcount so the caller can detect an
-    accidental match of zero or many rows."""
+    Admins identify sessions by their 8-char prefix (the full token isn't
+    stored). The prefix space is large enough that collisions are rare in
+    practice; the rowcount lets the caller detect a zero- or multi-match.
+    """
     if not token_prefix or len(token_prefix) < 6:
         return 0
     async with _connect() as db:
         cur = await db.execute(
-            "DELETE FROM sessions WHERE token LIKE ?", (token_prefix + "%",)
+            "DELETE FROM sessions WHERE token_prefix = ?", (token_prefix,)
         )
         await db.commit()
         return cur.rowcount or 0

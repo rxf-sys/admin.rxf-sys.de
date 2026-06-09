@@ -385,3 +385,37 @@ async def test_restart_guest_returns_false_when_pve_unreachable(settings):
     ok = await proxmox.restart_guest(settings, 101, "lxc")
 
     assert ok is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_task_log_quotes_upid_path_param(settings):
+    """A UPID containing slashes ("..") would otherwise traverse out of the
+    /tasks/ subtree on the upstream PVE API. quote() with safe='' renders
+    all reserved characters as %XX so the request stays within the intended
+    scope."""
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    dangerous = "UPID:rxf-sys:00001234:0000ABCD:../../etc/passwd"
+    # Real UPIDs only contain alphanumerics + colons; the encoded path
+    # therefore replaces ':' with %3A and '/' with %2F.
+    route = respx.get(
+        f"{base}/nodes/{settings.proxmox_node}/tasks/UPID%3Arxf-sys%3A00001234%3A0000ABCD%3A..%2F..%2Fetc%2Fpasswd/log"
+    ).respond(200, json={"data": [{"n": 1, "t": "ok"}]})
+
+    lines = await proxmox.fetch_task_log(settings, dangerous, limit=10)
+    assert route.called
+    assert lines == [{"n": 1, "t": "ok"}]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_fetch_task_log_passes_simple_upid_unchanged(settings):
+    """Sanity check: a normal UPID's percent-encoded form decodes back to
+    the original on the server side, so well-formed callers aren't broken."""
+    base = f"https://{settings.proxmox_host}:{settings.proxmox_port}/api2/json"
+    upid = "UPID:rxf-sys:00001234:0000ABCD:vzstart"
+    route = respx.get(
+        f"{base}/nodes/{settings.proxmox_node}/tasks/UPID%3Arxf-sys%3A00001234%3A0000ABCD%3Avzstart/log"
+    ).respond(200, json={"data": [{"n": 1, "t": "started"}]})
+    await proxmox.fetch_task_log(settings, upid, limit=10)
+    assert route.called

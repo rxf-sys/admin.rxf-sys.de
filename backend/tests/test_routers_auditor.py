@@ -88,8 +88,11 @@ async def test_concurrent_run_returns_409(client, tmp_path, monkeypatch):
     assert r1.status_code == 202
     r2 = await client.post("/api/audit/run")
     assert r2.status_code == 409
-    detail = r2.json()["detail"]
-    assert detail["job_id"] == r1.json()["job_id"]
+    # detail is a plain string now (was a dict, which serialised badly in
+    # the frontend toast); the in-flight job id is surfaced via header so
+    # a polling client can still find it.
+    assert r2.json()["detail"] == "audit already running"
+    assert r2.headers["X-Running-Job-Id"] == r1.json()["job_id"]
     await _wait_done(client, r1.json()["job_id"])
 
 

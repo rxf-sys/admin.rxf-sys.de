@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ..audit import record as audit_record
-from ..auth import verify_session
+from ..auth import require_role, verify_session
 from ..cache import cache
 from ..clients import pbs
 from ..config import Settings, get_settings
@@ -34,9 +34,11 @@ async def verify_snapshot(
     body: VerifyRequest,
     request: Request,
     settings: Settings = Depends(get_settings),
-    claims: dict = Depends(verify_session),
+    claims: dict = Depends(require_role("admin", "operator")),
 ) -> dict:
-    """Trigger a verify job for a single PBS snapshot.
+    """Trigger a verify job for a single PBS snapshot. Operator+ only —
+    verify jobs cost PBS resources and a viewer shouldn't be able to spam
+    them.
 
     Requires the PBS API token to have ``Datastore.Verify`` on the datastore
     (``DatastoreAudit`` alone is read-only and will fail with 403).

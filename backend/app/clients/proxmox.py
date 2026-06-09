@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import httpx
 import structlog
 
@@ -282,13 +284,19 @@ async def fetch_datastores(settings: Settings) -> list[Datastore]:
 
 
 async def fetch_task_log(settings: Settings, upid: str, limit: int = 200) -> list[dict]:
-    """Lines for a Proxmox task (UPID)."""
+    """Lines for a Proxmox task (UPID).
+
+    UPIDs come in via a path parameter (router/system.py) and could in
+    principle contain ``/`` or ``..``; quote them so a malformed value
+    can't traverse out of the tasks/ subtree on PVE.
+    """
+    upid_safe = quote(upid, safe="")
     async with httpx.AsyncClient(verify=settings.proxmox_verify_tls, timeout=8.0) as client:
         try:
             data = await _get(
                 client,
                 settings,
-                f"/nodes/{settings.proxmox_node}/tasks/{upid}/log?limit={limit}",
+                f"/nodes/{settings.proxmox_node}/tasks/{upid_safe}/log?limit={limit}",
             )
         except httpx.HTTPError as e:
             log.info("proxmox.task_log_failed", upid=upid, error=str(e))
@@ -382,7 +390,7 @@ async def _wait_for_task(
     import asyncio
 
     deadline = asyncio.get_event_loop().time() + timeout_s
-    path = f"/nodes/{settings.proxmox_node}/tasks/{upid}/status"
+    path = f"/nodes/{settings.proxmox_node}/tasks/{quote(upid, safe='')}/status"
     while True:
         try:
             data = await _get(client, settings, path)
