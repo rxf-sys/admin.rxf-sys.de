@@ -52,7 +52,13 @@ async def get_ntfy(settings: Settings = Depends(get_settings)) -> dict:
 async def update_ntfy(body: NtfyConfig, admin: dict = Depends(require_admin)) -> dict:
     """Upsert the three ntfy settings. Empty strings clear the override
     (subsequent reads fall back to the .env defaults)."""
-    await accounts.set_app_setting("ntfy_base", body.base.strip())
+    base = body.base.strip()
+    if base and not base.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ntfy_base muss mit http:// oder https:// beginnen",
+        )
+    await accounts.set_app_setting("ntfy_base", base)
     await accounts.set_app_setting("ntfy_topic", body.topic.strip())
     # Only overwrite the token when the caller actually sent one — the UI
     # sends an empty string to mean "unchanged" so the admin doesn't have

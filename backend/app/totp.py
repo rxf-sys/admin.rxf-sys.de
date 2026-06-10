@@ -15,6 +15,7 @@ used exactly once — verification removes it from the JSON array.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import secrets
@@ -73,7 +74,8 @@ async def _get_row(user_id: int) -> dict[str, Any] | None:
     async with accounts._connect() as db:  # noqa: SLF001 - intentional reuse
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT secret_b32, enabled_at, backup_codes_json FROM user_totp WHERE user_id = ?",
+            "SELECT secret_b32, enabled_at, backup_codes_json, last_used_step"
+            " FROM user_totp WHERE user_id = ?",
             (user_id,),
         ) as cur:
             row = await cur.fetchone()
@@ -89,7 +91,34 @@ async def _get_row(user_id: int) -> dict[str, Any] | None:
         "secret_b32": row["secret_b32"],
         "enabled_at": int(row["enabled_at"]) if row["enabled_at"] else None,
         "backup_codes_hashes": codes,
+        "last_used_step": int(row["last_used_step"] or 0),
     }
+
+
+def _match_step(secret_b32: str, code: str, at: float | None = None) -> int | None:
+    """Return the TOTP timestep the code is valid for (±1 step), or None.
+
+    Resolving the concrete step — instead of a bare verify() — is what makes
+    replay protection possible: we persist the highest accepted step per user
+    and reject anything at or below that watermark, so a code sniffed off the
+    wire can't be reused inside its validity window.
+    """
+    totp_obj = pyotp.TOTP(secret_b32)
+    now = time.time() if at is None else at
+    for offset in (0, -1, 1):
+        t = now + offset * totp_obj.interval
+        if hmac.compare_digest(totp_obj.at(t), code):
+            return int(t // totp_obj.interval)
+    return None
+
+
+async def _bump_last_used_step(user_id: int, step: int) -> None:
+    async with accounts._connect() as db:  # noqa: SLF001
+        await db.execute(
+            "UPDATE user_totp SET last_used_step = ? WHERE user_id = ? AND last_used_step < ?",
+            (step, user_id, step),
+        )
+        await db.commit()
 
 
 async def status_for(user_id: int) -> dict[str, Any]:
@@ -138,15 +167,17 @@ async def verify_setup(user_id: int, code: str) -> list[str]:
     row = await _get_row(user_id)
     if row is None or row["enabled_at"] is not None:
         raise ValueError("Kein laufender 2FA-Setup gefunden")
-    if not pyotp.TOTP(row["secret_b32"]).verify(code, valid_window=1):
+    step = _match_step(row["secret_b32"], code.strip().replace(" ", ""))
+    if step is None:
         raise ValueError("TOTP-Code ungültig")
     backup_raw = _generate_backup_codes()
     backup_hashes = [_hash_code(c) for c in backup_raw]
     now = int(time.time())
     async with accounts._connect() as db:  # noqa: SLF001
         await db.execute(
-            "UPDATE user_totp SET enabled_at = ?, backup_codes_json = ? WHERE user_id = ?",
-            (now, json.dumps(backup_hashes), user_id),
+            "UPDATE user_totp SET enabled_at = ?, backup_codes_json = ?,"
+            " last_used_step = ? WHERE user_id = ?",
+            (now, json.dumps(backup_hashes), step, user_id),
         )
         await db.commit()
     log.info("totp.enabled", user_id=user_id)
@@ -164,14 +195,23 @@ async def disable(user_id: int) -> None:
 
 async def verify_login_code(user_id: int, code: str) -> bool:
     """Verify a TOTP or backup code at login time. Backup codes are
-    one-shot: a match removes the code from the stored list."""
+    one-shot: a match removes the code from the stored list. TOTP codes are
+    one-shot per timestep — re-presenting an already-accepted code inside
+    its validity window is rejected (replay protection)."""
     row = await _get_row(user_id)
     if row is None or row["enabled_at"] is None:
         return True  # 2FA not enabled → no second factor needed
     cleaned = code.strip().replace(" ", "").upper()
     # TOTP first (6-digit numeric)
     if cleaned.isdigit():
-        return pyotp.TOTP(row["secret_b32"]).verify(cleaned, valid_window=1)
+        step = _match_step(row["secret_b32"], cleaned)
+        if step is None:
+            return False
+        if step <= row["last_used_step"]:
+            log.info("totp.replay_rejected", user_id=user_id, step=step)
+            return False
+        await _bump_last_used_step(user_id, step)
+        return True
     # Backup code path
     hashed = _hash_code(cleaned)
     if hashed in row["backup_codes_hashes"]:

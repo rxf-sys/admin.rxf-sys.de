@@ -204,8 +204,11 @@ gate (ASGI bootstrap + loop wiring, exercised in integration not unit).
 - **Partial failures don't blank the UI** — every upstream client
   returns `online=false` / empty arrays / a structured `error` field
   on failure rather than 5xx-ing.
-- **OpenAPI spec** at `https://admin.rxf-sys.de/api/docs` shows every
-  endpoint + schema; useful when wiring a Bearer-token script.
+- **OpenAPI spec** at `/api/docs` shows every endpoint + schema; useful
+  when wiring a Bearer-token script. Only mounted when `APP_ENV` is not
+  `production` — the docs are unauthenticated, so the public deployment
+  doesn't expose its full route map. Run locally with
+  `APP_ENV=development` to browse them.
 - **History storage** is SQLite at `/data/rxf-admin.db` (configurable
   via `STORAGE_DB_PATH`). Retention defaults to 7 days, pruned by the
   hourly cleanup loop. Tables: `probe_history`, `service_incidents`,

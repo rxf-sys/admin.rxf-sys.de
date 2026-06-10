@@ -20,8 +20,9 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 import aiosqlite
 import structlog
@@ -84,7 +85,8 @@ CREATE TABLE IF NOT EXISTS user_totp (
     user_id           INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     secret_b32        TEXT    NOT NULL,
     enabled_at        INTEGER,
-    backup_codes_json TEXT    NOT NULL DEFAULT '[]'
+    backup_codes_json TEXT    NOT NULL DEFAULT '[]',
+    last_used_step    INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -139,6 +141,7 @@ async def ensure_schema(settings: Settings) -> None:
         await _migrate_sessions_predrop(db)
         await db.executescript(_SCHEMA)
         await _migrate_users(db)
+        await _migrate_user_totp(db)
         await db.commit()
     log.info("accounts.ready", db=_db_path)
 
@@ -190,10 +193,34 @@ async def _migrate_users(db: aiosqlite.Connection) -> None:
         log.info("accounts.migrated", column="source")
 
 
+async def _migrate_user_totp(db: aiosqlite.Connection) -> None:
+    """Add the TOTP replay-protection column to a pre-existing table.
+
+    ``last_used_step`` records the highest accepted TOTP timestep per user so
+    a sniffed code can't be replayed inside its validity window. Backfills
+    with 0 — the next successful verification raises the watermark."""
+    async with db.execute("PRAGMA table_info(user_totp)") as cur:
+        cols = {row[1] for row in await cur.fetchall()}
+    if "last_used_step" not in cols:
+        await db.execute(
+            "ALTER TABLE user_totp ADD COLUMN last_used_step INTEGER NOT NULL DEFAULT 0"
+        )
+        log.info("accounts.migrated", column="user_totp.last_used_step")
 
 
-def _connect() -> aiosqlite.Connection:
-    return aiosqlite.connect(_db_path)
+
+
+@asynccontextmanager
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Open a connection with foreign-key enforcement switched on.
+
+    SQLite ships with ``PRAGMA foreign_keys`` OFF per connection, so the
+    ``ON DELETE CASCADE`` clauses on sessions / api_tokens / user_totp only
+    fire when every connection enables it. Centralising the pragma here
+    (instead of sprinkling it at call sites) makes that guarantee uniform."""
+    async with aiosqlite.connect(_db_path) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+        yield db
 
 
 # ---------------------------------------------------------------------------
@@ -347,9 +374,9 @@ async def set_password(user_id: int, new_password: str) -> None:
 
 
 async def delete_user(user_id: int) -> None:
+    # Sessions, API tokens and TOTP state cascade via their FK clauses —
+    # _connect() guarantees PRAGMA foreign_keys is on.
     async with _connect() as db:
-        await db.execute("PRAGMA foreign_keys = ON")
-        await db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM users WHERE id = ?", (user_id,))
         await db.commit()
     log.info("accounts.user_deleted", user_id=user_id)
@@ -417,6 +444,9 @@ async def authenticate(username: str, password: str) -> dict[str, Any] | None:
         verify_password(_DUMMY_HASH, password)
         return None
     if bool(row["disabled"]):
+        # Same timing as the wrong-password path — otherwise a fast reject
+        # would leak that the account exists but is disabled.
+        verify_password(row["password_hash"], password)
         return None
     if not verify_password(row["password_hash"], password):
         return None
@@ -599,6 +629,12 @@ import hashlib  # noqa: E402
 # token and look it up by hash).
 TOKEN_PREFIX_LEN = 12  # visible prefix for identification in the UI
 
+# Ordered token scopes. ``read`` may only perform safe (GET-class) requests,
+# ``write`` unlocks operator-level mutations, ``admin`` additionally passes
+# the require_admin gate. Enforced in app/auth.py; the ranking is used to cap
+# token minting so a token can never create one more powerful than itself.
+TOKEN_SCOPE_RANK = {"read": 0, "write": 1, "admin": 2}
+
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -701,7 +737,9 @@ async def resolve_api_token(raw_token: str) -> dict[str, Any] | None:
 
     Mirrors resolve_session() so the auth dependency can swap in token-auth
     transparently. Updates last_used_at on success; rejects expired tokens
-    and tokens whose owning user is disabled.
+    and tokens whose owning user is disabled. The returned dict carries the
+    token's ``scope`` as ``token_scope`` so the auth dependencies can apply
+    scope-based restrictions (cookie sessions have no such key).
     """
     if not raw_token or not raw_token.startswith("rxf_"):
         return None
@@ -710,7 +748,7 @@ async def resolve_api_token(raw_token: str) -> dict[str, Any] | None:
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT id, user_id, expires_at FROM api_tokens WHERE token_hash = ?",
+            "SELECT id, user_id, expires_at, scope FROM api_tokens WHERE token_hash = ?",
             (token_hash,),
         ) as cur:
             trow = await cur.fetchone()
@@ -728,7 +766,9 @@ async def resolve_api_token(raw_token: str) -> dict[str, Any] | None:
             "UPDATE api_tokens SET last_used_at = ? WHERE id = ?", (now, int(trow["id"]))
         )
         await db.commit()
-        return _row_to_user(urow)
+        user = _row_to_user(urow)
+        user["token_scope"] = trow["scope"] if trow["scope"] in TOKEN_SCOPE_RANK else "read"
+        return user
 
 
 async def cleanup_expired_sessions() -> int:

@@ -73,7 +73,20 @@ async def list_my_tokens(user: dict = Depends(verify_session)) -> dict:
 async def create_my_token(
     body: CreateTokenBody, user: dict = Depends(verify_session)
 ) -> dict:
-    """Returns the raw token *once*. Subsequent reads only see the prefix."""
+    """Returns the raw token *once*. Subsequent reads only see the prefix.
+
+    When the request itself is token-authenticated, the new token's scope is
+    capped at the authenticating token's scope — otherwise a leaked 'write'
+    token could mint itself an 'admin' replacement."""
+    auth_scope = user.get("token_scope")
+    if auth_scope is not None and (
+        accounts.TOKEN_SCOPE_RANK.get(body.scope, 0)
+        > accounts.TOKEN_SCOPE_RANK.get(auth_scope, 0)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Token-Scope '{body.scope}' übersteigt den Scope des verwendeten Tokens",
+        )
     raw, meta = await accounts.create_api_token(
         user["id"], body.name, scope=body.scope, ttl_days=body.ttl_days
     )

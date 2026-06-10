@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import time
+
 import pyotp
 import pytest
 
 from app import accounts, totp
+
+
+def _code_at_step_offset(secret_b32: str, offset: int) -> str:
+    """TOTP code ``offset`` timesteps after now — lets tests move forward in
+    TOTP-time without sleeping (the verifier accepts ±1 step of skew)."""
+    t = pyotp.TOTP(secret_b32)
+    return t.at(time.time() + offset * t.interval)
 
 
 @pytest.fixture
@@ -60,8 +69,10 @@ async def test_login_code_accepts_totp_and_consumes_backup(db):
     code = pyotp.TOTP(setup["secret_b32"]).now()
     backup = await totp.verify_setup(user["id"], code)
 
-    # Real TOTP works.
-    new_code = pyotp.TOTP(setup["secret_b32"]).now()
+    # Real TOTP works — one step after the setup code (the setup code's step
+    # is consumed by replay protection, exactly like a fresh authenticator
+    # tick in real usage).
+    new_code = _code_at_step_offset(setup["secret_b32"], 1)
     assert await totp.verify_login_code(user["id"], new_code) is True
 
     # Backup code works exactly once.
@@ -69,6 +80,29 @@ async def test_login_code_accepts_totp_and_consumes_backup(db):
     assert await totp.verify_login_code(user["id"], backup[0]) is False
     s = await totp.status_for(user["id"])
     assert s["backup_codes_remaining"] == totp.BACKUP_CODE_COUNT - 1
+
+
+async def test_login_code_rejects_replayed_totp(db):
+    """An accepted TOTP code must not be accepted a second time inside its
+    validity window — replay protection via the per-user step watermark."""
+    user = await accounts.create_user("alice", "supersecret")
+    setup = await totp.begin_setup(user["id"], user["username"])
+    await totp.verify_setup(user["id"], pyotp.TOTP(setup["secret_b32"]).now())
+
+    code = _code_at_step_offset(setup["secret_b32"], 1)
+    assert await totp.verify_login_code(user["id"], code) is True
+    # Same code again → rejected, even though pyotp still considers it valid.
+    assert await totp.verify_login_code(user["id"], code) is False
+
+
+async def test_setup_code_cannot_be_reused_for_first_login(db):
+    """The code that completed provisioning is already consumed — replaying
+    it as the first login second-factor must fail."""
+    user = await accounts.create_user("alice", "supersecret")
+    setup = await totp.begin_setup(user["id"], user["username"])
+    code = pyotp.TOTP(setup["secret_b32"]).now()
+    await totp.verify_setup(user["id"], code)
+    assert await totp.verify_login_code(user["id"], code) is False
 
 
 async def test_login_code_for_user_without_2fa_passes(db):

@@ -46,6 +46,18 @@ async def verify_session(request: Request) -> dict[str, Any]:
     if auth.lower().startswith("bearer "):
         user = await accounts.resolve_api_token(auth.split(" ", 1)[1].strip())
         if user is not None:
+            # Scope gate: a read-scoped token authenticates, but must never
+            # mutate. Without this the scope field would be decorative — a
+            # leaked "read" token could create users or mint admin tokens.
+            if user.get("token_scope") == "read" and request.method not in (
+                "GET",
+                "HEAD",
+                "OPTIONS",
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="API-Token mit Scope 'read' erlaubt nur Lesezugriffe",
+                )
             request.state.user = user
             return user
 
@@ -62,11 +74,21 @@ async def verify_session(request: Request) -> dict[str, Any]:
 
 
 async def require_admin(user: dict[str, Any] = Depends(verify_session)) -> dict[str, Any]:
-    """Like ``verify_session`` but additionally requires the admin role."""
+    """Like ``verify_session`` but additionally requires the admin role.
+
+    Token-authenticated requests must also carry an ``admin``-scoped token —
+    a read/write token of an admin user is deliberately not enough for the
+    account-management surface."""
     if user.get("role") != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="admin privileges required",
+        )
+    token_scope = user.get("token_scope")
+    if token_scope is not None and token_scope != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API-Token-Scope 'admin' erforderlich",
         )
     return user
 

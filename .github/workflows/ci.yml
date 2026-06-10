@@ -6,13 +6,22 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.11", "3.12"]
+        # 3.11 = floor from requires-python, 3.14 = the production image
+        # (backend/Dockerfile) — keep both covered.
+        python: ["3.11", "3.14"]
     defaults:
       run:
         working-directory: backend
@@ -52,7 +61,7 @@ jobs:
         run: npx tsc -b
       - name: Lint
         run: npm run lint
-      - name: Test
-        run: npm test -- --run
+      - name: Test (with coverage gate)
+        run: npm run test:cov
       - name: Build
         run: npm run build
