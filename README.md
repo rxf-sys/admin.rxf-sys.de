@@ -23,7 +23,8 @@ login at `https://admin.rxf-sys.de`:
   + 0–100). Toggle for daily auto-audit.
 - **Konten** — admin-only user CRUD (4 roles: admin / operator / viewer /
   user-legacy), active session list with prefix-based revoke, API token
-  manager (Bearer-token CRUD, one-time reveal), roles overview.
+  manager (Bearer-token CRUD with enforced read / write / admin scopes,
+  one-time reveal), roles overview.
 - **Einstellungen** — single-page card grid: account, appearance,
   polling, notifications (toast + browser + **ntfy push**), integrations
   status, security (**2FA via TOTP**, login rate-limit), **E-Mail
@@ -74,12 +75,16 @@ login at `https://admin.rxf-sys.de`:
 - **Frontend** — Vite 8 + React 19 + TypeScript SPA, dev-mode hot-reload
   with `/api/*` proxied to the backend.
 - **Auth** — own login page + local accounts (Argon2id-hashed passwords,
-  server-side session cookies in SQLite). Optional second factor via
-  **TOTP** with one-time backup codes. **API bearer tokens** parallel to
-  cookies for scripts / CI / monitoring bots. Four roles
-  (admin / operator / viewer / user); admins manage accounts + sessions
-  + tokens in the Konten tab. Brute-force throttling on `/api/auth/login`
-  (5 fails / 5 min per IP).
+  server-side session cookies in SQLite, rotated on every login).
+  Optional second factor via **TOTP** with one-time backup codes and
+  replay protection (an accepted code is dead for its whole validity
+  window). **API bearer tokens** parallel to cookies for scripts / CI /
+  monitoring bots — token scopes are enforced: `read` is GET-only,
+  `write` unlocks operator-level mutations, `admin` is required for the
+  account-management surface, and a token can never mint one more
+  powerful than itself. Four roles (admin / operator / viewer / user);
+  admins manage accounts + sessions + tokens in the Konten tab.
+  Brute-force throttling on `/api/auth/login` (5 fails / 5 min per IP).
 - **Background loops** — service probes every 30 s (cache-decoupled
   from HTTP), metrics sampler every 60 s (host + guests + WAN
   throughput), history cleanup every hour, optional auto-audit
@@ -131,7 +136,9 @@ frontend/                Vite + React 19 + TS SPA
 infrastructure/          Deployment helpers
   docker-compose.yml
   setup-lxc.sh           one-shot Proxmox host bootstrap
-  deploy.sh              CD entry-point (git pull + compose up)
+  deploy.sh              CD entry-point (git pull + compose up + health
+                         gate — fails the run if the API never turns
+                         healthy)
   .env.example           every env var with inline docs
 
 docs/
@@ -184,14 +191,17 @@ pytest -v --cov=app --cov-fail-under=70
 
 # Frontend
 cd frontend
-npm test -- --run
+npm run test:cov   # vitest + coverage gate (plain `npm test` for watch mode)
 npm run lint
 npm run build
 ```
 
-The CI matrix runs the same commands across Python 3.11/3.12 and
-Node 20/22. Coverage gate is 70 %; `app/main.py` is omitted from the
-gate (ASGI bootstrap + loop wiring, exercised in integration not unit).
+The CI matrix runs the same commands across Python 3.11 + 3.14 (floor
+from `requires-python` and the production image) and Node 20/22.
+Backend coverage gate is 70 % (`app/main.py` is omitted — ASGI bootstrap
++ loop wiring, exercised in integration not unit); the frontend gate is
+a ratchet (55 % statements / 45 % branches) that fails CI on coverage
+regressions.
 
 ## Operational notes
 
