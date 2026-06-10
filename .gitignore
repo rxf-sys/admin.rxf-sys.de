@@ -4,6 +4,11 @@
 *.pem
 *.key
 
+# --- Local databases (SQLite lives in the Docker volume, never in git) ---
+*.db
+*.sqlite
+*.sqlite3
+
 # --- Backend (Python) ---
 __pycache__/
 *.py[cod]

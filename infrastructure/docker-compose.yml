@@ -18,6 +18,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 15s
     networks:
       - admin
 
@@ -28,7 +29,10 @@ services:
     container_name: rxf-admin-web
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        # Don't serve the SPA until the API answers — avoids a window of
+        # 502s on /api/* right after `docker compose up`.
+        condition: service_healthy
     ports:
       # cloudflared on CT 104 forwards admin.rxf-sys.de -> http://192.168.2.210:80
       - "80:80"

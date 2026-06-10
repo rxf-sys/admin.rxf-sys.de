@@ -6,6 +6,13 @@ on:
     types: [completed]
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy to admin LXC (CT 110)
@@ -14,7 +21,9 @@ jobs:
     environment: production
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+        # Pinned to the v1.2.5 release SHA — a moving tag on a third-party
+        # action that gets our deploy SSH key is a supply-chain risk.
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}

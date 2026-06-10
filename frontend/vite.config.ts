@@ -22,5 +22,16 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    coverage: {
+      provider: 'v8',
+      // Ratchet, no target: set slightly below the current numbers so CI
+      // fails on coverage regressions. Raise as more tests land.
+      thresholds: {
+        statements: 55,
+        branches: 45,
+        functions: 40,
+        lines: 55,
+      },
+    },
   },
 });

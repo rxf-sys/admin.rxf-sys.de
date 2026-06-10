@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, apiErrorMessage } from '../api/client';
 import type { Account, AdminSession, ApiToken, CreatedApiToken, Role } from '../types';
 import { ConfirmModal } from './ConfirmModal';
@@ -544,11 +544,16 @@ function CreateTokenModal({
 
 function RevealTokenModal({ token, onClose }: { token: CreatedApiToken; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+  }, []);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(token.token);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard blocked — user can select manually */
     }

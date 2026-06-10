@@ -1,8 +1,12 @@
 # --- Build stage ---
-FROM node:26-alpine AS build
+# Node 22 = active LTS and part of the CI test matrix — build and CI run
+# the same major version.
+FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+# npm ci against the committed lockfile keeps builds reproducible; a bare
+# `npm install` from package.json would float dependency versions per build.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
 RUN npm run build

@@ -346,13 +346,19 @@ async def lifespan(app: FastAPI):
                 pass
 
 
+# Interactive docs + OpenAPI schema are dev conveniences: in production the
+# API sits behind the public Cloudflare tunnel, and both endpoints are
+# unauthenticated by design — exposing the full route/parameter map of an
+# admin dashboard there is unnecessary recon surface.
+_DOCS_ENABLED = _settings.app_env != "production"
+
 app = FastAPI(
     title="rxf-sys admin",
     description="Backend API for the rxf-sys homeserver admin dashboard.",
     version="0.1.0",
-    docs_url="/api/docs",
+    docs_url="/api/docs" if _DOCS_ENABLED else None,
     redoc_url=None,
-    openapi_url="/api/openapi.json",
+    openapi_url="/api/openapi.json" if _DOCS_ENABLED else None,
     lifespan=lifespan,
 )
 

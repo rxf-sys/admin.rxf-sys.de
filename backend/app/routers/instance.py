@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from .. import accounts
+from ..audit import record as audit_record
 from ..auth import require_admin, verify_session
 from ..config import Settings, get_settings
 
@@ -76,11 +77,14 @@ async def update_instance(
         updates["time_format"] = body.time_format
     for k, v in updates.items():
         await accounts.set_app_setting(k, v)
+    if updates:
+        audit_record(
+            "instance.updated", actor=admin["username"], fields=sorted(updates)
+        )
     settings = get_settings()
     return {
         "instance_name": await _resolve("instance_name", settings.instance_name),
         "default_timezone": await _resolve("default_timezone", settings.default_timezone),
         "time_format": await _resolve("time_format", settings.time_format),
         "zone_name": settings.cf_zone_name,
-        "_": admin["username"],  # actor for audit trail downstream
     }

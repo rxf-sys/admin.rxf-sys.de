@@ -53,7 +53,12 @@ def _client_ip(request: Request, settings: Settings | None = None) -> str:
 def _rate_limited(ip: str) -> bool:
     now = time.time()
     recent = [t for t in _fails.get(ip, []) if now - t < _WINDOW_S]
-    _fails[ip] = recent
+    if recent:
+        _fails[ip] = recent
+    else:
+        # Don't keep empty buckets around — otherwise the dict grows by one
+        # entry per unique client IP for the lifetime of the process.
+        _fails.pop(ip, None)
     return len(recent) >= _MAX_FAILS
 
 
@@ -110,7 +115,8 @@ async def login(
     # 2FA gate — if the user has TOTP enabled, require a valid code on the
     # same login call. The first request returns totp_required so the client
     # can render the second-factor prompt and resend with the code.
-    if await totp.is_enabled(user["id"]):
+    two_factor = await totp.is_enabled(user["id"])
+    if two_factor:
         if not body.totp_code:
             return {"totp_required": True, "username": user["username"]}
         if not await totp.verify_login_code(user["id"], body.totp_code):
@@ -122,9 +128,15 @@ async def login(
             )
 
     _clear_fails(ip)
+    # Session rotation: if the browser still carries a session cookie (e.g.
+    # re-login from an open tab), revoke that server-side row first — without
+    # this the superseded session would stay valid in the DB until its TTL.
+    old_token = request.cookies.get(settings.session_cookie_name, "")
+    if old_token:
+        await accounts.delete_session(old_token)
     token = await accounts.create_session(user["id"], settings.session_ttl_hours)
     _set_session_cookie(response, token, settings)
-    audit_record("auth.login", user=user["username"], ip=ip, two_factor=await totp.is_enabled(user["id"]))
+    audit_record("auth.login", user=user["username"], ip=ip, two_factor=two_factor)
     log.info("auth.login_ok", username=user["username"], ip=ip)
     return {"user": user}
 
