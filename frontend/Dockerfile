@@ -1,7 +1,7 @@
 # --- Build stage ---
 # Node 22 = active LTS and part of the CI test matrix — build and CI run
 # the same major version.
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 # npm ci against the committed lockfile keeps builds reproducible; a bare
 # `npm install` from package.json would float dependency versions per build.
