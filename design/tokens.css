@@ -1,0 +1,232 @@
+/*
+ * rxf-sys admin v2 – design tokens
+ *
+ * Base: design system "Signal" (rxf-sys/www.rxf-sys.de, index.css :root),
+ * extended for an operations dashboard: semantic status colours kept apart
+ * from the accent, dense table/control sizes, chart palette, motion.
+ * Dark is the primary theme; light is fully supported. The theme follows
+ * prefers-color-scheme unless <html data-theme="light|dark"> overrides it.
+ *
+ * Contrast (WCAG 2.2, measured 18.10.2026, see docs/design/README.md):
+ * text and status tokens ≥ 4.5:1 on --bg, --surface and --tile in both
+ * themes, status tokens also as badge text on their own -soft ground.
+ */
+
+@font-face {
+  font-family: "Archivo";
+  src: url("./fonts/archivo-latin-wdth-normal.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("./fonts/atkinson-hyperlegible-next-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("./fonts/atkinson-hyperlegible-next-latin-500-normal.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("./fonts/atkinson-hyperlegible-next-latin-700-normal.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Mono";
+  src: url("./fonts/atkinson-hyperlegible-mono-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Mono";
+  src: url("./fonts/atkinson-hyperlegible-mono-latin-500-normal.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+
+/* ---------- Theme-independent tokens ---------- */
+:root {
+  /* Type families (Signal) */
+  --font-head: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Atkinson Hyperlegible Next", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Type scale: fixed rem steps (ratio ≈ 1.15–1.25), product UI does not use fluid type */
+  --fs-1: 0.75rem;    /* 12px  axis ticks, micro labels */
+  --fs-2: 0.8125rem;  /* 13px  table meta, captions */
+  --fs-3: 0.875rem;   /* 14px  table cells, dense UI */
+  --fs-4: 0.9375rem;  /* 15px  default UI and body */
+  --fs-5: 1.0625rem;  /* 17px  widget titles, emphasis */
+  --fs-6: 1.25rem;    /* 20px  section headings */
+  --fs-7: 1.625rem;   /* 26px  page titles (Archivo) */
+  --fs-8: 2.125rem;   /* 34px  setup and login titles (Archivo) */
+  --fs-hero: 3rem;    /* 48px  the one hero figure per view */
+
+  --lh-tight: 1.1;
+  --lh-ui: 1.3;
+  --lh-body: 1.5;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-bold: 700;
+  --fw-head: 800;
+  --stretch-head: 112%;
+
+  /* Spacing: 4px base */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --sp-9: 56px;
+  --sp-10: 72px;
+  --gutter: clamp(16px, 3vw, 32px);
+
+  /* Radii (Signal: cards 22, inner 14, buttons as capsule) */
+  --r-card: 22px;
+  --r-inner: 14px;
+  --r-control: 12px;
+  --r-small: 8px;
+  --r-pill: 999px;
+
+  /* Control and row sizes */
+  --control-h: 40px;
+  --control-h-sm: 32px;
+  --row-h: 40px;
+  --row-h-touch: 48px;
+  --hit-min: 44px;
+
+  /* Layout */
+  --sidebar-w: 248px;
+  --content-max: 1680px;
+  --grid-row: 156px;      /* dashboard row unit (desktop) */
+  --grid-gap: 16px;
+
+  /* Motion (Signal + Emil Kowalski): ease-out for enter/exit, ≤ 300 ms */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 140ms;
+  --dur-1: 150ms;   /* hover, tooltips */
+  --dur-2: 200ms;   /* menus, popovers */
+  --dur-3: 250ms;   /* dialogs, drawers */
+  --dur-4: 300ms;   /* ceiling */
+  --press-scale: 0.97;
+
+  /* Accent (Signal yellow): fills only on light, never as text on light */
+  --accent: #FFC21A;
+  --accent-soft-light: #FFE48F;
+}
+
+/* ---------- Dark theme (primary) ---------- */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #121517;
+  --surface: #1B2024;
+  --surface-raised: #222830;
+  --tile: #252B30;
+  --sunken: #0E1113;
+
+  --ink: #F1F2EE;
+  --body: #C9CED2;
+  --muted: #A9B0B6;
+  --faint: #8F979D;
+
+  --line: rgba(241, 242, 238, 0.10);
+  --line-strong: rgba(241, 242, 238, 0.30);
+
+  --on-accent: #121517;
+  --accent-ink: #FFC21A;                 /* accent as text: allowed on dark only */
+  --accent-soft: rgba(255, 194, 26, 0.14);
+  --sel: rgba(255, 194, 26, 0.35);
+  --focus: #FFC21A;
+
+  /* Status: mark/icon and text colour, soft badge ground */
+  --ok: #57C98A;        --ok-soft: rgba(87, 201, 138, 0.14);
+  --warn: #F2994A;      --warn-soft: rgba(242, 153, 74, 0.15);
+  --crit: #FF8A80;      --crit-soft: rgba(255, 138, 128, 0.15);
+  --unknown: #A3AAB0;   --unknown-soft: rgba(163, 170, 176, 0.14);
+  --paused: #8FAAC4;    --paused-soft: rgba(143, 170, 196, 0.15);
+
+  /* Charts (dataviz reference palette, validated on --surface #1B2024) */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+  --chart-grid: #2A3036;
+  --chart-axis: #3A424A;
+  --chart-wash: 0.14;
+
+  --veil: rgba(0, 0, 0, 0.55);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 30px -12px rgba(0, 0, 0, 0.65);
+  --shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.4), 0 26px 52px -18px rgba(0, 0, 0, 0.75);
+  --shadow-pop: 0 4px 10px rgba(0, 0, 0, 0.35), 0 24px 48px -12px rgba(0, 0, 0, 0.7);
+}
+
+/* ---------- Light theme ---------- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #F4F5F2; --surface: #FFFFFF; --surface-raised: #FFFFFF; --tile: #E9EBE6; --sunken: #ECEEE9;
+    --ink: #1C2125; --body: #3B4248; --muted: #535B62; --faint: #626A71;
+    --line: rgba(28, 33, 37, 0.12); --line-strong: rgba(28, 33, 37, 0.32);
+    --on-accent: #1C2125; --accent-ink: #1C2125; --accent-soft: #FFE48F; --sel: #FFE48F; --focus: #1C2125;
+    --ok: #1A7541; --ok-soft: #E3F1E8;
+    --warn: #A64D08; --warn-soft: #FBE9DA;
+    --crit: #B3261E; --crit-soft: #F8E1DF;
+    --unknown: #5F676E; --unknown-soft: #ECEEEC;
+    --paused: #4A6580; --paused-soft: #E3EAF1;
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+    --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
+    --chart-grid: #E6E8E3; --chart-axis: #C9CDC6; --chart-wash: 0.10;
+    --veil: rgba(10, 12, 14, 0.4);
+    --shadow: 0 1px 2px rgba(28, 33, 37, 0.06), 0 10px 28px -10px rgba(28, 33, 37, 0.2);
+    --shadow-lift: 0 2px 4px rgba(28, 33, 37, 0.06), 0 26px 50px -18px rgba(28, 33, 37, 0.32);
+    --shadow-pop: 0 2px 6px rgba(28, 33, 37, 0.08), 0 20px 44px -12px rgba(28, 33, 37, 0.28);
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F4F5F2; --surface: #FFFFFF; --surface-raised: #FFFFFF; --tile: #E9EBE6; --sunken: #ECEEE9;
+  --ink: #1C2125; --body: #3B4248; --muted: #535B62; --faint: #626A71;
+  --line: rgba(28, 33, 37, 0.12); --line-strong: rgba(28, 33, 37, 0.32);
+  --on-accent: #1C2125; --accent-ink: #1C2125; --accent-soft: #FFE48F; --sel: #FFE48F; --focus: #1C2125;
+  --ok: #1A7541; --ok-soft: #E3F1E8;
+  --warn: #A64D08; --warn-soft: #FBE9DA;
+  --crit: #B3261E; --crit-soft: #F8E1DF;
+  --unknown: #5F676E; --unknown-soft: #ECEEEC;
+  --paused: #4A6580; --paused-soft: #E3EAF1;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
+  --chart-grid: #E6E8E3; --chart-axis: #C9CDC6; --chart-wash: 0.10;
+  --veil: rgba(10, 12, 14, 0.4);
+  --shadow: 0 1px 2px rgba(28, 33, 37, 0.06), 0 10px 28px -10px rgba(28, 33, 37, 0.2);
+  --shadow-lift: 0 2px 4px rgba(28, 33, 37, 0.06), 0 26px 50px -18px rgba(28, 33, 37, 0.32);
+  --shadow-pop: 0 2px 6px rgba(28, 33, 37, 0.08), 0 20px 44px -12px rgba(28, 33, 37, 0.28);
+}
+
+/* ---------- Motion preference ---------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 120ms;   /* keep opacity fades, drop movement */
+    --dur-3: 120ms;
+    --dur-4: 120ms;
+    --press-scale: 1;
+  }
+}
