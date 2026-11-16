@@ -1,0 +1,89 @@
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
+import { describe, expect, it } from 'vitest';
+import { openDatabase } from './database.ts';
+import { MIGRATIONS_DIR, migrateDatabase } from './migrate.ts';
+
+function tempDir() {
+  return mkdtempSync(join(tmpdir(), 'rxf-db-'));
+}
+
+function tables(sqlite: Database.Database): string[] {
+  return (
+    sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]
+  )
+    .map((row) => row.name)
+    .filter((name) => !name.startsWith('sqlite_'));
+}
+
+/** Copy of the real migrations plus one extra step, to exercise the upgrade path of an existing database. */
+function migrationsWithExtraStep(): string {
+  const dir = tempDir();
+  cpSync(MIGRATIONS_DIR, dir, { recursive: true });
+  const journalFile = join(dir, 'meta', '_journal.json');
+  const journal = JSON.parse(readFileSync(journalFile, 'utf8'));
+  const last = journal.entries.at(-1);
+  journal.entries.push({
+    idx: last.idx + 1,
+    version: last.version,
+    when: last.when + 1,
+    tag: '9999_test_step',
+    breakpoints: true,
+  });
+  writeFileSync(journalFile, JSON.stringify(journal));
+  writeFileSync(join(dir, '9999_test_step.sql'), 'CREATE TABLE `test_step` (`id` integer PRIMARY KEY);');
+  return dir;
+}
+
+describe('database', () => {
+  it('opens with WAL and foreign keys on', () => {
+    const dir = tempDir();
+    const { sqlite } = openDatabase(join(dir, 'nested', 'rxf-admin-v2.db'));
+    expect(sqlite.pragma('journal_mode', { simple: true })).toBe('wal');
+    expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1);
+    sqlite.close();
+  });
+});
+
+describe('migrateDatabase', () => {
+  it('creates the schema on a fresh database without a backup', () => {
+    const dir = tempDir();
+    const handle = openDatabase(join(dir, 'rxf-admin-v2.db'));
+    const result = migrateDatabase(handle, { backupDir: join(dir, 'backups') });
+    expect(result).toEqual({ applied: ['0000_audit_events'], backupFile: null });
+    expect(tables(handle.sqlite)).toEqual(['__drizzle_migrations', 'audit_events']);
+    expect(existsSync(join(dir, 'backups'))).toBe(false);
+    handle.sqlite.close();
+  });
+
+  it('does nothing when the schema is current', () => {
+    const dir = tempDir();
+    const handle = openDatabase(join(dir, 'rxf-admin-v2.db'));
+    migrateDatabase(handle, { backupDir: join(dir, 'backups') });
+    expect(migrateDatabase(handle, { backupDir: join(dir, 'backups') })).toEqual({ applied: [], backupFile: null });
+    handle.sqlite.close();
+  });
+
+  it('backs up an existing database before upgrading it', () => {
+    const dir = tempDir();
+    const handle = openDatabase(join(dir, 'rxf-admin-v2.db'));
+    migrateDatabase(handle, { backupDir: join(dir, 'backups') });
+    handle.sqlite.prepare("INSERT INTO audit_events (ts, event, result) VALUES (1, 'auth.login', 'success')").run();
+
+    const result = migrateDatabase(handle, {
+      migrationsDir: migrationsWithExtraStep(),
+      backupDir: join(dir, 'backups'),
+    });
+    expect(result.applied).toEqual(['9999_test_step']);
+    expect(result.backupFile).toMatch(/backups\/pre-migration-9999_test_step-\d+\.db$/);
+    expect(tables(handle.sqlite)).toContain('test_step');
+
+    const backup = new Database(result.backupFile as string, { readonly: true });
+    expect(tables(backup)).not.toContain('test_step');
+    expect(backup.prepare('SELECT count(*) AS n FROM audit_events').get()).toEqual({ n: 1 });
+    backup.close();
+    handle.sqlite.close();
+  });
+});

@@ -1,6 +1,13 @@
+import { randomBytes } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 const API_PORT = 3100;
+// Every run starts from an empty data directory with a throwaway master key.
+const DATA_DIR = mkdtempSync(join(tmpdir(), 'rxf-e2e-'));
+const MASTER_KEY = randomBytes(32).toString('base64');
 const WEB_PORT = 4173;
 
 // Containers with a preinstalled Chromium (cloud sessions) point Playwright at it instead of downloading.
@@ -29,12 +36,13 @@ export default defineConfig({
   webServer: [
     {
       command: 'node --conditions=@rxf/source ../apps/server/src/main.ts',
-      env: { PORT: String(API_PORT), RXF_VERSION: 'e2e' },
+      env: { PORT: String(API_PORT), RXF_VERSION: 'e2e', RXF_DATA_DIR: DATA_DIR, RXF_MASTER_KEY: MASTER_KEY },
       url: `http://127.0.0.1:${API_PORT}/api/healthz`,
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: `pnpm --filter @rxf/web exec vite preview --port ${WEB_PORT} --strictPort`,
+      // An explicit IPv4 host: on CI runners "localhost" resolves to ::1 first, where Playwright never looks.
+      command: `pnpm --filter @rxf/web exec vite preview --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
       env: { RXF_API_URL: `http://127.0.0.1:${API_PORT}` },
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: !process.env.CI,
