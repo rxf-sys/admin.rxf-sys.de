@@ -2,7 +2,7 @@
 
 - **Stand:** 18.10.2026 (Phase 3)
 - **Bezug:** ADR 0001 §3 (Signal, dark-first), ADR 0002 (CSS Custom Properties + CSS Modules), ADR 0008 (CSP ohne Inline-Scripts)
-- **Dateien:** `design/tokens.css`, `design/fonts/`, `design/preview/`
+- **Dateien:** `packages/ui/src/tokens.css`, `packages/ui/src/fonts/` (bis Phase 4.1 unter `design/`), `design/preview/`
 
 Das Design-System übernimmt die Marke **Signal** aus `rxf-sys/www.rxf-sys.de`
 und erweitert sie für ein Betriebs-Dashboard:
@@ -15,14 +15,15 @@ und erweitert sie für ein Betriebs-Dashboard:
 Dunkel ist das Primär-Theme, hell wird vollständig unterstützt.
 
 `tokens.css` ist die einzige Quelle für Farben, Typo, Abstände und Motion.
-Phase 4 übernimmt die Datei unverändert in `apps/web`; Komponenten nutzen
-ausschließlich die Variablen, nie Hex-Werte.
+Seit Phase 4.1 liegt sie im Paket `@rxf/ui` und wird von `apps/web` als
+`@rxf/ui/tokens.css` importiert; die Vorschau verweist auf dieselbe Datei.
+Komponenten nutzen ausschließlich die Variablen, nie Hex-Werte.
 
 ## Vorschau öffnen
 
 ```bash
-cd design && python3 -m http.server 8765 --bind 127.0.0.1
-# http://127.0.0.1:8765/preview/index.html
+python3 -m http.server 8765 --bind 127.0.0.1   # im Repo-Wurzelverzeichnis
+# http://127.0.0.1:8765/design/preview/index.html
 ```
 
 `preview/index.html` funktioniert auch direkt per `file://`, weil die Vorschau nur
@@ -150,7 +151,7 @@ dann Pfeiltasten.
 
 ### Typo
 
-Schriften liegen lokal unter `design/fonts/`, Lizenz OFL-1.1 (siehe
+Schriften liegen lokal unter `packages/ui/src/fonts/`, Lizenz OFL-1.1 (siehe
 `LICENSE-*.txt`), kein CDN:
 
 - Archivo (variabel, Überschriften)
@@ -279,7 +280,7 @@ dunkel und hell, liegen unter `screenshots/views-*.jpg`.
 
 ## Übergabe an Phase 4
 
-- `tokens.css` und `fonts/` nach `apps/web/src/styles/` übernehmen. Die `@font-face`-Pfade bleiben relativ.
+- Erledigt in 4.1: `tokens.css` und `fonts/` liegen in `@rxf/ui`. Die `@font-face`-Pfade bleiben relativ.
 - Die Fit-Logik (Regel 4) wird ein `useFitList`-Hook. Container Queries bleiben CSS.
 - Dialoge auf Radix, Palette auf cmdk, Toasts auf sonner. Verhalten wie in der Vorschau, Fokus-Rückgabe inklusive.
 - axe- und Interaktionsprüfungen dieser Phase als Playwright-Tests übernehmen.

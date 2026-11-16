@@ -1,0 +1,8 @@
+[
+  {
+    "name": "web start bundle (JS, gzip)",
+    "path": "apps/web/dist/assets/*.js",
+    "limit": "150 KB",
+    "gzip": true
+  }
+]

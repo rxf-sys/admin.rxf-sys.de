@@ -1,0 +1,14 @@
+{
+  "extends": "../../tooling/tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  },
+  "include": ["src", "vite.config.ts"]
+}
