@@ -41,7 +41,7 @@ e2e                @rxf/e2e      Playwright + axe, Screenshots 1440/390 hell/dun
 
 ```bash
 pnpm install                 # Node 26 + pnpm 12 (packageManager); Cloud-Sessions: SessionStart-Hook
-pnpm dev:server              # Node führt TypeScript direkt aus (--conditions=@rxf/source)
+RXF_DATA_DIR=.data RXF_MASTER_KEY=$(pnpm -s --filter @rxf/server keygen) pnpm dev:server   # Node führt TS direkt aus
 pnpm dev:web                 # Vite, /api → 127.0.0.1:3000
 pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build && pnpm size && pnpm knip
 pnpm e2e                     # lokal: PW_CHROMIUM_PATH auf vorhandenes Chromium setzen
