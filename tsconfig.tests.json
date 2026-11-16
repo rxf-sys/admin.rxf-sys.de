@@ -1,0 +1,10 @@
+{
+  "extends": "./tooling/tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["apps/server/src/**/*.test.ts", "packages/*/src/**/*.test.ts", "vitest.config.ts"]
+}

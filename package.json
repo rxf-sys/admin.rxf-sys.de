@@ -1,0 +1,33 @@
+{
+  "name": "rxf-admin",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "scripts": {
+    "lint": "biome ci .",
+    "format": "biome format --write .",
+    "typecheck": "tsc -b && tsc -p tsconfig.tests.json && tsc -p apps/web && tsc -p e2e",
+    "build": "tsc -b && pnpm --filter @rxf/web build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "size": "size-limit",
+    "knip": "knip",
+    "e2e": "pnpm --filter @rxf/e2e test",
+    "dev:server": "pnpm --filter @rxf/server dev",
+    "dev:web": "pnpm --filter @rxf/web dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@size-limit/file": "14.2.0",
+    "@types/node": "26.6.5",
+    "@vitest/coverage-v8": "5.0.5",
+    "jsdom": "30.1.3",
+    "knip": "6.41.0",
+    "size-limit": "14.2.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

@@ -1,0 +1,11 @@
+# v2 workspace. The legacy app (backend/, frontend/, infrastructure/) stays outside until phase 9.
+packages:
+  - apps/*
+  - packages/*
+  - packages/plugins/*
+  - packages/kits/*
+  - tooling
+  - e2e
+
+# Supply chain (ADR 0008, T12): install scripts run only for packages allowed here.
+allowBuilds: {}

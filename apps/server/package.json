@@ -1,0 +1,14 @@
+{
+  "name": "@rxf/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --conditions=@rxf/source --watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@rxf/contracts": "workspace:*",
+    "fastify": "5.12.7"
+  }
+}
