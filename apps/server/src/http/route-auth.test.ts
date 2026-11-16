@@ -5,7 +5,7 @@ import { registerRouteGuard } from './route-auth.ts';
 
 async function guardedApp() {
   const app = Fastify();
-  registerRouteGuard(app);
+  registerRouteGuard(app, { resolve: () => null, now: Date.now });
   registerErrorHandling(app);
   app.get('/api/open', { config: { auth: { role: 'public' } } }, async () => ({ ok: true }));
   app.post('/api/open', { config: { auth: { role: 'public' } } }, async () => ({ ok: true }));
@@ -17,7 +17,7 @@ async function guardedApp() {
 describe('route guard', () => {
   it('refuses to register a route without an auth declaration', async () => {
     const app = Fastify();
-    registerRouteGuard(app);
+    registerRouteGuard(app, { resolve: () => null, now: Date.now });
     expect(() => app.get('/api/forgotten', async () => ({}))).toThrow(/GET \/api\/forgotten has no config.auth/);
   });
 

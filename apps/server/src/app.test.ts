@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from './app.ts';
 import type { DatabaseHandle } from './db/database.ts';
-import { testDatabase } from './test-support.ts';
+import { testDatabase, testMasterKey } from './test-support.ts';
 
 describe('app', () => {
   let database: DatabaseHandle;
@@ -10,7 +10,7 @@ describe('app', () => {
 
   beforeEach(() => {
     database = testDatabase();
-    app = buildApp({ version: '2.0.0-test', database });
+    app = buildApp({ version: '2.0.0-test', database, masterKey: testMasterKey(), commonPasswords: new Set() });
   });
 
   afterEach(async () => {
@@ -41,5 +41,32 @@ describe('app', () => {
     const res = await app.inject({ method: 'GET', url: '/api/unknown?x=1' });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ error: { code: 'NOT_FOUND', message: 'GET /api/unknown does not exist' } });
+  });
+});
+
+describe('client address', () => {
+  it('believes X-Forwarded-For only from a trusted proxy', async () => {
+    const { auditEvents } = await import('./db/schema.ts');
+    for (const [trustedProxies, expected] of [
+      [[], '127.0.0.1'],
+      [['127.0.0.1'], '203.0.113.9'],
+    ] as const) {
+      const database = testDatabase();
+      const app = buildApp({
+        version: 't',
+        database,
+        masterKey: testMasterKey(),
+        commonPasswords: new Set(),
+        trustedProxies,
+      });
+      await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        headers: { 'x-forwarded-for': '203.0.113.9' },
+        payload: { username: 'nobody', password: 'whatever it is' },
+      });
+      expect(database.db.select().from(auditEvents).get()?.actorIp).toBe(expected);
+      await app.close();
+    }
   });
 });

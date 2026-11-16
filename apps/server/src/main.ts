@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { buildApp } from './app.ts';
+import { issueSetupCode } from './auth/setup.ts';
 import { readConfig } from './config.ts';
 import { loadMasterKey } from './crypto/master-key.ts';
 import { openDatabase } from './db/database.ts';
@@ -12,8 +13,18 @@ const masterKey = await loadMasterKey({ file: config.masterKeyFile, inline: conf
 const database = openDatabase(join(config.dataDir, 'rxf-admin-v2.db'));
 const migration = migrateDatabase(database, { backupDir: join(config.dataDir, 'backups') });
 
-const app = buildApp({ version: config.version, database, logger: loggerOptions() });
+const app = buildApp({
+  version: config.version,
+  database,
+  masterKey,
+  trustedProxies: config.trustedProxies,
+  logger: loggerOptions(),
+});
 app.log.info({ keyId: masterKey.id, migrations: migration.applied, backup: migration.backupFile }, 'storage ready');
+
+// The setup code only ever appears here, in the log of the starting container (ADR 0005, T1).
+const setupCode = issueSetupCode(database.db, Date.now());
+if (setupCode) app.log.warn(`No admin yet. Setup code (valid 24 h, replaced on restart): ${setupCode}`);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {

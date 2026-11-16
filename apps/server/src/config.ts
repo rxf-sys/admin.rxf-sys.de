@@ -1,3 +1,5 @@
+import { isIPv6 } from 'node:net';
+
 export class ConfigError extends Error {
   constructor(message: string) {
     super(message);
@@ -15,6 +17,26 @@ export interface ServerConfig {
   masterKeyFile: string;
   /** Inline master key, development only (ADR 0006). */
   masterKeyInline: string | undefined;
+  /** Addresses or CIDRs of the reverse proxy (Caddy) whose X-Forwarded-For is trusted. */
+  trustedProxies: string[];
+}
+
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+function parseTrustedProxies(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw.split(',').map((entry) => {
+    const value = entry.trim();
+    const [address = '', prefix] = value.split('/');
+    const isV4 = IPV4.test(address);
+    const isV6 = !isV4 && isIPv6(address);
+    const maxPrefix = isV4 ? 32 : 128;
+    const prefixOk = prefix === undefined || (/^\d{1,3}$/.test(prefix) && Number(prefix) <= maxPrefix);
+    if (!(isV4 || isV6) || !prefixOk) {
+      throw new ConfigError(`RXF_TRUSTED_PROXIES must list IP addresses or CIDRs, got "${value}"`);
+    }
+    return value;
+  });
 }
 
 /** Reads the server configuration from the environment. Defaults keep the server off the network. */
@@ -37,5 +59,6 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
     dataDir: env.RXF_DATA_DIR ?? '/data',
     masterKeyFile: env.RXF_MASTER_KEY_FILE ?? '/run/secrets/rxf_master_key',
     masterKeyInline,
+    trustedProxies: parseTrustedProxies(env.RXF_TRUSTED_PROXIES),
   };
 }
