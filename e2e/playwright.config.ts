@@ -34,7 +34,8 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: `pnpm --filter @rxf/web exec vite preview --port ${WEB_PORT} --strictPort`,
+      // An explicit IPv4 host: on CI runners "localhost" resolves to ::1 first, where Playwright never looks.
+      command: `pnpm --filter @rxf/web exec vite preview --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
       env: { RXF_API_URL: `http://127.0.0.1:${API_PORT}` },
       url: `http://127.0.0.1:${WEB_PORT}`,
       reuseExistingServer: !process.env.CI,
