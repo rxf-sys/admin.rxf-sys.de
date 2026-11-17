@@ -11,6 +11,7 @@ describe('readConfig', () => {
       dataDir: '/data',
       masterKeyFile: '/run/secrets/rxf_master_key',
       masterKeyInline: undefined,
+      trustedProxies: [],
     });
   });
 
@@ -29,6 +30,18 @@ describe('readConfig', () => {
 
   it.each(['', ' ', 'abc', '0', '65536', '80.5'])('rejects PORT=%j', (port) => {
     expect(() => readConfig({ PORT: port })).toThrow(ConfigError);
+  });
+
+  it('reads trusted proxies as addresses and CIDRs', () => {
+    expect(readConfig({ RXF_TRUSTED_PROXIES: '172.20.0.10, 10.0.0.0/8 ,fd00::/64' }).trustedProxies).toEqual([
+      '172.20.0.10',
+      '10.0.0.0/8',
+      'fd00::/64',
+    ]);
+  });
+
+  it.each(['caddy', '10.0.0.0/33', '300.1.1.1', '10.0.0.1/abc'])('rejects RXF_TRUSTED_PROXIES=%j', (value) => {
+    expect(() => readConfig({ RXF_TRUSTED_PROXIES: value })).toThrow(/RXF_TRUSTED_PROXIES/);
   });
 
   it('accepts an inline master key outside production', () => {

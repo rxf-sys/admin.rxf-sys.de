@@ -138,3 +138,21 @@ Re-Auth.
 - Die Auth-Module bekommen Integrationstests für jeden Flow und eine
   ASVS-Checkliste in `docs/SECURITY.md` (Phase 4, Review in Phase 8).
 - Vor jedem PR, der Auth berührt: `security-review`-Skill (Auftrag §8).
+
+## Nachtrag: Umsetzung in Phase 4.3 (16.11.2026)
+
+- **Passkeys** folgen als eigener Teil-PR 4.7 (Owner-Entscheidung 19.10.2026). Bis dahin
+  ist TOTP der zweite Faktor, mit Backup-Codes als Ersatz.
+- **Setup-Code:** Solange kein Admin existiert, erzeugt jeder Serverstart einen neuen Code
+  und macht den alten ungültig. Der Code steht weiterhin nur im Log des startenden
+  Containers. Wer das Log verloren hat, startet neu, statt 24 h zu warten.
+- **Liste häufiger Passwörter:** SecLists „10k-most-common“ (MIT), Owner-Entscheidung
+  16.11.2026. Bei mindestens 12 Zeichen passen nur 10 Einträge direkt. Deshalb prüft der
+  Server zusätzlich das Passwort ohne angehängte Nicht-Buchstaben („Password1234!!“ →
+  „password“) und lehnt Wiederholungen eines kurzen Musters oder eines häufigen Passworts ab.
+- **Client-IP** (Owner-Entscheidung 16.11.2026): Der Server glaubt `X-Forwarded-For` nur von
+  den Adressen in `RXF_TRUSTED_PROXIES`, also von Caddy. Caddy setzt die Client-IP aus
+  `CF-Connecting-IP`, aber nur für Anfragen vom cloudflared-Host. Die Caddy-Konfiguration
+  dazu kommt mit dem Staging-Deploy (4.6).
+- **Cookie** ohne `@fastify/cookie`: Für das eine eigene Cookie reichen wenige Zeilen.
+  Die freigegebene Abhängigkeit entfällt.
