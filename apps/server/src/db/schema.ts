@@ -1,4 +1,4 @@
-import { blob, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { blob, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 /** Persistent audit log (ADR 0004). Rows outlive the accounts they mention, so there is no foreign key. */
 export const auditEvents = sqliteTable(
@@ -107,3 +107,33 @@ export const setupState = sqliteTable('setup_state', {
   expiresAt: integer('expires_at'),
   completedAt: integer('completed_at'),
 });
+
+/** One configured plugin (ADR 0003, 0004). Secret fields never land in `config_json`. */
+export const pluginInstances = sqliteTable('plugin_instances', {
+  id: text('id').primaryKey(),
+  pluginId: text('plugin_id').notNull(),
+  name: text('name').notNull(),
+  status: text('status', { enum: ['draft', 'active', 'paused'] }).notNull(),
+  configJson: text('config_json').notNull(),
+  createdBy: integer('created_by'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/** Secret config values, sealed with the master key and bound to instance, slot and field (ADR 0006). */
+export const secrets = sqliteTable(
+  'secrets',
+  {
+    instanceId: text('instance_id')
+      .notNull()
+      .references(() => pluginInstances.id, { onDelete: 'cascade' }),
+    slot: text('slot').notNull(),
+    field: text('field').notNull(),
+    ciphertext: blob('ciphertext', { mode: 'buffer' }).notNull(),
+    iv: blob('iv', { mode: 'buffer' }).notNull(),
+    tag: blob('tag', { mode: 'buffer' }).notNull(),
+    keyId: text('key_id').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.instanceId, table.slot, table.field] })],
+);

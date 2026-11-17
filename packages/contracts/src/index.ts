@@ -18,3 +18,15 @@ export {
 } from './auth.ts';
 export { type ErrorResponse, errorResponse } from './error.ts';
 export { type HealthResponse, healthResponse } from './health.ts';
+export {
+  catalogResponse,
+  createInstanceRequest,
+  type InstanceResponse,
+  instanceListResponse,
+  instanceResponse,
+  instanceStatus,
+  pluginSummary,
+  type TestResultResponse,
+  testResultResponse,
+  updateInstanceRequest,
+} from './plugins.ts';

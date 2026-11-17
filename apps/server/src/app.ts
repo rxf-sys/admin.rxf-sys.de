@@ -8,6 +8,9 @@ import type { MasterKey } from './crypto/master-key.ts';
 import type { DatabaseHandle } from './db/database.ts';
 import { AppError, registerErrorHandling } from './http/errors.ts';
 import { registerRouteGuard } from './http/route-auth.ts';
+import { PluginHost } from './plugins/host.ts';
+import { registerPluginRoutes } from './plugins/routes.ts';
+import { pluginRegistry, type RegisteredPlugin } from './plugins.generated.ts';
 
 export interface AppOptions {
   /** Reported by `/api/healthz`; set from the image tag at build time. */
@@ -19,6 +22,8 @@ export interface AppOptions {
   trustedProxies?: readonly string[];
   commonPasswords?: ReadonlySet<string>;
   now?: () => number;
+  /** Defaults to the generated registry; tests pass their own. */
+  plugins?: readonly RegisteredPlugin[];
 }
 
 export function buildApp(options: AppOptions): FastifyInstance {
@@ -57,6 +62,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
     db,
     masterKey: options.masterKey,
     commonPasswords: options.commonPasswords ?? loadCommonPasswords(),
+    now,
+  });
+  registerPluginRoutes(app, {
+    db,
+    masterKey: options.masterKey,
+    host: new PluginHost(options.plugins ?? pluginRegistry),
     now,
   });
 

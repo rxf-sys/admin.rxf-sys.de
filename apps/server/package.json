@@ -11,6 +11,8 @@
   "dependencies": {
     "@node-rs/argon2": "2.2.2",
     "@rxf/contracts": "workspace:*",
+    "@rxf/plugin-uptime": "workspace:*",
+    "@rxf/sdk": "workspace:*",
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.4",
     "fastify": "5.12.7",

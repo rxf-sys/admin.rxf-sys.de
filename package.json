@@ -7,7 +7,7 @@
     "node": ">=24.11"
   },
   "scripts": {
-    "lint": "biome ci .",
+    "lint": "biome ci . && node tooling/generate-plugin-registry.ts --check",
     "format": "biome format --write .",
     "typecheck": "tsc -b && tsc -p tsconfig.tests.json && tsc -p apps/web && tsc -p e2e",
     "build": "tsc -b && pnpm --filter @rxf/web build",
@@ -17,7 +17,8 @@
     "knip": "knip",
     "e2e": "pnpm --filter @rxf/e2e test",
     "dev:server": "pnpm --filter @rxf/server dev",
-    "dev:web": "pnpm --filter @rxf/web dev"
+    "dev:web": "pnpm --filter @rxf/web dev",
+    "generate:plugins": "node tooling/generate-plugin-registry.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

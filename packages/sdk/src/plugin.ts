@@ -41,6 +41,8 @@ export interface ServerPlugin<F extends Record<string, FieldSpec> = Record<strin
   config: ConfigDefinition<F>;
   /** Every peer the instance may contact (ADR 0008, T8); derived from the config only. */
   targets(config: ConfigOf<ConfigDefinition<F>>): Target[];
+  /** Opt-in to blocked ranges (loopback, link-local), driven by an admin-only config field. Default: never. */
+  allowBlockedAddresses?(config: ConfigOf<ConfigDefinition<F>>): boolean;
   /** Requests collectors may send (ADR 0008, T9). Action rules arrive with the action framework. */
   requests: { collect: RequestRule[] };
   test(ctx: PluginContext<ConfigOf<ConfigDefinition<F>>>): Promise<TestResult>;

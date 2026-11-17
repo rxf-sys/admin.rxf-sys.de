@@ -52,11 +52,13 @@ describe('migrateDatabase', () => {
     const dir = tempDir();
     const handle = openDatabase(join(dir, 'rxf-admin-v2.db'));
     const result = migrateDatabase(handle, { backupDir: join(dir, 'backups') });
-    expect(result).toEqual({ applied: ['0000_audit_events', '0001_auth'], backupFile: null });
+    expect(result).toEqual({ applied: ['0000_audit_events', '0001_auth', '0002_plugins'], backupFile: null });
     expect(tables(handle.sqlite)).toEqual([
       '__drizzle_migrations',
       'audit_events',
       'login_attempts',
+      'plugin_instances',
+      'secrets',
       'sessions',
       'setup_state',
       'user_backup_codes',

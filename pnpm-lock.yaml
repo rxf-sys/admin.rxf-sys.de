@@ -205,6 +205,12 @@ importers:
       '@rxf/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@rxf/plugin-uptime':
+        specifier: workspace:*
+        version: link:../../packages/plugins/uptime
+      '@rxf/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3
@@ -287,6 +293,15 @@ importers:
         version: 4.6.7
 
   packages/i18n: {}
+
+  packages/plugins/uptime:
+    dependencies:
+      '@rxf/sdk':
+        specifier: workspace:*
+        version: link:../../sdk
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   packages/sdk:
     dependencies:

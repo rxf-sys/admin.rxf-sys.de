@@ -289,3 +289,23 @@ CREATE TABLE IF NOT EXISTS custom_services (
 18. https://github.com/iputils/iputils/blob/master/ping/ping_common.c – Ausgaben über gettext lokalisiert
 19. https://forums.docker.com/t/issue-deploying-twingate-docker-connector-on-proxmox-lxc/135837 – [S] `ping_group_range` „invalid argument“ in Proxmox-LXC
 20. https://forum.proxmox.com/threads/ping-with-unprivileged-user-in-lxc-container-linux-capabilities.42308/ – [S] Ping-Probleme in unprivilegierten LXC
+
+## Umsetzungsstand Phase 4.4a (17.11.2026)
+
+- **TLS-Modi** (Owner-Entscheidung 17.11.2026): Im ganzen SDK gelten die Namen aus ADR 0008:
+  `system`, `pin-leaf`, `pin-spki`, `ca`. Für Uptime heißt `verify` jetzt `system` und
+  `pin` jetzt `pin-leaf`.
+- **`expectedStatus`-Standard** (Owner-Entscheidung 17.11.2026): `200-399,401,403,405`,
+  je Check änderbar.
+- **Checks in der Instanz-Konfiguration:** In 4.4a stehen die HTTP-Checks als Liste im Feld
+  `checks` der Instanz (nur Admin, Änderung mit Re-Auth). So prüft der SDK-Vertrag
+  (`targets()`, `test()`) sie ohne eigene Uptime-API. Die Ergebnisse landen in 4.4b als
+  `Service`-Entitäten mit `attrs.endpoint`.
+- **`test()`** führt jeden Check einmal aus. Es schlägt nur bei Konfigurationsfehlern fehl:
+  gesperrtes Ziel, nicht erlaubte Anfrage, TLS nicht vertrauenswürdig oder Pin falsch. Ein
+  gerade nicht erreichbarer Dienst ist ein gültiges Ergebnis und blockiert die Aktivierung
+  nicht. Bei einem nicht vertrauenswürdigen Zertifikat liefert `test()` Fingerprint (Leaf
+  und SPKI), Aussteller, SAN und Ablauf zur Bestätigung. Den Pin setzt der Admin dann über
+  `tlsMode: pin-leaf` und `pinSha256` am Check.
+- **Folgt in 4.4b:** Collector und Scheduler, Messwerte, SSE. Ab Welle 1: TCP-, ICMP-,
+  DNS- und TLS-Checks sowie Secret-Header je Check.
