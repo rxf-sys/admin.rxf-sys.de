@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tooling/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "types": ["node"],
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
+  },
+  "include": ["server"],
+  "exclude": ["server/**/*.test.ts"],
+  "references": [{ "path": "../../sdk" }]
+}

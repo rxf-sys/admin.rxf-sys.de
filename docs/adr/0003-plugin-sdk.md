@@ -222,3 +222,26 @@ pausieren“). Begründung in `docs/integrations/pihole-adguard.md`.
   Parallelitätsgrenze, keine Sandbox.
 - Kanäle (ntfy, E-Mail, Webhook) nutzen denselben Vertrag mit Kategorie
   `channel` und einer zusätzlichen Fähigkeit `send(alert)` (Phase 7).
+
+## Nachtrag: Umsetzung in Phase 4.4a (17.11.2026)
+
+- **`@rxf/sdk`** enthält:
+  - das Manifest-Schema
+  - `defineConfig`/`field` mit `secret` und `adminOnly`
+  - Ziele mit den TLS-Modi aus ADR 0008
+  - `defineServerPlugin`
+  - den HTTP-Client `createHttpClient`
+
+  Der Client weist Ursprünge und Anfragen außerhalb der Allowlists vor dem Verbindungsaufbau
+  ab. Die aufgelöste Adresse jeder Verbindung prüft er gegen die Sperrliste, auch gegen
+  DNS-Rebinding. Redirects folgt er nie, Antwortkörper begrenzt er. Pins prüft er nach
+  dem Handshake.
+- **Secret-Felder** sind vorerst Top-Level-Strings; verschachtelte Secrets folgen bei Bedarf.
+- **Gesperrte Adressen:** Plugins können sie nur über `allowBlockedAddresses(config)`
+  freigeben, gesteuert durch ein `adminOnly`-Feld.
+- **Registry:** `tooling/generate-plugin-registry.ts` erzeugt
+  `apps/server/src/plugins.generated.ts`. `pnpm lint` schlägt fehl, wenn die Datei nicht aktuell
+  ist. Die Web-Registry folgt mit 4.5.
+- **Instanzen-Tabelle:** `plugin_instances` hat noch keine Spalten `actions_json` und
+  `tls_pins_json`. Sie kommen mit dem Aktions-Framework bzw. dem ersten Plugin, dessen Pin
+  nicht in der Konfiguration steht. Für Uptime steht der Pin am Check.

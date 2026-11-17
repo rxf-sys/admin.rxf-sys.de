@@ -9,12 +9,14 @@ export default defineConfig({
     projects: [
       { extends: true, test: { name: 'contracts', root: 'packages/contracts', environment: 'node' } },
       { extends: true, test: { name: 'i18n', root: 'packages/i18n', environment: 'node' } },
+      { extends: true, test: { name: 'sdk', root: 'packages/sdk', environment: 'node' } },
+      { extends: true, test: { name: 'plugin-uptime', root: 'packages/plugins/uptime', environment: 'node' } },
       { extends: true, test: { name: 'server', root: 'apps/server', environment: 'node' } },
       { extends: true, test: { name: 'web', root: 'apps/web', environment: 'jsdom' } },
     ],
     coverage: {
       provider: 'v8',
-      include: ['apps/*/src/**', 'packages/*/src/**'],
+      include: ['apps/*/src/**', 'packages/*/src/**', 'packages/plugins/*/server/**'],
       // Entry points only wire modules together; their behaviour is covered by the e2e suite.
       exclude: ['**/*.test.{ts,tsx}', 'apps/server/src/main.ts', 'apps/web/src/main.tsx'],
       // ADR 0009: core ≥ 80 %. Plugins get their own ≥ 70 % gate when the first one lands.
