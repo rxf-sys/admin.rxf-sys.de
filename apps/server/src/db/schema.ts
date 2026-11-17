@@ -37,17 +37,24 @@ export const userPasswords = sqliteTable('user_passwords', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-/** TOTP secret sealed with the master key (ADR 0006); `lastStep` blocks replaying a code. */
+/**
+ * TOTP secrets sealed with the master key (ADR 0006). The confirmed secret stays in force while a
+ * replacement is pending; `lastStep` blocks replaying a code of the confirmed secret.
+ */
 export const userTotp = sqliteTable('user_totp', {
   userId: integer('user_id')
     .primaryKey()
     .references(() => users.id, { onDelete: 'cascade' }),
-  ciphertext: blob('ciphertext', { mode: 'buffer' }).notNull(),
-  iv: blob('iv', { mode: 'buffer' }).notNull(),
-  tag: blob('tag', { mode: 'buffer' }).notNull(),
-  keyId: text('key_id').notNull(),
+  ciphertext: blob('ciphertext', { mode: 'buffer' }),
+  iv: blob('iv', { mode: 'buffer' }),
+  tag: blob('tag', { mode: 'buffer' }),
+  keyId: text('key_id'),
   confirmedAt: integer('confirmed_at'),
   lastStep: integer('last_step'),
+  pendingCiphertext: blob('pending_ciphertext', { mode: 'buffer' }),
+  pendingIv: blob('pending_iv', { mode: 'buffer' }),
+  pendingTag: blob('pending_tag', { mode: 'buffer' }),
+  pendingKeyId: text('pending_key_id'),
 });
 
 export const userBackupCodes = sqliteTable(

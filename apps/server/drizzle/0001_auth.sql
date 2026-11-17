@@ -47,12 +47,16 @@ CREATE TABLE `user_passwords` (
 --> statement-breakpoint
 CREATE TABLE `user_totp` (
 	`user_id` integer PRIMARY KEY NOT NULL,
-	`ciphertext` blob NOT NULL,
-	`iv` blob NOT NULL,
-	`tag` blob NOT NULL,
-	`key_id` text NOT NULL,
+	`ciphertext` blob,
+	`iv` blob,
+	`tag` blob,
+	`key_id` text,
 	`confirmed_at` integer,
 	`last_step` integer,
+	`pending_ciphertext` blob,
+	`pending_iv` blob,
+	`pending_tag` blob,
+	`pending_key_id` text,
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint

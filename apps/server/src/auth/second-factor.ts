@@ -26,14 +26,23 @@ function totpFor(secret: string, username: string): OTPAuth.TOTP {
   });
 }
 
-/** Starts (or restarts) enrolment: a new secret, sealed (ADR 0006) and unconfirmed until a valid code arrives. */
+/**
+ * Starts (or restarts) enrolment: a new secret, sealed (ADR 0006) and stored as pending. An already
+ * confirmed secret stays in force until the new one is confirmed, so starting a replacement never
+ * leaves the account without a second factor.
+ */
 export function beginTotpEnrolment(db: Db, key: MasterKey, userId: number, username: string) {
   const secret = new OTPAuth.Secret({ size: 20 }).base32;
   const sealed = sealSecret(key, totpLocation(userId), secret);
-  const row = { ...sealed, confirmedAt: null, lastStep: null };
+  const pending = {
+    pendingCiphertext: sealed.ciphertext,
+    pendingIv: sealed.iv,
+    pendingTag: sealed.tag,
+    pendingKeyId: sealed.keyId,
+  };
   db.insert(userTotp)
-    .values({ userId, ...row })
-    .onConflictDoUpdate({ target: userTotp.userId, set: row })
+    .values({ userId, ...pending })
+    .onConflictDoUpdate({ target: userTotp.userId, set: pending })
     .run();
   return { secret, uri: totpFor(secret, username).toString() };
 }
@@ -63,19 +72,48 @@ interface TotpCheck {
   username: string;
   code: string;
   now: number;
-  /** Enrolment confirms an unconfirmed secret; sign-in only accepts a confirmed one. */
-  confirming: boolean;
 }
 
+/** Sign-in and re-authentication: only the confirmed secret counts. */
 export function verifyTotp(check: TotpCheck): boolean {
   const row = check.db.select().from(userTotp).where(eq(userTotp.userId, check.userId)).get();
-  if (!row || (row.confirmedAt === null) !== check.confirming) return false;
-  const secret = openSecret(check.keys, totpLocation(check.userId), row);
+  if (!row?.confirmedAt || !row.ciphertext || !row.iv || !row.tag || !row.keyId) return false;
+  const secret = openSecret(check.keys, totpLocation(check.userId), {
+    ciphertext: row.ciphertext,
+    iv: row.iv,
+    tag: row.tag,
+    keyId: row.keyId,
+  });
   const step = matchTotp(secret, check.username, check.code, check.now, row.lastStep);
+  if (step === null) return false;
+  check.db.update(userTotp).set({ lastStep: step }).where(eq(userTotp.userId, check.userId)).run();
+  return true;
+}
+
+/** Enrolment: a valid code for the pending secret promotes it to the confirmed one in a single update. */
+export function confirmTotpEnrolment(check: TotpCheck): boolean {
+  const row = check.db.select().from(userTotp).where(eq(userTotp.userId, check.userId)).get();
+  if (!row?.pendingCiphertext || !row.pendingIv || !row.pendingTag || !row.pendingKeyId) return false;
+  const pending = {
+    ciphertext: row.pendingCiphertext,
+    iv: row.pendingIv,
+    tag: row.pendingTag,
+    keyId: row.pendingKeyId,
+  };
+  const secret = openSecret(check.keys, totpLocation(check.userId), pending);
+  const step = matchTotp(secret, check.username, check.code, check.now, null);
   if (step === null) return false;
   check.db
     .update(userTotp)
-    .set({ lastStep: step, confirmedAt: row.confirmedAt ?? check.now })
+    .set({
+      ...pending,
+      confirmedAt: check.now,
+      lastStep: step,
+      pendingCiphertext: null,
+      pendingIv: null,
+      pendingTag: null,
+      pendingKeyId: null,
+    })
     .where(eq(userTotp.userId, check.userId))
     .run();
   return true;

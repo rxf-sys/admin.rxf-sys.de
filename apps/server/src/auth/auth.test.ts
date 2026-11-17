@@ -266,6 +266,88 @@ describe('auth', () => {
       expect(reauth.json().elevatedUntil).toBe(t.clock.now + 10 * 60_000);
       expect((await call({ method: 'POST', url: '/api/auth/totp/enrol', client })).statusCode).toBe(200);
     });
+    it('keeps the confirmed factor while a replacement is pending (no takeover with the password alone)', async () => {
+      const { client, secret } = await bootstrapAdmin();
+      t.clock.now += 60_000;
+      await call({
+        method: 'POST',
+        url: '/api/auth/reauth',
+        client,
+        payload: { password: PASSWORD, code: totpCode(secret, t.clock.now) },
+      });
+      const started = await call({ method: 'POST', url: '/api/auth/totp/enrol', client });
+      expect(started.statusCode).toBe(200);
+      const replacement = started.json().secret as string;
+
+      // An attacker with only the password: the account still has a factor, and replacing it needs re-auth.
+      const login = await call({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { username: 'robin', password: PASSWORD },
+      });
+      expect(login.json()).toEqual({ mfa: 'pending' });
+      const attacker = await clientFor(sessionTokenFrom(login) as string);
+      expect((await call({ method: 'POST', url: '/api/auth/totp/enrol', client: attacker })).json().error.code).toBe(
+        'REAUTH_REQUIRED',
+      );
+      const hijack = await call({
+        method: 'POST',
+        url: '/api/auth/totp/confirm',
+        client: attacker,
+        payload: { code: totpCode(replacement, t.clock.now) },
+      });
+      expect(hijack.json().error.code).toBe('REAUTH_REQUIRED');
+
+      // The old factor still signs in.
+      t.clock.now += 60_000;
+      const login2 = await call({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { username: 'robin', password: PASSWORD },
+      });
+      const pending = await clientFor(sessionTokenFrom(login2) as string);
+      expect(
+        (
+          await call({
+            method: 'POST',
+            url: '/api/auth/2fa',
+            client: pending,
+            payload: { code: totpCode(secret, t.clock.now) },
+          })
+        ).statusCode,
+      ).toBe(200);
+
+      // The owner confirms the replacement inside the re-auth window; the old secret stops working and other sessions end.
+      const confirmed = await call({
+        method: 'POST',
+        url: '/api/auth/totp/confirm',
+        client,
+        payload: { code: totpCode(replacement, t.clock.now) },
+      });
+      expect(confirmed.statusCode).toBe(200);
+      expect((await sessionOf(attacker.token)).authenticated).toBe(false);
+      t.clock.now += 60_000;
+      const login3 = await call({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { username: 'robin', password: PASSWORD },
+      });
+      const pending3 = await clientFor(sessionTokenFrom(login3) as string);
+      const old = await call({
+        method: 'POST',
+        url: '/api/auth/2fa',
+        client: pending3,
+        payload: { code: totpCode(secret, t.clock.now) },
+      });
+      expect(old.statusCode).toBe(401);
+      const fresh = await call({
+        method: 'POST',
+        url: '/api/auth/2fa',
+        client: pending3,
+        payload: { code: totpCode(replacement, t.clock.now) },
+      });
+      expect(fresh.statusCode).toBe(200);
+    });
   });
 
   describe('login', () => {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "df728202-8620-4537-9af6-c3b2143defa0",
+  "id": "00b71316-cdc0-4f79-88ff-51229e201b30",
   "prevId": "f882c5a5-950e-4b08-836c-9181e52216f7",
   "tables": {
     "audit_events": {
@@ -392,28 +392,28 @@
           "name": "ciphertext",
           "type": "blob",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "iv": {
           "name": "iv",
           "type": "blob",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "tag": {
           "name": "tag",
           "type": "blob",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "key_id": {
           "name": "key_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "confirmed_at": {
@@ -426,6 +426,34 @@
         "last_step": {
           "name": "last_step",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pending_ciphertext": {
+          "name": "pending_ciphertext",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pending_iv": {
+          "name": "pending_iv",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pending_tag": {
+          "name": "pending_tag",
+          "type": "blob",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pending_key_id": {
+          "name": "pending_key_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

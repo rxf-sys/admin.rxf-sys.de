@@ -20,7 +20,13 @@ import type { Db } from '../db/database.ts';
 import { userPasswords, users, userTotp } from '../db/schema.ts';
 import { AppError } from '../http/errors.ts';
 import { checkPassword, hashPassword, verifyPassword } from './passwords.ts';
-import { beginTotpEnrolment, consumeBackupCode, issueBackupCodes, verifyTotp } from './second-factor.ts';
+import {
+  beginTotpEnrolment,
+  confirmTotpEnrolment,
+  consumeBackupCode,
+  issueBackupCodes,
+  verifyTotp,
+} from './second-factor.ts';
 import {
   clearedSessionCookie,
   createSession,
@@ -76,6 +82,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     void reply.header('set-cookie', sessionCookie(token));
   }
 
+  /** Replacing an existing factor needs a fresh re-authentication (ADR 0005). */
+  function assertMayChangeFactor(session: Session): void {
+    if (session.hasTotp && !(session.elevatedUntil !== null && session.elevatedUntil > now())) {
+      throw new AppError(403, 'REAUTH_REQUIRED', 'Confirm your identity again to do this');
+    }
+  }
+
   function assertPasswordPolicy(password: string): void {
     const problem = checkPassword(password, commonPasswords);
     if (problem) throw new AppError(400, 'WEAK_PASSWORD', 'The password does not meet the policy', { problem });
@@ -88,7 +101,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     if (wait > 0) throw tooManyAttempts(wait);
     const t = now();
     const passed =
-      verifyTotp({ db, keys, userId: session.userId, username: session.username, code, now: t, confirming: false }) ||
+      verifyTotp({ db, keys, userId: session.userId, username: session.username, code, now: t }) ||
       consumeBackupCode(db, session.userId, code, t);
     if (passed) throttle.clear(key);
     else throttle.recordAccountFailure(key);
@@ -223,10 +236,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     },
     async (request) => {
       const session = requireSession(request);
-      // Replacing an existing factor needs a fresh re-authentication (ADR 0005).
-      if (session.hasTotp && !(session.elevatedUntil !== null && session.elevatedUntil > now())) {
-        throw new AppError(403, 'REAUTH_REQUIRED', 'Confirm your identity again to do this');
-      }
+      assertMayChangeFactor(session);
       return beginTotpEnrolment(db, masterKey, session.userId, session.username);
     },
   );
@@ -239,17 +249,19 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     },
     async (request, reply) => {
       const session = requireSession(request);
-      const confirmed = verifyTotp({
+      assertMayChangeFactor(session);
+      const confirmed = confirmTotpEnrolment({
         db,
         keys,
         userId: session.userId,
         username: session.username,
         code: request.body.code,
         now: now(),
-        confirming: true,
       });
       if (!confirmed) throw new AppError(401, 'INVALID_CODE', 'The code is wrong or has expired');
       const backupCodes = issueBackupCodes(db, session.userId);
+      // A changed factor ends every other session of the account.
+      revokeUserSessions(db, session.userId, session.tokenHash);
       startSession(request, reply, session.userId, true);
       audit(request, {
         event: 'auth.mfa_enrolled',
