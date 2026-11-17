@@ -124,6 +124,10 @@ describe('createHttpClient allowlists', () => {
     expect(await codeOf(http.request('GET', `${httpUrl}/api2/json/nodes/pve/../../access`))).toBe(
       'REQUEST_NOT_ALLOWED',
     );
+    for (const encoded of ['a%2Fb', 'a%5cb']) {
+      const url = `${httpUrl}/api2/json/nodes/${encoded}/status`;
+      expect(await codeOf(http.request('GET', url))).toBe('REQUEST_NOT_ALLOWED');
+    }
     await http.close();
   });
 });
@@ -211,6 +215,33 @@ describe('createHttpClient TLS modes', () => {
     const http = client([{ origin: httpsUrl, tls: { mode: 'ca', caPem: certPem } }]);
     expect((await http.request('GET', `${httpsUrl}/`)).status).toBe(200);
     await http.close();
+  });
+
+  it('inspects default-port targets on port 443', async () => {
+    const asked: number[] = [];
+    const net = await import('node:net');
+    // Accept the TCP connection on 443's behalf: tls.connect asks the lookup, then connects to the returned port.
+    const http = createHttpClient({
+      targets: [{ origin: 'https://device.example', tls: { mode: 'system' } }],
+      requests: ANY_GET,
+      timeoutMs: 500,
+      allowBlockedAddresses: true,
+      lookup: ((_h: string, _o: unknown, cb: (...args: unknown[]) => void) =>
+        cb(null, [{ address: '127.0.0.1', family: 4 }])) as never,
+    });
+    const original = net.Socket.prototype.connect;
+    net.Socket.prototype.connect = function (this: import('node:net').Socket, ...args: unknown[]) {
+      const opts = args[0] as { port?: number };
+      if (typeof opts === 'object' && opts?.port !== undefined) asked.push(Number(opts.port));
+      return original.apply(this, args as never);
+    } as typeof original;
+    try {
+      await http.inspectTls('https://device.example/').catch(() => undefined);
+    } finally {
+      net.Socket.prototype.connect = original;
+      await http.close();
+    }
+    expect(asked).toContain(443);
   });
 
   it('inspects only https targets of the instance', async () => {

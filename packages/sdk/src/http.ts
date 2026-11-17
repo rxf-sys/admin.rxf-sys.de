@@ -212,7 +212,12 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       const origin = originOf(parsed);
       const target = targets.get(origin);
       if (!target) throw new PluginHttpError('TARGET_NOT_ALLOWED', `${origin} is not a target of this instance`);
-      if (!options.requests.some((rule) => rule.method === method && matchesPattern(rule.path, parsed.pathname))) {
+      // Encoded slashes would let one "segment" span several on servers that decode them.
+      const encodedSeparator = /%2f|%5c/i.test(parsed.pathname);
+      if (
+        encodedSeparator ||
+        !options.requests.some((rule) => rule.method === method && matchesPattern(rule.path, parsed.pathname))
+      ) {
         throw new PluginHttpError('REQUEST_NOT_ALLOWED', `${method} ${parsed.pathname} is not an allowed request`);
       }
       assertAddressAllowed(parsed.hostname.replace(/^\[|\]$/g, ''));
@@ -256,10 +261,12 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       const url = new URL(origin);
       const host = url.hostname.replace(/^\[|\]$/g, '');
       assertAddressAllowed(host);
+      // `URL.port` is empty for default ports; the normalised origin always carries the port.
+      const port = Number(origin.slice(origin.lastIndexOf(':') + 1));
       return new Promise<TlsInfo>((resolve, reject) => {
         const socket = tlsConnect({
           host,
-          port: Number(url.port),
+          port,
           servername: isIP(host) ? undefined : host,
           lookup: guardedLookup,
           rejectUnauthorized: false,
