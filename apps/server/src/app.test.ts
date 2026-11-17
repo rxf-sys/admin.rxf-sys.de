@@ -31,6 +31,7 @@ describe('app', () => {
   });
 
   it('reports 503 when the database is gone', async () => {
+    await app.ready();
     database.sqlite.close();
     const res = await app.inject({ method: 'GET', url: '/api/healthz' });
     expect(res.statusCode).toBe(503);

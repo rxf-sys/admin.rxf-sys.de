@@ -174,6 +174,18 @@ describe('createHttpClient address guard', () => {
     await http.close();
   });
 
+  it('applies a shorter per-request timeout and an abort signal', async () => {
+    const http = client(plain(), { timeoutMs: 5_000 });
+    const started = performance.now();
+    expect(await codeOf(http.request('GET', `${httpUrl}/slow`, { timeoutMs: 100 }))).toBe('HTTP_TIMEOUT');
+    expect(performance.now() - started).toBeLessThan(1_500);
+    const controller = new AbortController();
+    const pending = codeOf(http.request('GET', `${httpUrl}/slow`, { signal: controller.signal }));
+    controller.abort();
+    expect(await pending).toBe('HTTP_TIMEOUT');
+    await http.close();
+  });
+
   it('reports refused connections', async () => {
     const http = client([{ origin: 'http://127.0.0.1:1', tls: { mode: 'system' } }]);
     expect(await codeOf(http.request('GET', 'http://127.0.0.1:1/'))).toBe('CONNECTION_REFUSED');

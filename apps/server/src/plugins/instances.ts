@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { InstanceResponse } from '@rxf/contracts';
+import type { InstanceHealth, InstanceResponse } from '@rxf/contracts';
 import { adminOnlyFieldNames, type ServerPlugin, secretFieldNames } from '@rxf/sdk';
 import { and, eq } from 'drizzle-orm';
 import type { MasterKey } from '../crypto/master-key.ts';
@@ -175,7 +175,7 @@ export class InstanceStore {
     return { config: { ...(JSON.parse(row.configJson) as Record<string, unknown>), ...secretValues }, secretValues };
   }
 
-  view(plugin: ServerPlugin | null, row: InstanceRow): InstanceResponse {
+  view(plugin: ServerPlugin | null, row: InstanceRow, health: InstanceHealth): InstanceResponse {
     const stored = this.#db
       .select({ field: secrets.field, updatedAt: secrets.updatedAt })
       .from(secrets)
@@ -192,6 +192,7 @@ export class InstanceStore {
       pluginId: row.pluginId,
       name: row.name,
       status: row.status,
+      health,
       config: JSON.parse(row.configJson) as Record<string, unknown>,
       secrets: secretState,
       createdAt: row.createdAt,

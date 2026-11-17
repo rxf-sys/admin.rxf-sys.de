@@ -1,4 +1,5 @@
 import * as z from 'zod/mini';
+import { instanceHealth } from './stream.ts';
 
 const localized = z.object({ de: z.string(), en: z.string() });
 
@@ -22,6 +23,7 @@ export const instanceResponse = z.object({
   pluginId: z.string(),
   name: z.string(),
   status: instanceStatus,
+  health: instanceHealth,
   config: z.record(z.string(), z.unknown()),
   secrets: z.record(z.string(), z.object({ set: z.boolean(), updatedAt: z.nullable(z.number()) })),
   createdAt: z.number(),

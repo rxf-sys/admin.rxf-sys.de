@@ -1,4 +1,5 @@
-import { blob, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { entityKinds, entityStatuses } from '@rxf/contracts';
+import { blob, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /** Persistent audit log (ADR 0004). Rows outlive the accounts they mention, so there is no foreign key. */
 export const auditEvents = sqliteTable(
@@ -137,3 +138,79 @@ export const secrets = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.instanceId, table.slot, table.field] })],
 );
+
+/**
+ * Normalised entities all plugins write into (ADR 0004). `collector_id` records which collector owns the row,
+ * so a snapshot only ages out the entities of its own collector.
+ */
+export const entities = sqliteTable(
+  'entities',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    instanceId: text('instance_id')
+      .notNull()
+      .references(() => pluginInstances.id, { onDelete: 'cascade' }),
+    collectorId: text('collector_id').notNull(),
+    kind: text('kind', { enum: entityKinds }).notNull(),
+    externalId: text('external_id').notNull(),
+    name: text('name').notNull(),
+    status: text('status', { enum: entityStatuses }).notNull(),
+    statusReason: text('status_reason'),
+    lastSeen: integer('last_seen'),
+    attrsJson: text('attrs_json').notNull().default('{}'),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('entities_instance_kind_external').on(table.instanceId, table.kind, table.externalId),
+    index('entities_kind_status').on(table.kind, table.status),
+  ],
+);
+
+export const metricSeries = sqliteTable(
+  'metric_series',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    entityId: integer('entity_id')
+      .notNull()
+      .references(() => entities.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    unit: text('unit').notNull(),
+  },
+  (table) => [uniqueIndex('metric_series_entity_name').on(table.entityId, table.name)],
+);
+
+/** Raw values, kept 48 h. The migration declares the table WITHOUT ROWID (drizzle has no option for it). */
+export const metricRaw = sqliteTable(
+  'metric_raw',
+  {
+    seriesId: integer('series_id')
+      .notNull()
+      .references(() => metricSeries.id, { onDelete: 'cascade' }),
+    ts: integer('ts').notNull(),
+    value: real('value').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.seriesId, table.ts] })],
+);
+
+function rollupColumns() {
+  return {
+    seriesId: integer('series_id')
+      .notNull()
+      .references(() => metricSeries.id, { onDelete: 'cascade' }),
+    bucket: integer('bucket').notNull(),
+    avg: real('avg').notNull(),
+    min: real('min').notNull(),
+    max: real('max').notNull(),
+    count: integer('count').notNull(),
+  };
+}
+
+/** 5-minute means, kept 30 days; WITHOUT ROWID like `metric_raw`. */
+export const metric5m = sqliteTable('metric_5m', rollupColumns(), (table) => [
+  primaryKey({ columns: [table.seriesId, table.bucket] }),
+]);
+
+/** Hourly means, kept 365 days; WITHOUT ROWID like `metric_raw`. */
+export const metric1h = sqliteTable('metric_1h', rollupColumns(), (table) => [
+  primaryKey({ columns: [table.seriesId, table.bucket] }),
+]);

@@ -38,7 +38,13 @@ export interface HttpClient {
   request(
     method: RequestRule['method'],
     url: string,
-    init?: { headers?: Record<string, string> },
+    init?: {
+      headers?: Record<string, string>;
+      /** Shorter than the client timeout for this request; longer values are capped. */
+      timeoutMs?: number;
+      /** Aborts the request, e.g. when the instance is paused. */
+      signal?: AbortSignal;
+    },
   ): Promise<HttpResponse>;
   /** Reads the certificate of an https target without trusting it, for the TOFU dialog (ADR 0008). */
   inspectTls(origin: string): Promise<TlsInfo>;
@@ -118,6 +124,11 @@ function checkPin(settings: TlsSettings, info: TlsInfo): void {
   }
 }
 
+function requestSignal(init: { timeoutMs?: number; signal?: AbortSignal }, clientTimeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(Math.min(init.timeoutMs ?? clientTimeoutMs, clientTimeoutMs));
+  return init.signal ? AbortSignal.any([timeout, init.signal]) : timeout;
+}
+
 function mapNetworkError(error: unknown, origin: string): PluginHttpError {
   if (error instanceof PluginHttpError) return error;
   const code = (error as { code?: string }).code ?? '';
@@ -129,7 +140,9 @@ function mapNetworkError(error: unknown, origin: string): PluginHttpError {
   if (/CERT|ERR_TLS|ALTNAME/.test(any)) return new PluginHttpError('TLS_INVALID', `TLS with ${origin} failed`);
   if (/ENOTFOUND|EAI_AGAIN/.test(any)) return new PluginHttpError('DNS_NOT_FOUND', `${origin} does not resolve`);
   if (/ECONNREFUSED/.test(any)) return new PluginHttpError('CONNECTION_REFUSED', `${origin} refused the connection`);
-  if (/TIMEOUT|ABORT/i.test(any) || (error as Error).name === 'TimeoutError') {
+  // An aborted run (collector timeout, instance paused) reads like a timeout to the plugin.
+  const name = (error as Error).name;
+  if (/TIMEOUT|ABORT/i.test(any) || name === 'TimeoutError' || name === 'AbortError') {
     return new PluginHttpError('HTTP_TIMEOUT', `${origin} did not answer in time`);
   }
   return new PluginHttpError('NETWORK_ERROR', `request to ${origin} failed`);
@@ -228,7 +241,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
           headers: init.headers,
           // undici's request() never follows redirects without a redirect interceptor; a test pins this.
           dispatcher: agentFor(target),
-          signal: AbortSignal.timeout(options.timeoutMs),
+          signal: requestSignal(init, options.timeoutMs),
         });
         const chunks: Buffer[] = [];
         let size = 0;

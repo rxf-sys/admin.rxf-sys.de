@@ -27,7 +27,11 @@ export interface TestApp {
 }
 
 /** App on an in-memory database with a controllable clock. */
-export function testApp(start = Date.UTC(2026, 10, 16, 12), plugins?: readonly RegisteredPlugin[]): TestApp {
+export function testApp(
+  start = Date.UTC(2026, 10, 16, 12),
+  plugins?: readonly RegisteredPlugin[],
+  options: { collectors?: boolean; heartbeatMs?: number } = {},
+): TestApp {
   const database = testDatabase();
   const masterKey = testMasterKey();
   const clock = { now: start };
@@ -37,6 +41,8 @@ export function testApp(start = Date.UTC(2026, 10, 16, 12), plugins?: readonly R
     masterKey,
     commonPasswords: TEST_COMMON_PASSWORDS,
     now: () => clock.now,
+    collectors: options.collectors ?? false,
+    ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}),
     ...(plugins ? { plugins } : {}),
   });
   return { app, database, masterKey, clock };

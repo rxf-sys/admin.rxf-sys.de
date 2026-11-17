@@ -12,16 +12,21 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import * as z from 'zod/mini';
 import { recordAudit } from '../audit.ts';
 import type { Session } from '../auth/sessions.ts';
-import type { MasterKey } from '../crypto/master-key.ts';
+import type { Scheduler } from '../collect/scheduler.ts';
+import type { EntityStore } from '../data/entities.ts';
 import type { Db } from '../db/database.ts';
 import { AppError } from '../http/errors.ts';
+import type { EventBus } from '../stream/bus.ts';
 import type { PluginHost } from './host.ts';
-import { type InstanceRow, InstanceStore } from './instances.ts';
+import type { InstanceRow, InstanceStore } from './instances.ts';
 
 export interface PluginRouteDeps {
   db: Db;
-  masterKey: MasterKey;
+  store: InstanceStore;
   host: PluginHost;
+  scheduler: Scheduler;
+  entities: EntityStore;
+  bus: EventBus;
   now: () => number;
 }
 
@@ -31,8 +36,7 @@ const idParams = z.object({ id: z.string().check(z.regex(/^[0-9a-f-]{36}$/)) });
 const ok = z.object({ ok: z.literal(true) });
 
 export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps): void {
-  const { db, host, now } = deps;
-  const store = new InstanceStore(db, deps.masterKey, now);
+  const { db, host, now, store, scheduler, entities, bus } = deps;
   const api = app.withTypeProvider<ZodTypeProvider>();
 
   const session = (request: FastifyRequest): Session => {
@@ -49,6 +53,16 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
 
   async function withPlugin(row: InstanceRow): Promise<ServerPlugin> {
     return host.load(row.pluginId);
+  }
+  const view = (plugin: ServerPlugin, row: InstanceRow) => store.view(plugin, row, scheduler.health(row.id));
+
+  /** Starts collectors; a failure is logged and leaves the instance active but idle. */
+  async function startCollectors(request: FastifyRequest, row: InstanceRow): Promise<void> {
+    try {
+      await scheduler.start(row);
+    } catch (error) {
+      request.log.error({ instanceId: row.id, err: error }, 'collectors could not start');
+    }
   }
 
   /** Runs the plugin's test() through an HTTP client limited to the instance's own targets and requests. */
@@ -97,7 +111,7 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
     { config: { auth: { role: 'viewer' } }, schema: { response: { 200: instanceListResponse } } },
     async () => {
       const rows = store.list();
-      const views = await Promise.all(rows.map(async (row) => store.view(await withPlugin(row), row)));
+      const views = await Promise.all(rows.map(async (row) => view(await withPlugin(row), row)));
       return { instances: views };
     },
   );
@@ -107,7 +121,7 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
     { config: { auth: { role: 'viewer' } }, schema: { params: idParams, response: { 200: instanceResponse } } },
     async (request) => {
       const row = store.get(request.params.id);
-      return store.view(await withPlugin(row), row);
+      return view(await withPlugin(row), row);
     },
   );
 
@@ -133,7 +147,7 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
         instanceId: row.id,
         details: { pluginId },
       });
-      return reply.code(201).send(store.view(plugin, row));
+      return reply.code(201).send(view(plugin, row));
     },
   );
 
@@ -153,6 +167,8 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
         });
       }
       const updated = store.update(plugin, row, request.body);
+      // New targets or secrets take effect with fresh collectors.
+      if (updated.status === 'active') await scheduler.restart(updated);
       const changed = [...(request.body.name ? ['name'] : []), ...Object.keys(request.body.config ?? {})];
       audit(request, {
         event: 'instance.updated',
@@ -161,7 +177,7 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
         instanceId: row.id,
         details: { changed },
       });
-      return store.view(plugin, updated);
+      return view(plugin, updated);
     },
   );
 
@@ -196,7 +212,8 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
       }
       const active = store.setStatus(row, 'active');
       audit(request, { event: 'instance.activated', result: 'success', targetId: row.id, instanceId: row.id });
-      return store.view(await withPlugin(row), active);
+      await startCollectors(request, active);
+      return view(await withPlugin(row), active);
     },
   );
 
@@ -212,7 +229,16 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
         if (row.status !== from) throw new AppError(409, 'INVALID_STATE', `The instance is ${row.status}, not ${from}`);
         const updated = store.setStatus(row, to);
         audit(request, { event: `instance.${action}d`, result: 'success', targetId: row.id, instanceId: row.id });
-        return store.view(await withPlugin(row), updated);
+        if (to === 'paused') {
+          // Collectors stop and the entities show "paused" (ADR 0003).
+          await scheduler.stop(row.id);
+          const kinds = entities.markPaused(row.id, now());
+          if (kinds.length > 0) bus.publish('entities', { instanceId: row.id, kinds, version: now() });
+          bus.publish('instance', { instanceId: row.id, status: 'paused', health: 'idle' });
+        } else {
+          await startCollectors(request, updated);
+        }
+        return view(await withPlugin(row), updated);
       },
     );
   }
@@ -222,7 +248,10 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
     { config: { auth: { role: 'admin', elevated: true } }, schema: { params: idParams, response: { 200: ok } } },
     async (request) => {
       const row = store.get(request.params.id);
+      await scheduler.stop(row.id);
+      // Entities, series and values go with the instance through the foreign keys (ADR 0004).
       store.delete(row);
+      bus.publish('instance', { instanceId: row.id, status: 'deleted', health: 'idle' });
       audit(request, {
         event: 'instance.deleted',
         result: 'success',

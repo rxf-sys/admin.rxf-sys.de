@@ -305,6 +305,9 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@rxf/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       undici:
         specifier: 8.12.2
         version: 8.12.2

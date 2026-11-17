@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { hash, verify } from '@node-rs/argon2';
+import { Semaphore } from '../util/semaphore.ts';
 import { randomToken } from './tokens.ts';
 
 const PASSWORD_MIN_LENGTH = 12;
@@ -52,27 +53,6 @@ export function checkPassword(password: string, common: ReadonlySet<string>): Pa
 }
 
 /** At most two Argon2 computations at once, so a burst of logins stays inside the memory budget (ADR 0005). */
-class Semaphore {
-  #active = 0;
-  readonly #waiting: (() => void)[] = [];
-  readonly #limit: number;
-
-  constructor(limit: number) {
-    this.#limit = limit;
-  }
-
-  async run<T>(task: () => Promise<T>): Promise<T> {
-    if (this.#active >= this.#limit) await new Promise<void>((resolve) => this.#waiting.push(resolve));
-    this.#active++;
-    try {
-      return await task();
-    } finally {
-      this.#active--;
-      this.#waiting.shift()?.();
-    }
-  }
-}
-
 const limiter = new Semaphore(2);
 let dummyHash: Promise<string> | undefined;
 
