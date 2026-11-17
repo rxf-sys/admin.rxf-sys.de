@@ -95,3 +95,13 @@ Keine Secrets in PR-Workflows.
 - Die GHCR-Images sind öffentlich (öffentliches Repo); sie enthalten keine
   Secrets.
 - `infrastructure/` (Altcode) bleibt bis Phase 9 unverändert.
+
+## Nachtrag: Akzeptierte osv-Befunde (17.11.2026)
+
+- Befunde, die nicht den ausgelieferten Code erreichen und für die es noch keinen Fix gibt,
+  können in `osv-scanner.toml` befristet akzeptiert werden. Jeder Eintrag enthält genau eine
+  Advisory-ID, eine Begründung und ein Ablaufdatum. Danach ist der Job wieder rot.
+- **Erster Eintrag** (Owner-Entscheidung 17.11.2026): `GHSA-fc5q-39xc-vjpf`, ein ReDoS in
+  `picomatch` ≤ 4.0.7, gültig bis 17.12.2026.
+  - Betroffen sind nur Dev- und Build-Werkzeuge (vite, vitest, knip).
+  - Die Glob-Muster stammen aus der eigenen Konfiguration.
