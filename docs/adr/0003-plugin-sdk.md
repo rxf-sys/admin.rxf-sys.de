@@ -245,3 +245,30 @@ pausieren“). Begründung in `docs/integrations/pihole-adguard.md`.
 - **Instanzen-Tabelle:** `plugin_instances` hat noch keine Spalten `actions_json` und
   `tls_pins_json`. Sie kommen mit dem Aktions-Framework bzw. dem ersten Plugin, dessen Pin
   nicht in der Konfiguration steht. Für Uptime steht der Pin am Check.
+
+## Nachtrag: Umsetzung in Phase 4.4b (17.11.2026)
+
+- **Collectors** gibt es vorerst nur als `poll`. Stream-Collectors kommen mit dem ersten
+  Plugin, das sie braucht (Docker, Home Assistant).
+- **Intervalle und Timeout** stehen als Millisekunden im Code (`interval: { activeMs,
+  backgroundMs }`, `timeoutMs`), nicht als Text wie `'10s'`. Das spart einen Parser, und
+  TypeScript prüft die Werte.
+- **Single-Flight** braucht kein Flag. Der nächste Lauf eines Collectors wird erst geplant,
+  wenn der vorige fertig ist. Ein vorgezogener Lauf ersetzt den geplanten, statt einen
+  zweiten zu starten. `maxConcurrent` am Plugin begrenzt gleichzeitige Läufe aller
+  Collectors einer Instanz. Global laufen höchstens 8 Collectors gleichzeitig.
+- **Timeout:** Der Kern bricht `ctx.signal` nach `timeoutMs` ab und wartet nicht länger auf
+  das Ergebnis. Ignoriert ein Plugin das Signal, läuft sein Code im Hintergrund weiter, das
+  Ergebnis wird aber verworfen. Der SDK-Client nimmt dafür je Anfrage `signal` und
+  `timeoutMs` an.
+- **Fehler und Circuit Breaker:** Ein Lauf ist fehlgeschlagen, wenn er wirft, das Zeitlimit
+  überschreitet oder einen ungültigen Schnappschuss liefert. Danach wartet der Kern
+  Intervall × 2ⁿ, höchstens 15 min. Nach 3 Fehlschlägen in Folge öffnet der Breaker der
+  Instanz für 60 s, nach jedem weiteren fehlgeschlagenen Probelauf doppelt so lange, höchstens
+  15 min. Ein erfolgreicher Lauf schließt ihn. Der Zustand (`idle`, `ok`, `failing`,
+  `breaker-open`) steht als `health` an der Instanz und kommt per SSE.
+- **Ins Log** gehen nur Code und Fehlerklasse, nie Nachrichten von Geräten.
+- **Konfigurationsänderung** an einer aktiven Instanz startet ihre Collectors neu.
+- Ein **Pin-Fehler** stoppt die Collectors noch nicht (ADR 0008). Uptime meldet ihn als
+  `crit` am betroffenen Check. Stoppen plus Alarm „Zertifikat geändert“ kommt mit der
+  Alarm-Engine.
