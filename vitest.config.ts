@@ -9,6 +9,7 @@ export default defineConfig({
     projects: [
       { extends: true, test: { name: 'contracts', root: 'packages/contracts', environment: 'node' } },
       { extends: true, test: { name: 'i18n', root: 'packages/i18n', environment: 'node' } },
+      { extends: true, test: { name: 'sdk', root: 'packages/sdk', environment: 'node' } },
       { extends: true, test: { name: 'server', root: 'apps/server', environment: 'node' } },
       { extends: true, test: { name: 'web', root: 'apps/web', environment: 'jsdom' } },
     ],

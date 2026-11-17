@@ -288,6 +288,15 @@ importers:
 
   packages/i18n: {}
 
+  packages/sdk:
+    dependencies:
+      undici:
+        specifier: 8.12.2
+        version: 8.12.2
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+
   packages/ui: {}
 
 packages:
@@ -2156,6 +2165,10 @@ packages:
   undici-types@8.9.0:
     resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
+  undici@8.12.2:
+    resolution: {integrity: sha512-XtuDWVdqTLr3NAxm2ly9/hU6kUsJOgGh1RASzMBbsw6aWCOaQzHdW+QQDfdERjfJ2V5vL5pRPa4RetO9UfivDg==}
+    engines: {node: '>=22.19.0'}
+
   undici@8.12.4:
     resolution: {integrity: sha512-8Mx+uNKKER2bA4AdtedkqRbwUCIJFr2nJckXRe5yrDqzePqwLP7VNcctN8/XdmDSbF7mS+jJKIszlL+vbam1VA==}
     engines: {node: '>=22.19.0'}
@@ -3705,6 +3718,8 @@ snapshots:
   unbash@5.1.0: {}
 
   undici-types@8.9.0: {}
+
+  undici@8.12.2: {}
 
   undici@8.12.4: {}
 
