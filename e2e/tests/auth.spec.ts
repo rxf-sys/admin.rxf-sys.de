@@ -1,0 +1,71 @@
+import { expect, test } from '@playwright/test';
+import { credentials, expectAccessible, saveCredentials, shoot, signIn, takeBackupCode } from './support.ts';
+
+test('the login screen is accessible and reports wrong credentials', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Anmelden');
+  await expectAccessible(page);
+  await shoot(page, 'login', testInfo);
+
+  await page.getByLabel('Benutzername').fill(credentials().username);
+  await page.getByLabel('Passwort', { exact: true }).fill('not the password at all');
+  await page.getByRole('button', { name: 'Anmelden' }).click();
+  await expect(page.getByRole('alert')).toHaveText('Benutzername oder Passwort stimmt nicht.');
+  await expect(page.getByLabel('Benutzername')).toHaveAttribute('aria-invalid', 'true');
+});
+
+test('the skip link moves focus to the main content', async ({ page }) => {
+  await page.goto('/login');
+  await page.keyboard.press('Tab');
+  const skip = page.getByRole('link', { name: 'Zum Inhalt springen' });
+  await expect(skip).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('main')).toBeFocused();
+});
+
+test('sign-in with the second factor opens the overview', async ({ page }, testInfo) => {
+  await signIn(page);
+  await expect(page.getByRole('status').filter({ hasText: 'Erreichbar' })).toHaveText('Erreichbar, Version e2e');
+  await expectAccessible(page);
+  await shoot(page, 'dashboard', testInfo);
+});
+
+test('security: session list and new backup codes behind a re-authentication', async ({ page }, testInfo) => {
+  await signIn(page);
+  await page.getByRole('link', { name: 'Sicherheit' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Sicherheit' })).toBeVisible();
+  await expect(page.getByText('Dieses Gerät')).toBeVisible();
+  await expectAccessible(page);
+  await shoot(page, 'security', testInfo);
+
+  await page.getByRole('button', { name: 'Neue Backup-Codes erzeugen' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Identität bestätigen' });
+  await expect(dialog).toBeVisible();
+  await expectAccessible(page);
+  await shoot(page, 'reauth', testInfo);
+
+  // A wrong password keeps the dialog open with a message.
+  await dialog.getByLabel('Passwort', { exact: true }).fill('wrong password, sorry');
+  await dialog.getByLabel('Code aus der App oder Backup-Code').fill('000000');
+  await dialog.getByRole('button', { name: 'Bestätigen' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Passwort oder Code stimmt nicht.');
+
+  await dialog.getByLabel('Passwort', { exact: true }).fill(credentials().password);
+  await dialog.getByLabel('Code aus der App oder Backup-Code').fill(takeBackupCode());
+  await dialog.getByRole('button', { name: 'Bestätigen' }).click();
+  await expect(dialog).toBeHidden();
+
+  const list = page.getByRole('list', { name: 'Backup-Codes' });
+  await expect(list.getByRole('listitem')).toHaveCount(10);
+  // The old codes are void now; later logins use the new ones.
+  saveCredentials({ ...credentials(), backupCodes: await list.getByRole('listitem').allInnerTexts() });
+});
+
+test('signing out returns to the login and ends the session', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('button', { name: 'Abmelden' }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await page.goto('/settings/security');
+  await expect(page).toHaveURL(/\/login$/);
+});

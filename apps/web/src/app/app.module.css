@@ -1,0 +1,114 @@
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  min-height: 56px;
+  padding: var(--sp-2) var(--gutter);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.brand {
+  font-family: var(--font-head);
+  font-weight: var(--fw-head);
+  font-stretch: var(--stretch-head);
+  color: var(--ink);
+}
+
+.nav {
+  display: flex;
+  gap: var(--sp-1);
+  margin-right: auto;
+}
+
+.navLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-pill);
+  color: var(--body);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+}
+
+.navLink[data-status="active"] {
+  background: var(--tile);
+  color: var(--ink);
+}
+
+.user {
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--fs-3);
+}
+
+.main {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--sp-8) var(--gutter);
+  display: grid;
+  gap: var(--sp-6);
+  align-content: start;
+}
+
+.main:focus {
+  outline: none;
+}
+
+.list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-inner);
+  background: var(--sunken);
+}
+
+.rowMain {
+  display: grid;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.rowTitle {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+
+.rowMeta {
+  color: var(--muted);
+  font-size: var(--fs-2);
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: var(--sp-2);
+  padding: 2px var(--sp-2);
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-bold);
+}

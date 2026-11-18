@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 const API_PORT = 3100;
-// Every run starts from an empty data directory with a throwaway master key.
-const DATA_DIR = mkdtempSync(join(tmpdir(), 'rxf-e2e-'));
+// Every run starts from an empty data directory with a throwaway master key. Workers load this file
+// again, so the directory is created once and handed down through the environment.
+process.env.RXF_E2E_DATA_DIR ??= mkdtempSync(join(tmpdir(), 'rxf-e2e-'));
+const DATA_DIR = process.env.RXF_E2E_DATA_DIR;
 const MASTER_KEY = randomBytes(32).toString('base64');
 const WEB_PORT = 4173;
 
@@ -21,6 +23,8 @@ export default defineConfig({
   outputDir: 'test-results',
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
+  // One account for all projects: logins share its backup codes, so tests run one after another.
+  workers: 1,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
@@ -28,14 +32,26 @@ export default defineConfig({
     ...(executablePath ? { launchOptions: { executablePath } } : {}),
   },
   projects: [
-    { name: 'desktop-dark', use: { ...desktop, colorScheme: 'dark' } },
-    { name: 'desktop-light', use: { ...desktop, colorScheme: 'light' } },
-    { name: 'phone-dark', use: { ...phone, colorScheme: 'dark' } },
-    { name: 'phone-light', use: { ...phone, colorScheme: 'light' } },
+    // Creates the admin through the real first-start flow and records its credentials for the others.
+    { name: 'setup', testMatch: 'setup.spec.ts', use: { ...desktop, colorScheme: 'dark' } },
+    ...(
+      [
+        ['desktop-dark', desktop, 'dark'],
+        ['desktop-light', desktop, 'light'],
+        ['phone-dark', phone, 'dark'],
+        ['phone-light', phone, 'light'],
+      ] as const
+    ).map(([name, device, colorScheme]) => ({
+      name,
+      testIgnore: 'setup.spec.ts',
+      dependencies: ['setup'],
+      use: { ...device, colorScheme },
+    })),
   ],
   webServer: [
     {
-      command: 'node --conditions=@rxf/source ../apps/server/src/main.ts',
+      // The log is kept so the setup test can read the setup code, the only place it appears (ADR 0005).
+      command: `node --conditions=@rxf/source ../apps/server/src/main.ts 2>&1 | tee ${join(DATA_DIR, 'server.log')}`,
       env: { PORT: String(API_PORT), RXF_VERSION: 'e2e', RXF_DATA_DIR: DATA_DIR, RXF_MASTER_KEY: MASTER_KEY },
       url: `http://127.0.0.1:${API_PORT}/api/healthz`,
       reuseExistingServer: !process.env.CI,

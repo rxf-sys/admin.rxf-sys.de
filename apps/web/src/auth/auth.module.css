@@ -1,0 +1,101 @@
+.auth {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.side {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  padding: var(--sp-8);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.brand {
+  font-family: var(--font-head);
+  font-weight: var(--fw-head);
+  font-stretch: var(--stretch-head);
+  color: var(--ink);
+}
+
+.claim {
+  font-family: var(--font-head);
+  font-weight: var(--fw-head);
+  font-stretch: 118%;
+  font-size: clamp(32px, 3.4vw, 48px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  max-width: 14ch;
+}
+
+.points {
+  display: grid;
+  gap: var(--sp-3);
+  max-width: 420px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.points li {
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-inner);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: var(--fs-3);
+}
+
+.band {
+  position: absolute;
+  right: -60px;
+  bottom: 120px;
+  width: 220px;
+  height: 60px;
+  border-radius: 12px;
+  background: var(--accent);
+  transform: rotate(-8deg);
+  opacity: 0.9;
+}
+
+.main {
+  display: grid;
+  place-items: center;
+  padding: var(--sp-8) var(--gutter);
+}
+
+.main:focus {
+  outline: none;
+}
+
+.card {
+  width: min(400px, 100%);
+  display: grid;
+  gap: var(--sp-6);
+}
+
+.card h1 {
+  font-size: var(--fs-8);
+}
+
+.sub {
+  margin-top: var(--sp-2);
+  color: var(--muted);
+}
+
+.sub code {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .auth {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .side {
+    display: none;
+  }
+}
