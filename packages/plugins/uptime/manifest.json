@@ -1,0 +1,14 @@
+{
+  "id": "uptime",
+  "name": { "de": "Uptime", "en": "Uptime" },
+  "description": {
+    "de": "Eigene Prüfungen per HTTP(S): Erreichbarkeit, Antwortzeit und Zertifikat.",
+    "en": "Own HTTP(S) checks: reachability, response time and certificate."
+  },
+  "version": "0.1.0",
+  "core": "^2.0.0",
+  "icon": "activity",
+  "category": "monitoring",
+  "multiInstance": false,
+  "docs": "docs/integrations/uptime.md"
+}

@@ -24,6 +24,46 @@ Zugang über eigene Account-Auth (Argon2id + Session-Cookies); Bootstrap-Admin b
     └── setup-lxc.sh        # Proxmox LXC Bootstrap (einmalig)
 ```
 
+## v2-Neubau (Branch `v2`)
+
+Der Neubau entsteht neben dem Altcode als pnpm-Monorepo (ADR 0002). `main`
+und der Altcode bleiben unberührt, bis der Umstieg abgenommen ist (Phase 9).
+Teil-PRs gehen nach `v2`, nie nach `main`.
+
+```text
+apps/server        @rxf/server   Fastify-Kern, API unter /api
+apps/web           @rxf/web      React-Shell (Vite)
+packages/contracts @rxf/contracts API-Schemas (zod/mini), von Server und Web geteilt
+packages/i18n      @rxf/i18n     typisierte Kataloge, Deutsch ist Quellsprache
+packages/ui        @rxf/ui       Design-Tokens und Schriften (docs/design/README.md)
+e2e                @rxf/e2e      Playwright + axe, Screenshots 1440/390 hell/dunkel
+```
+
+```bash
+pnpm install                 # Node 26 + pnpm 12 (packageManager); Cloud-Sessions: SessionStart-Hook
+RXF_DATA_DIR=.data RXF_MASTER_KEY=$(pnpm -s --filter @rxf/server keygen) pnpm dev:server   # Node führt TS direkt aus
+pnpm dev:web                 # Vite, /api → 127.0.0.1:3000
+pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build && pnpm size && pnpm knip
+pnpm e2e                     # lokal: PW_CHROMIUM_PATH auf vorhandenes Chromium setzen
+```
+
+Konventionen:
+
+- **Fertig heißt:** alle Gates aus `.github/workflows/ci-v2.yml` grün (ADR 0009).
+- **Coverage:** Kern ≥ 80 %, je Plugin ≥ 70 %.
+- **Workspace-Pakete** exportieren ihre TS-Quellen unter der Bedingung
+  `@rxf/source` (Vite, Vitest, Node im Dev-Modus) und `dist/` für
+  Produktion. Node strippt keine Typen in `node_modules`, Docker-Deploys
+  kopieren Pakete aber genau dorthin.
+- **Zod im Web** immer als Namespace importieren:
+  `import * as z from 'zod/mini'` (Biome-Regel).
+- **API-Antworten** prüft das Web gegen das Schema aus `@rxf/contracts`.
+- **TypeScript** mit `erasableSyntaxOnly`: keine Enums, Namespaces oder
+  Parameter-Properties.
+- **Neue Abhängigkeiten** nur nach Freigabe (`docs/architecture/dependencies.md`).
+- **Install-Skripte** nur per Allowlist (`allowBuilds` in
+  `pnpm-workspace.yaml`).
+
 ## Lokale Entwicklung
 
 ```bash

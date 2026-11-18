@@ -1,0 +1,7 @@
+# Accepted osv-scanner findings (ADR 0009). Every entry names one advisory, why it does not reach
+# the shipped code, and an expiry after which the gate turns red again.
+
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+ignoreUntil = 2026-12-17
+reason = "picomatch <= 4.0.7 ReDoS via crafted extglob patterns; no fixed version yet. Only in dev/build tooling (fdir/tinyglobby under vite, vitest, knip) with patterns from our own config, not in the server or web runtime. Owner decision 17.11.2026."

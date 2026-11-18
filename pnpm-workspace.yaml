@@ -1,0 +1,20 @@
+# v2 workspace. The legacy app (backend/, frontend/, infrastructure/) stays outside until phase 9.
+packages:
+  - apps/*
+  - packages/*
+  - packages/plugins/*
+  - packages/kits/*
+  - tooling
+  - e2e
+
+# Supply chain (ADR 0008, T12): install scripts run only for packages allowed here.
+allowBuilds:
+  # Native SQLite binding (prebuilt download or compile).
+  better-sqlite3: true
+  # Dev only, via drizzle-kit: the binary comes from optional dependencies, the postinstall is not needed.
+  esbuild: false
+
+overrides:
+  # drizzle-kit's deprecated @esbuild-kit loader pins esbuild 0.18 (GHSA-67mh-4wv8-2f99, fixed in 0.25.0);
+  # drizzle-kit itself already ships 0.25.12, so the loader gets the same version.
+  "@esbuild-kit/core-utils>esbuild": 0.25.12
