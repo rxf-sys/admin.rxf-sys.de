@@ -27,7 +27,9 @@ function applyStreamEvent(queryClient: QueryClient, type: string, raw: string): 
       }
       return;
     case 'session':
-      // The server ended the session; reloading it sends the tab to the sign-in screen.
+      // The server ended the session: drop what it could see, as a manual logout does, and reload the
+      // session, which sends the tab to the sign-in screen.
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== sessionKey[0] });
       void queryClient.invalidateQueries({ queryKey: sessionKey });
       return;
     case 'resync':
