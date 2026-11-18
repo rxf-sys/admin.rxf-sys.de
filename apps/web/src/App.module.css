@@ -1,9 +1,3 @@
-.shell {
-  min-height: 100dvh;
-  display: grid;
-  grid-template-rows: auto 1fr;
-}
-
 .skip {
   position: fixed;
   z-index: 100;
@@ -16,39 +10,12 @@
   font-weight: var(--fw-bold);
   text-decoration: none;
   transform: translateY(-200%);
+  opacity: 0;
 }
 
 .skip:focus {
   transform: none;
+  opacity: 1;
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-}
-
-.top {
-  display: flex;
-  align-items: center;
-  min-height: 56px;
-  padding: 0 var(--gutter);
-  box-shadow: inset 0 -1px 0 var(--line);
-}
-
-.brand {
-  font-family: var(--font-head);
-  font-weight: var(--fw-head);
-  font-stretch: var(--stretch-head);
-  color: var(--ink);
-}
-
-.main {
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: var(--sp-8) var(--gutter);
-  display: grid;
-  gap: var(--sp-6);
-  align-content: start;
-}
-
-.main:focus {
-  outline: none;
 }
