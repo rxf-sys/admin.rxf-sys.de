@@ -1,9 +1,11 @@
 import {
   type Capability,
+  type CollectResult,
   defineConfig,
   defineServerPlugin,
   field,
   originOf,
+  type PluginContext,
   PluginHttpError,
   type Target,
   type TlsInfo,
@@ -27,12 +29,18 @@ const check = z.object({
 export type UptimeCheck = z.infer<typeof check>;
 
 const config = defineConfig({
-  checks: field(z.array(check).check(z.maxLength(200)), {
-    label: { de: 'Prüfungen', en: 'Checks' },
-    help: { de: 'Jede Prüfung ruft eine URL ab.', en: 'Each check fetches one URL.' },
-    // URLs are targets: only admins change them, with re-authentication (ADR 0008, T8).
-    adminOnly: true,
-  }),
+  checks: field(
+    z.array(check).check(
+      z.maxLength(200),
+      z.refine((checks) => new Set(checks.map((c) => c.name)).size === checks.length, 'check names must be unique'),
+    ),
+    {
+      label: { de: 'Prüfungen', en: 'Checks' },
+      help: { de: 'Jede Prüfung ruft eine URL ab.', en: 'Each check fetches one URL.' },
+      // URLs are targets: only admins change them, with re-authentication (ADR 0008, T8).
+      adminOnly: true,
+    },
+  ),
   slowThresholdMs: field(z.number().check(z.int(), z.minimum(50), z.maximum(60_000)), {
     label: { de: 'Langsam ab (ms)', en: 'Slow from (ms)' },
   }),
@@ -55,6 +63,78 @@ const CONFIG_ERRORS = new Set([
   'TLS_PIN_MISMATCH',
   'TLS_INVALID',
 ]);
+
+type UptimeConfig = z.infer<typeof config.schema>;
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+/** Checks probed at the same time within one run. */
+const PARALLEL_CHECKS = 8;
+
+type ProbeResult =
+  | { outcome: 'ok' | 'slow'; httpStatus: number; durationMs: number }
+  | { outcome: 'failed'; code: string; message: string; httpStatus: number | null; durationMs: number | null };
+
+/** One request for one check; device errors become a result, anything else is a bug and propagates. */
+async function probe(ctx: PluginContext<UptimeConfig>, c: UptimeCheck): Promise<ProbeResult> {
+  try {
+    const res = await ctx.http.request(c.method ?? 'GET', c.url, {
+      timeoutMs: c.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      signal: ctx.signal,
+    });
+    if (!statusMatches(c.expectedStatus ?? DEFAULT_EXPECTED_STATUS, res.status)) {
+      const message = `HTTP ${res.status}`;
+      return { outcome: 'failed', code: 'HTTP_STATUS', message, httpStatus: res.status, durationMs: res.durationMs };
+    }
+    const outcome = res.durationMs > ctx.config.slowThresholdMs ? 'slow' : 'ok';
+    return { outcome, httpStatus: res.status, durationMs: res.durationMs };
+  } catch (error) {
+    if (!(error instanceof PluginHttpError)) throw error;
+    return { outcome: 'failed', code: error.code, message: error.message, httpStatus: null, durationMs: null };
+  }
+}
+
+async function mapLimit<T, R>(items: readonly T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await task(items[index] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/** Every check becomes a `Service` entity with `attrs.endpoint` and two series (docs/integrations/uptime.md). */
+async function collectChecks(ctx: PluginContext<UptimeConfig>): Promise<CollectResult> {
+  const results = await mapLimit(ctx.config.checks, PARALLEL_CHECKS, (c) => probe(ctx, c));
+  const out: CollectResult = { entities: [], metrics: [] };
+  const ts = ctx.now();
+  for (const [i, c] of ctx.config.checks.entries()) {
+    const result = results[i] as ProbeResult;
+    const entity = { kind: 'Service' as const, externalId: c.name };
+    const failed = result.outcome === 'failed';
+    out.entities.push({
+      ...entity,
+      name: c.name,
+      status: failed ? 'crit' : result.outcome === 'slow' ? 'warn' : 'ok',
+      ...(failed ? { statusReason: result.code } : result.outcome === 'slow' ? { statusReason: 'HTTP_SLOW' } : {}),
+      attrs: {
+        endpoint: c.url,
+        method: c.method ?? 'GET',
+        expectedStatus: c.expectedStatus ?? DEFAULT_EXPECTED_STATUS,
+        httpStatus: result.httpStatus,
+        responseMs: result.durationMs,
+      },
+    });
+    out.metrics.push({ entity, name: 'uptime.status', unit: '', value: failed ? 0 : 1, ts });
+    if (result.durationMs !== null) {
+      out.metrics.push({ entity, name: 'uptime.response_ms', unit: 'ms', value: result.durationMs, ts });
+    }
+  }
+  return out;
+}
 
 export default defineServerPlugin({
   config,
@@ -89,25 +169,29 @@ export default defineServerPlugin({
     const tls: TlsInfo[] = [];
     for (const c of ctx.config.checks) {
       const id = `check:${c.name}`;
-      try {
-        const res = await ctx.http.request(c.method ?? 'GET', c.url);
-        const expected = c.expectedStatus ?? DEFAULT_EXPECTED_STATUS;
-        if (!statusMatches(expected, res.status)) {
-          capabilities.push({ id, status: 'failed', code: 'HTTP_STATUS', message: `HTTP ${res.status}` });
-        } else if (res.durationMs > ctx.config.slowThresholdMs) {
-          capabilities.push({ id, status: 'ok', code: 'HTTP_SLOW', message: `${res.durationMs} ms` });
-        } else {
-          capabilities.push({ id, status: 'ok', message: `HTTP ${res.status}, ${res.durationMs} ms` });
-        }
-      } catch (error) {
-        if (!(error instanceof PluginHttpError)) throw error;
-        capabilities.push({ id, status: 'failed', code: error.code, message: error.message });
-        if (error.code === 'TLS_SELF_SIGNED' || error.code === 'TLS_PIN_MISMATCH') {
+      const result = await probe(ctx, c);
+      if (result.outcome === 'failed') {
+        capabilities.push({ id, status: 'failed', code: result.code, message: result.message });
+        if (result.code === 'TLS_SELF_SIGNED' || result.code === 'TLS_PIN_MISMATCH') {
           tls.push(await ctx.http.inspectTls(c.url));
         }
+      } else if (result.outcome === 'slow') {
+        capabilities.push({ id, status: 'ok', code: 'HTTP_SLOW', message: `${result.durationMs} ms` });
+      } else {
+        capabilities.push({ id, status: 'ok', message: `HTTP ${result.httpStatus}, ${result.durationMs} ms` });
       }
     }
     const ok = !capabilities.some((cap) => cap.code !== undefined && CONFIG_ERRORS.has(cap.code));
     return tls.length > 0 ? { ok, capabilities, tls } : { ok, capabilities };
   },
+
+  collectors: [
+    {
+      id: 'http',
+      // docs/integrations/uptime.md: 30 s while watched, 60 s otherwise, so outages alert within 2 min.
+      interval: { activeMs: 30_000, backgroundMs: 60_000 },
+      timeoutMs: 55_000,
+      run: collectChecks,
+    },
+  ],
 });

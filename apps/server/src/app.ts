@@ -4,13 +4,20 @@ import { serializerCompiler, validatorCompiler, type ZodTypeProvider } from 'fas
 import { loadCommonPasswords } from './auth/passwords.ts';
 import { registerAuthRoutes } from './auth/routes.ts';
 import { resolveSession } from './auth/sessions.ts';
+import { Scheduler } from './collect/scheduler.ts';
 import type { MasterKey } from './crypto/master-key.ts';
+import { EntityStore } from './data/entities.ts';
+import { startMetricMaintenance } from './data/metrics.ts';
+import { registerDataRoutes } from './data/routes.ts';
 import type { DatabaseHandle } from './db/database.ts';
 import { AppError, registerErrorHandling } from './http/errors.ts';
 import { registerRouteGuard } from './http/route-auth.ts';
 import { PluginHost } from './plugins/host.ts';
+import { InstanceStore } from './plugins/instances.ts';
 import { registerPluginRoutes } from './plugins/routes.ts';
 import { pluginRegistry, type RegisteredPlugin } from './plugins.generated.ts';
+import { EventBus } from './stream/bus.ts';
+import { registerStreamRoutes } from './stream/routes.ts';
 
 export interface AppOptions {
   /** Reported by `/api/healthz`; set from the image tag at build time. */
@@ -24,6 +31,10 @@ export interface AppOptions {
   now?: () => number;
   /** Defaults to the generated registry; tests pass their own. */
   plugins?: readonly RegisteredPlugin[];
+  /** Runs collectors and metric maintenance (default true); tests without collectors turn it off. */
+  collectors?: boolean;
+  /** Live-stream heartbeat; shorter in tests. */
+  heartbeatMs?: number;
 }
 
 export function buildApp(options: AppOptions): FastifyInstance {
@@ -64,12 +75,43 @@ export function buildApp(options: AppOptions): FastifyInstance {
     commonPasswords: options.commonPasswords ?? loadCommonPasswords(),
     now,
   });
-  registerPluginRoutes(app, {
-    db,
-    masterKey: options.masterKey,
-    host: new PluginHost(options.plugins ?? pluginRegistry),
+  const collectors = options.collectors ?? true;
+  const host = new PluginHost(options.plugins ?? pluginRegistry);
+  const store = new InstanceStore(db, options.masterKey, now);
+  const entities = new EntityStore(options.database);
+  const bus = new EventBus(now);
+  const scheduler = new Scheduler({
+    host,
+    instances: store,
+    entities,
+    bus,
+    log: app.log,
     now,
+    enabled: collectors,
   });
+  registerPluginRoutes(app, { db, store, host, scheduler, entities, bus, now });
+  registerDataRoutes(app, { database: options.database, entities, now });
+  registerStreamRoutes(app, {
+    db,
+    bus,
+    scheduler,
+    now,
+    ...(options.heartbeatMs ? { heartbeatMs: options.heartbeatMs } : {}),
+  });
+
+  if (collectors) {
+    let stopMaintenance = () => {};
+    app.addHook('onReady', async () => {
+      await scheduler.startAll();
+      stopMaintenance = startMetricMaintenance(options.database.sqlite, now, (error) =>
+        app.log.error({ err: error }, 'metric maintenance failed'),
+      );
+    });
+    app.addHook('onClose', async () => {
+      stopMaintenance();
+      await scheduler.stopAll();
+    });
+  }
 
   return app;
 }

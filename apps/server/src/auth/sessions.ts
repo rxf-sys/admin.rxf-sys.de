@@ -76,7 +76,8 @@ export function createSession(db: Db, input: NewSession, now: number): { token: 
 }
 
 /** Looks the token up; expired or idle sessions and disabled accounts resolve to null and are removed. */
-export function resolveSession(db: Db, token: string, now: number): Session | null {
+/** `touch: false` checks validity without extending the idle timeout (used by the live stream's heartbeat). */
+export function resolveSession(db: Db, token: string, now: number, options: { touch?: boolean } = {}): Session | null {
   const tokenHash = sha256(token);
   const row = db
     .select({ session: sessions, user: users, totpConfirmedAt: userTotp.confirmedAt })
@@ -91,7 +92,7 @@ export function resolveSession(db: Db, token: string, now: number): Session | nu
     revokeSession(db, tokenHash);
     return null;
   }
-  if (now - session.lastSeenAt >= TOUCH_INTERVAL_MS) {
+  if (options.touch !== false && now - session.lastSeenAt >= TOUCH_INTERVAL_MS) {
     db.update(sessions).set({ lastSeenAt: now }).where(eq(sessions.tokenHash, tokenHash)).run();
   }
   return {

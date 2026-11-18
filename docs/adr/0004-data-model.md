@@ -131,3 +131,34 @@ Plugin-Instanzen (Secrets verschlüsselt) und `probe_history`/
   Verwechslung beim Backup ausgeschlossen ist.
 - `docs/OPERATIONS.md` beschreibt Backup (`.backup`/`VACUUM INTO` plus
   separater Sicherung des Master-Schlüssels, ADR 0006) und Restore.
+
+## Nachtrag: Umsetzung in Phase 4.4b (17.11.2026)
+
+- **`entities`** hat zusätzlich `collector_id`. Ein Schnappschuss betrifft nur die Entitäten
+  seines eigenen Collectors.
+- **Fehlende Entitäten** werden nach 2 × Hintergrundintervall des Collectors `unknown` mit
+  Grund `MISSING`. Gelöscht werden sie nicht. Eine Aufräumregel, etwa für entfernte
+  Uptime-Checks, ist noch offen.
+- **Noch nicht umgesetzt:** `parent_id` und `entity_links`. Sie kommen mit dem ersten Plugin,
+  das Beziehungen liefert (Proxmox).
+- **Schreiben:** Der Kern prüft jeden Schnappschuss vor dem Schreiben:
+  - Art und Status (`paused` setzt nur der Kern)
+  - Längen und Code-Format von `statusReason`
+  - `attrs` höchstens 16 KB
+  - keine doppelten Entitäten
+  - Metriken nur für Entitäten desselben Schnappschusses
+
+  Ein ungültiger Schnappschuss schreibt nichts und zählt als fehlgeschlagener Lauf. Schemas je
+  `kind` für `attrs` kommen mit den Widgets, die sie lesen.
+- **Zeitreihen:** Auch `metric_5m` und `metric_1h` sind `WITHOUT ROWID`. Der
+  Primärschlüssel `(series_id, …)` deckt alle Abfragen. drizzle kennt die Option nicht, sie
+  steht deshalb von Hand in `0003_metrics.sql`. Gelöscht wird je Serie über den
+  Primärschlüssel, ohne zusätzlichen Index auf `ts`.
+- **Verdichtung** ohne eigenen Zustand: Sie rechnet ab dem neuesten gespeicherten Bucket neu.
+  Das ist idempotent und holt nach einem Neustart Lücken nach, solange die Rohdaten noch da
+  sind.
+- **Aufbewahrung** (48 h / 30 Tage / 365 Tage) ist vorerst fest im Code. Einstellbar wird sie
+  mit der Tabelle `settings`.
+- **Abfrage** `GET /api/metrics/series/:id/points`: Die Stufe richtet sich nach dem
+  Zeitfenster. Das Ergebnis hat höchstens ~1.000 Punkte mit Mittel, Minimum und Maximum je
+  Punkt.

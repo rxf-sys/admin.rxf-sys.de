@@ -71,3 +71,21 @@ So gibt es nur einen Pfad für Berechtigungen und Caching.
   und der Browser verbindet sich mit `resync` neu.
 - Stream-Collectors (Docker `/events`, HA WebSocket) laufen unabhängig vom
   Zuschauer-Zähler dauerhaft (Owner-Entscheidung vom 17.10.2026 für HA).
+
+## Nachtrag: Umsetzung in Phase 4.4b (17.11.2026)
+
+- **Erstes Ereignis** ist `hello` mit einer `connectionId`. `POST /api/stream/watch` nimmt
+  sie zusammen mit den sichtbaren `instanceIds` an. Akzeptiert wird nur die Sitzung, die den
+  Stream geöffnet hat.
+- **Ereignis-IDs** sind `<boot>-<laufende Nummer>`. Nach einem Neustart passt keine alte ID
+  mehr, der Browser bekommt dann `resync`.
+- **`session`:** Der Heartbeat prüft alle 25 s die Sitzung, ohne den Leerlauf-Timeout zu
+  verlängern. Ist sie abgemeldet, widerrufen oder abgelaufen, sendet der Server `session`
+  und beendet den Stream, spätestens nach einem Heartbeat. Ein sofortiges Ereignis beim
+  Widerruf kann folgen, falls 25 s zu lang sind.
+- **`instance`** kennt zusätzlich den Status `deleted`.
+- **Grenzen:**
+  - höchstens 10 Streams je Sitzung und 200 insgesamt, darüber HTTP 429
+  - je Verbindung 256 KB Rückstau, dann schließt der Server sie
+- Beim Herunterfahren schließt der Server offene Streams zuerst, damit `close()` nicht hängt.
+- **Query-Keys** in `@rxf/contracts` folgen mit dem Web-Teil (4.5), der sie nutzt.

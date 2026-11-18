@@ -21,7 +21,11 @@ export { type LocalizedText, type PluginManifest, pluginCategories, pluginManife
 export {
   type Capability,
   type CapabilityStatus,
+  type Collector,
+  type CollectResult,
   defineServerPlugin,
+  type EntityInput,
+  type MetricInput,
   type PluginContext,
   type PluginLogger,
   type ServerPlugin,

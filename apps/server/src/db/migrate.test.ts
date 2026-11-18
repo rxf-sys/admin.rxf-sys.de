@@ -18,6 +18,18 @@ function tables(sqlite: Database.Database): string[] {
     .filter((name) => !name.startsWith('sqlite_'));
 }
 
+/** Copy of the real migrations up to and including `tag`, to build a database in an older state. */
+function migrationsUpTo(tag: string): string {
+  const dir = tempDir();
+  cpSync(MIGRATIONS_DIR, dir, { recursive: true });
+  const journalFile = join(dir, 'meta', '_journal.json');
+  const journal = JSON.parse(readFileSync(journalFile, 'utf8'));
+  const end = journal.entries.findIndex((entry: { tag: string }) => entry.tag === tag);
+  journal.entries = journal.entries.slice(0, end + 1);
+  writeFileSync(journalFile, JSON.stringify(journal));
+  return dir;
+}
+
 /** Copy of the real migrations plus one extra step, to exercise the upgrade path of an existing database. */
 function migrationsWithExtraStep(): string {
   const dir = tempDir();
@@ -52,11 +64,19 @@ describe('migrateDatabase', () => {
     const dir = tempDir();
     const handle = openDatabase(join(dir, 'rxf-admin-v2.db'));
     const result = migrateDatabase(handle, { backupDir: join(dir, 'backups') });
-    expect(result).toEqual({ applied: ['0000_audit_events', '0001_auth', '0002_plugins'], backupFile: null });
+    expect(result).toEqual({
+      applied: ['0000_audit_events', '0001_auth', '0002_plugins', '0003_metrics'],
+      backupFile: null,
+    });
     expect(tables(handle.sqlite)).toEqual([
       '__drizzle_migrations',
       'audit_events',
+      'entities',
       'login_attempts',
+      'metric_1h',
+      'metric_5m',
+      'metric_raw',
+      'metric_series',
       'plugin_instances',
       'secrets',
       'sessions',
@@ -96,6 +116,36 @@ describe('migrateDatabase', () => {
     expect(tables(backup)).not.toContain('test_step');
     expect(backup.prepare('SELECT count(*) AS n FROM audit_events').get()).toEqual({ n: 1 });
     backup.close();
+    handle.sqlite.close();
+  });
+
+  it('upgrades a 0002 database with instances to the metrics schema (0003)', () => {
+    const dir = tempDir();
+    const handle = openDatabase(join(dir, 'rxf-admin-v2.db'));
+    migrateDatabase(handle, { migrationsDir: migrationsUpTo('0002_plugins'), backupDir: null });
+    handle.sqlite
+      .prepare(
+        "INSERT INTO plugin_instances (id, plugin_id, name, status, config_json, created_at, updated_at) VALUES ('i1', 'uptime', 'U', 'active', '{}', 1, 1)",
+      )
+      .run();
+
+    expect(migrateDatabase(handle, { backupDir: join(dir, 'backups') }).applied).toEqual(['0003_metrics']);
+    const sql = (name: string) =>
+      (handle.sqlite.prepare('SELECT sql FROM sqlite_master WHERE name = ?').get(name) as { sql: string }).sql;
+    for (const table of ['metric_raw', 'metric_5m', 'metric_1h']) expect(sql(table)).toMatch(/WITHOUT ROWID$/);
+
+    // Deleting the instance removes its entities, series and values through the foreign keys.
+    const run = (statement: string) => handle.sqlite.prepare(statement).run();
+    run(
+      "INSERT INTO entities (instance_id, collector_id, kind, external_id, name, status, updated_at) VALUES ('i1', 'http', 'Service', 'a', 'A', 'ok', 1)",
+    );
+    run("INSERT INTO metric_series (entity_id, name, unit) VALUES (1, 'uptime.response_ms', 'ms')");
+    run('INSERT INTO metric_raw (series_id, ts, value) VALUES (1, 1, 12.5)');
+    run('INSERT INTO metric_5m (series_id, bucket, avg, min, max, count) VALUES (1, 0, 1, 1, 1, 1)');
+    run("DELETE FROM plugin_instances WHERE id = 'i1'");
+    for (const table of ['entities', 'metric_series', 'metric_raw', 'metric_5m']) {
+      expect(handle.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 });
+    }
     handle.sqlite.close();
   });
 });

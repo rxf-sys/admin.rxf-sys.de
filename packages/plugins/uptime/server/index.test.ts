@@ -5,12 +5,17 @@ import { statusMatches } from './status.ts';
 
 type Config = Parameters<typeof plugin.test>[0]['config'];
 
+const requests: { url: string; timeoutMs: number | undefined; signal: boolean }[] = [];
+
 function ctx(
   checks: UptimeCheck[],
   answer: (url: string) => Promise<{ status: number; durationMs: number }>,
 ): PluginContext<Config> {
   const http: HttpClient = {
-    request: async (_method, url) => ({ ...(await answer(url)), headers: {}, body: '' }),
+    request: async (_method, url, init) => {
+      requests.push({ url, timeoutMs: init?.timeoutMs, signal: init?.signal !== undefined });
+      return { ...(await answer(url)), headers: {}, body: '' };
+    },
     inspectTls: async (origin) => ({
       origin,
       leafSha256: 'a'.repeat(64),
@@ -29,7 +34,7 @@ function ctx(
     secrets: {},
     http,
     log,
-    now: () => 0,
+    now: () => 1_700_000_000_000,
     signal: new AbortController().signal,
   };
 }
@@ -119,5 +124,84 @@ describe('uptime test()', () => {
     expect(parse({ name: 'x', url: 'http://host/', expectedStatus: '2xx' })).toBe(false);
     expect(parse({ name: '', url: 'http://host/' })).toBe(false);
     expect(parse({ name: 'x', url: 'http://host/', expectedStatus: '200-299,401' })).toBe(true);
+    const twice = { name: 'x', url: 'http://host/' };
+    expect(
+      plugin.config.schema.safeParse({ checks: [twice, twice], slowThresholdMs: 800, allowBlockedTargets: false })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('uptime collector', () => {
+  const [collector] = plugin.collectors ?? [];
+
+  it('polls every 30 s while watched and every 60 s otherwise', () => {
+    expect(collector?.interval).toEqual({ activeMs: 30_000, backgroundMs: 60_000 });
+  });
+
+  it('turns every check into a Service entity with status and response-time series', async () => {
+    requests.length = 0;
+    const result = await collector?.run(
+      ctx(
+        [
+          { name: 'fast', url: 'http://a.lan/' },
+          { name: 'slow', url: 'http://b.lan/', timeoutMs: 2_000 },
+          { name: 'down', url: 'http://c.lan/' },
+          { name: 'refused', url: 'http://d.lan/' },
+        ],
+        async (url) => {
+          if (url.includes('d.lan')) throw new PluginHttpError('CONNECTION_REFUSED', 'refused');
+          if (url.includes('c.lan')) return { status: 503, durationMs: 10 };
+          return { status: 200, durationMs: url.includes('b.lan') ? 1200 : 20 };
+        },
+      ),
+    );
+    expect(result?.entities.map((e) => [e.externalId, e.status, e.statusReason])).toEqual([
+      ['fast', 'ok', undefined],
+      ['slow', 'warn', 'HTTP_SLOW'],
+      ['down', 'crit', 'HTTP_STATUS'],
+      ['refused', 'crit', 'CONNECTION_REFUSED'],
+    ]);
+    expect(result?.entities[0]).toMatchObject({
+      kind: 'Service',
+      name: 'fast',
+      attrs: { endpoint: 'http://a.lan/', method: 'GET', httpStatus: 200, responseMs: 20 },
+    });
+    expect(result?.entities[3]?.attrs).toMatchObject({ httpStatus: null, responseMs: null });
+    const values = result?.metrics.map((m) => [m.entity.externalId, m.name, m.value]);
+    expect(values).toEqual([
+      ['fast', 'uptime.status', 1],
+      ['fast', 'uptime.response_ms', 20],
+      ['slow', 'uptime.status', 1],
+      ['slow', 'uptime.response_ms', 1200],
+      ['down', 'uptime.status', 0],
+      ['down', 'uptime.response_ms', 10],
+      ['refused', 'uptime.status', 0],
+    ]);
+    expect(result?.metrics.every((m) => m.ts === 1_700_000_000_000)).toBe(true);
+    // Per-check timeout (default 10 s) and the run's abort signal reach every request.
+    expect(requests.find((r) => r.url === 'http://b.lan/')).toEqual({
+      url: 'http://b.lan/',
+      timeoutMs: 2_000,
+      signal: true,
+    });
+    expect(requests.find((r) => r.url === 'http://a.lan/')?.timeoutMs).toBe(10_000);
+  });
+
+  it('lets programming errors fail the run instead of reporting the service as down', async () => {
+    await expect(
+      collector?.run(
+        ctx([{ name: 'x', url: 'http://a.lan/' }], async () => {
+          throw new TypeError('bug');
+        }),
+      ),
+    ).rejects.toThrow(TypeError);
+  });
+
+  it('copes with an empty check list', async () => {
+    expect(await collector?.run(ctx([], async () => ({ status: 200, durationMs: 1 })))).toEqual({
+      entities: [],
+      metrics: [],
+    });
   });
 });

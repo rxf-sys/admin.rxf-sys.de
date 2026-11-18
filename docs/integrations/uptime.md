@@ -309,3 +309,25 @@ CREATE TABLE IF NOT EXISTS custom_services (
   `tlsMode: pin-leaf` und `pinSha256` am Check.
 - **Folgt in 4.4b:** Collector und Scheduler, Messwerte, SSE. Ab Welle 1: TCP-, ICMP-,
   DNS- und TLS-Checks sowie Secret-Header je Check.
+
+## Umsetzung in Phase 4.4b (17.11.2026)
+
+- **Collector `http`:** prüft alle Checks, 30 s während jemand zuschaut, sonst 60 s. Je Lauf
+  laufen höchstens 8 Checks gleichzeitig. Jeder Check hat sein eigenes Zeitlimit (Standard
+  10 s), der ganze Lauf höchstens 55 s.
+- **Entität:** Jeder Check wird eine `Service`-Entität. Die `externalId` ist der Name des
+  Checks, deshalb müssen Namen eindeutig sein. `attrs` enthält `endpoint`, `method`,
+  `expectedStatus`, `httpStatus` und `responseMs`.
+- **Status:**
+  - `ok`
+  - `warn` mit `HTTP_SLOW`, wenn die Antwort langsamer ist als `slowThresholdMs`
+  - `crit` mit dem Fehlercode (`HTTP_STATUS`, `CONNECTION_REFUSED`, `TLS_PIN_MISMATCH` …)
+
+  Die Regel „erst nach 180 s durchgehendem Ausfall `crit`“ gehört zur Alarm-Engine und wirkt
+  sich auf den Entitätsstatus nicht aus.
+- **Serien:** `uptime.status` (1 erreichbar, 0 nicht) und `uptime.response_ms`, wenn eine
+  Antwort kam.
+- **Pausieren** setzt alle Checks auf `paused`. **Entfernen** löscht Entitäten und Serien.
+- **Folgt:** TCP-, ICMP-, DNS- und TLS-Checks, Intervalle je Check, Aufräumen entfernter
+  Checks (sie bleiben bisher als `unknown` stehen).
+
