@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseHandle } from './database.ts';
 
@@ -20,7 +20,11 @@ export function backupDaily(
   const target = join(dir, `daily-${today}.db`);
   let written: string | null = null;
   if (!existsSync(target)) {
-    handle.sqlite.prepare('VACUUM INTO ?').run(target);
+    // Written under a temporary name and renamed, so an interrupted run never counts as today's backup.
+    const partial = `${target}.partial`;
+    rmSync(partial, { force: true });
+    handle.sqlite.prepare('VACUUM INTO ?').run(partial);
+    renameSync(partial, target);
     written = target;
   }
   const oldest = new Date(now - keepDays * DAY).toISOString().slice(0, 10);

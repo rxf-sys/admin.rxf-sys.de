@@ -51,12 +51,19 @@ log "new images: $new_server $new_web"
 docker pull --quiet "$new_server" >/dev/null
 docker pull --quiet "$new_web" >/dev/null
 
-if [[ ! -f "$KEY_FILE" ]]; then
+if [[ ! -s "$KEY_FILE" ]]; then
   # First start: the key never leaves this host. Back it up separately (docs/OPERATIONS.md).
+  # Written to a private temp file and moved into place, so a failed run leaves no empty key behind.
   mkdir -p "$(dirname "$KEY_FILE")"
-  docker run --rm --entrypoint node "$new_server" dist/cli.js keygen >"$KEY_FILE"
-  chown 10001:10001 "$KEY_FILE"
-  chmod 0400 "$KEY_FILE"
+  tmp_key="$(umask 077 && mktemp "$KEY_FILE.XXXXXX")"
+  if ! docker run --rm --entrypoint node "$new_server" dist/cli.js keygen >"$tmp_key" || [[ ! -s "$tmp_key" ]]; then
+    rm -f -- "$tmp_key"
+    log "could not generate the master key"
+    exit 1
+  fi
+  chown 10001:10001 "$tmp_key"
+  chmod 0400 "$tmp_key"
+  mv -- "$tmp_key" "$KEY_FILE"
   log "generated $PWD/$KEY_FILE - back it up now"
 fi
 

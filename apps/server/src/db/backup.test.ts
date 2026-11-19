@@ -17,6 +17,8 @@ describe('backupDaily', () => {
     writeFileSync(join(dir, 'daily-2026-11-04.db'), '');
     writeFileSync(join(dir, 'daily-2026-11-05.db'), '');
     writeFileSync(join(dir, 'pre-migration-0003_metrics-1.db'), '');
+    // Left over from an interrupted run: replaced, not mistaken for today's backup.
+    writeFileSync(join(dir, 'daily-2026-11-19.db.partial'), 'half');
 
     const first = backupDaily(handle, dir, now);
     expect(first).toEqual({ written: join(dir, 'daily-2026-11-19.db'), removed: ['daily-2026-11-04.db'] });
