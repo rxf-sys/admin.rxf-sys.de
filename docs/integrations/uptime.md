@@ -364,3 +364,25 @@ CREATE TABLE IF NOT EXISTS custom_services (
 - **TOFU:** Auch Zertifikats-Checks zeigen im Verbindungstest ein unbekanntes Zertifikat zum Bestätigen an.
   Der Pin landet am Check mit demselben `tls://host:port`.
 - **Folgt in 5.1b:** Import der v1-Probe-Historie.
+
+## Umsetzung in Phase 5.1b (19.11.2026)
+
+- **Befehl:** `rxf import v1-uptime <v1.db> [--instance <id>] [--dry-run]`, Ablauf in `docs/OPERATIONS.md`.
+- **Zuordnung** (Owner-Entscheidung 19.11.2026): Ein v1-Dienst landet beim v2-HTTP-Check, dessen URL
+  seiner `internal_url` entspricht (normalisiert, `http://nas` = `http://nas/`). Ohne passenden Check
+  meldet der Import `NO_CHECK`, ohne ersten v2-Lauf `NOT_RUN_YET`. Die externe URL und die Verschmelzung
+  intern/extern aus v1 bleiben außen vor.
+- **Werte:** `uptime.status` = 1 für `ok` und `warn`, 0 für `err` (wie v2: langsam gilt als erreichbar).
+  `uptime.response_ms` nur für Proben ohne Fehler, weil v1 bei Fehlern die Zeit bis zum Abbruch speichert.
+  Zeitstempel × 1000.
+- **Stufen:** Der Import schreibt Rohwerte nur für die letzten 2 Tage und berechnet 5-Minuten- und
+  Stundenwerte selbst. Die normale Verdichtung arbeitet nur vorwärts und hätte ältere Rohwerte nie
+  erfasst.
+- **Vorrang von v2:** Übernommen wird nur, was älter ist als der erste v2-Wert des Checks (über alle
+  Stufen). Ein zweiter Lauf findet deshalb nichts mehr (`NO_OLDER_DATA`).
+- **Verworfen:** Zeilen von Diensten, die es in v1 nicht mehr gibt (gezählt), und `service_incidents`.
+  Alarm-Historie gibt es erst mit Phase 7.
+- **Kennzeichnung:** Der Audit-Eintrag `uptime.legacy_import` hält je Check Anzahl und Zeitraum der
+  übernommenen Werte fest.
+- **Sicherheit:** Die v1-Datei wird nur lesend geöffnet. Gelesen werden nur `custom_services` und
+  `probe_history`, nicht die Konten und Secrets in derselben Datei.

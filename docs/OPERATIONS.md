@@ -140,6 +140,30 @@ nicht erneut. Erst ein neuer Stand auf `staging` wird wieder ausgerollt.
 den Wert auf die GID des Servers eingrenzen: `"10001 10001"`. Ob Ping im Container funktioniert, zeigt der
 Verbindungstest im Onboarding: ICMP-Checks melden sonst `ICMP_UNAVAILABLE`.
 
+## v1-Probe-Historie übernehmen
+
+Einmalig nach dem Einrichten der Uptime-Checks in v2 (ADR 0001 §6). Die Historie landet beim v2-HTTP-Check,
+dessen URL der internen URL des v1-Dienstes entspricht (Owner-Entscheidung 19.11.2026). Dienste, die v1
+nicht mehr kennt, und die v1-Störungen werden verworfen.
+
+1. In v2 die Uptime-Instanz mit den HTTP-Checks anlegen, aktivieren und den ersten Lauf abwarten.
+2. Auf CT 101 eine konsistente Kopie der v1-Datenbank ziehen:
+   `docker exec rxf-admin-backend python -c "import sqlite3; sqlite3.connect('/data/rxf-admin.db').backup(sqlite3.connect('/data/v1-export.db'))"`
+3. Die Kopie nach CT 113 bringen und in den Container legen:
+   `docker compose cp v1-export.db server:/data/v1-export.db`
+4. Probelauf, dann Import (in `/opt/rxf-admin-v2/infrastructure-v2`):
+   ```bash
+   docker compose exec server node dist/cli.js import v1-uptime /data/v1-export.db --dry-run
+   docker compose exec server node dist/cli.js import v1-uptime /data/v1-export.db
+   ```
+   Bei mehreren Uptime-Instanzen `--instance <id>` angeben. Übernommen werden nur Werte vor dem ersten
+   v2-Wert eines Checks; ein zweiter Lauf ändert nichts.
+5. Die Kopie auf beiden Hosts löschen: Sie enthält auch v1-Konten und deren TOTP-Secrets. Der Import liest
+   davon nichts, er öffnet die Datei nur lesend und liest nur `custom_services` und `probe_history`.
+
+v1 hebt die Historie standardmäßig nur 7 Tage auf. Wer mehr übernehmen will, setzt in v1 vorher
+`HISTORY_RETENTION_DAYS` hoch (siehe `docs/integrations/README.md`).
+
 ## Sicherungen
 
 | Was | Wo | Aufbewahrung |
