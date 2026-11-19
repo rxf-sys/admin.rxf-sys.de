@@ -1,12 +1,20 @@
 # Betrieb v2 (Staging und später Produktion)
 
-Gilt für den v2-Neubau auf eigenem LXC (ADR 0001, 0009). Der Altcode auf CT 110 läuft unverändert
-weiter (`infrastructure/`, `CLAUDE.md`).
+Gilt für den v2-Neubau auf eigenem LXC (ADR 0001, 0009).
+
+| Rolle | CT | IP |
+|---|---|---|
+| v2 (dieser Stack) | 113 | 192.168.2.216 |
+| v1 (Altcode, `infrastructure/`) | 101 | 192.168.2.202 |
+| cloudflared | 110 | 192.168.2.213 |
+
+Öffentlicher Hostname von v2: `admin.rxf-sys.de` (Owner-Entscheidung 19.11.2026). v1 bleibt im LAN unter
+`http://192.168.2.202` erreichbar, bis es abgebaut wird.
 
 ## Überblick
 
 ```text
-Browser ─▶ Cloudflare ─▶ cloudflared (CT 104) ─▶ v2-LXC :80 ─▶ web (Caddy, :8080) ─▶ server (Node, :3000)
+Browser ─▶ Cloudflare ─▶ cloudflared (CT 110) ─▶ v2-LXC (CT 113) :80 ─▶ web (Caddy, :8080) ─▶ server (Node, :3000)
                                                                      │                        │
                                                         Frontend, Header, /api              /data (Volume)
 ```
@@ -34,7 +42,7 @@ Browser ─▶ Cloudflare ─▶ cloudflared (CT 104) ─▶ v2-LXC :80 ─▶ w
 
 ### 1. LXC und Werkzeuge
 
-LXC nach ADR 0009 anlegen:
+CT 113 nach ADR 0009 anlegen (IP 192.168.2.216):
 
 - Debian 13, unprivilegiert, `nesting=1,keyctl=1`, `firewall=1`
 - 2 Kerne, 1 GB RAM, 16 GB Disk
@@ -60,7 +68,7 @@ Darin installieren:
 git clone --branch v2 https://github.com/rxf-sys/admin.rxf-sys.de.git /opt/rxf-admin-v2
 cd /opt/rxf-admin-v2/infrastructure-v2
 ./install.sh               # legt .env an, installiert und startet den Timer
-nano .env                  # RXF_CLOUDFLARED_IP = Adresse von CT 104
+nano .env                  # prüfen: RXF_CLOUDFLARED_IP=192.168.2.213 (CT 110)
 ```
 
 `RXF_CLOUDFLARED_IP` ist wichtig: Nur von dieser Adresse glaubt Caddy den Header `CF-Connecting-IP`
@@ -93,13 +101,23 @@ Danach steht der Setup-Code im Log des Servers:
 docker compose logs server | grep "Setup code"
 ```
 
-Unter `https://admin-next.rxf-sys.de` den Code eingeben, das Admin-Konto anlegen und den zweiten Faktor
+Unter `https://admin.rxf-sys.de` (nach Schritt 5) oder vorher per SSH-Tunnel unter `http://localhost:8080` (siehe Schritt 5) den Code eingeben, das Admin-Konto anlegen und den zweiten Faktor
 einrichten. Jeder Neustart ohne Admin erzeugt einen neuen Code.
 
 ### 5. Tunnel
 
-In Cloudflare Zero Trust beim Tunnel von CT 104 einen Public Hostname anlegen:
-`admin-next.rxf-sys.de` → `http://<v2-LXC-IP>:80`. Einen Port nach außen gibt es nicht.
+In Cloudflare Zero Trust beim Tunnel von CT 110 den Public Hostname `admin.rxf-sys.de` von v1
+(`http://192.168.2.202:80`) auf v2 umstellen: `http://192.168.2.216:80`. Einen Port nach außen gibt es
+nicht.
+
+Ab diesem Moment ist v1 nur noch im LAN erreichbar. Vor dem Umstellen prüfen, ob v2 im LAN läuft
+(`curl -s http://192.168.2.216/api/healthz`) und das Admin-Konto eingerichtet ist. Zurück geht es, indem
+man den Hostname wieder auf `http://192.168.2.202:80` setzt.
+
+Hinweis zum LAN-Zugriff: Über `http://192.168.2.216` setzt der Browser das Sitzungs-Cookie
+(`__Host-`, `Secure`) nicht, weil die Verbindung nicht HTTPS ist. Die Ersteinrichtung geht deshalb nur
+über `https://admin.rxf-sys.de` oder über `http://localhost` per SSH-Tunnel
+(`ssh -L 8080:127.0.0.1:80 root@192.168.2.216`, dann `http://localhost:8080`).
 
 ## Laufender Betrieb
 

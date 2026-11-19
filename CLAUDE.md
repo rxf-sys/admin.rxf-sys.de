@@ -77,7 +77,10 @@ uvicorn app.main:app --reload
 cd frontend && npm ci && npm run dev
 ```
 
-## Deployment (Proxmox LXC CT 110, 192.168.2.210)
+## Deployment Altcode (Proxmox LXC CT 101, 192.168.2.202)
+
+v2 läuft auf CT 113 (192.168.2.216) unter `admin.rxf-sys.de`, cloudflared auf CT 110 (192.168.2.213);
+Betrieb siehe `docs/OPERATIONS.md`.
 
 ```bash
 # Einmalig: LXC aufsetzen (vom Proxmox Host)

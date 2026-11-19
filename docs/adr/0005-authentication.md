@@ -156,3 +156,8 @@ Re-Auth.
   dazu kommt mit dem Staging-Deploy (4.6).
 - **Cookie** ohne `@fastify/cookie`: Für das eine eigene Cookie reichen wenige Zeilen.
   Die freigegebene Abhängigkeit entfällt.
+
+## Nachtrag: Hostname (19.11.2026)
+
+v2 läuft direkt unter `admin.rxf-sys.de` (ADR 0009, Nachtrag „Hosts und Hostname“). Passkeys werden
+deshalb gleich für diese RP-ID registriert, ein Neuanlegen nach dem Umstieg entfällt.

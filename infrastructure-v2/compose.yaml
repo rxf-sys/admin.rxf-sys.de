@@ -37,7 +37,7 @@ services:
     <<: *hardening
     image: ${RXF_WEB_IMAGE:?set by deploy.sh}
     environment:
-      RXF_CLOUDFLARED_IP: ${RXF_CLOUDFLARED_IP:?address of the cloudflared host (CT 104)}
+      RXF_CLOUDFLARED_IP: ${RXF_CLOUDFLARED_IP:?address of the cloudflared host (CT 110)}
     ports:
       - "80:8080"
     mem_limit: 64m
