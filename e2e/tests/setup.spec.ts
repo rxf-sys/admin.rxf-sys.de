@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
 import {
   credentials,
   expectAccessible,
@@ -7,6 +7,7 @@ import {
   shootAllVariants,
   signIn,
   takeBackupCode,
+  test,
   totp,
 } from './support.ts';
 

@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { defaultClientConditions, defineConfig } from 'vite';
+import { securityHeaders } from './security-headers.ts';
 
 // The dev server and `vite preview` forward /api to the Fastify server, as Caddy does in production. The Host
 // header stays as the browser sent it (Vite's shorthand would rewrite it), because the server compares it
@@ -26,5 +27,6 @@ export default defineConfig({
       },
     },
   },
-  preview: { proxy: api },
+  // Preview (and so e2e) runs under the production headers, CSP included (ADR 0008).
+  preview: { proxy: api, headers: { ...securityHeaders } },
 });
