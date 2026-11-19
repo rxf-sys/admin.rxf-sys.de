@@ -301,3 +301,12 @@ pausieren“). Begründung in `docs/integrations/pihole-adguard.md`.
 - **Übersicht:** eine feste Vorlage (Owner-Entscheidung 18.11.2026) mit den Widgets aller aktiven und
   pausierten Instanzen. Plugin-Code lädt erst, wenn der Rahmen der Instanz sichtbar wird
   (IntersectionObserver).
+
+## Nachtrag: Umsetzung in Phase 5.1a (19.11.2026)
+
+- **`ctx.net`:** TCP-, TLS-, DNS- und Ping-Prüfungen unter denselben Regeln wie `ctx.http`. Ziele heißen
+  `tcp://`, `tls://`, `dns://` und `icmp://`. Beide Clients teilen die Adressprüfung (`guard.ts`).
+- **Collectors aus der Konfiguration:** `collectors` darf eine Funktion der Konfiguration sein. Der Kern
+  löscht beim Start einer Instanz die Entitäten von Collectors, die es nicht mehr gibt.
+- **`onMissing: 'delete'`:** Ein Collector kann fehlende Entitäten sofort löschen statt sie nach der
+  Schonfrist auf `unknown` zu setzen.

@@ -1,5 +1,13 @@
 import type { InstanceHealth } from '@rxf/contracts';
-import { type Collector, createHttpClient, type HttpClient, PluginHttpError, type ServerPlugin } from '@rxf/sdk';
+import {
+  type Collector,
+  createHttpClient,
+  createNetClient,
+  type HttpClient,
+  type NetClient,
+  PluginHttpError,
+  type ServerPlugin,
+} from '@rxf/sdk';
 import type { FastifyBaseLogger } from 'fastify';
 import { type EntityStore, InvalidSnapshotError } from '../data/entities.ts';
 import type { PluginHost } from '../plugins/host.ts';
@@ -30,6 +38,7 @@ interface Runtime {
   config: unknown;
   secrets: Readonly<Record<string, string>>;
   http: HttpClient;
+  net: NetClient;
   controller: AbortController;
   limiter: Semaphore | null;
   collectors: CollectorState[];
@@ -65,6 +74,12 @@ function describeFailure(error: unknown): { code: string; message: string } {
   if (error instanceof InvalidSnapshotError) return { code: 'INVALID_SNAPSHOT', message: error.message };
   if (error instanceof Error && error.name === 'CollectorTimeout') return { code: 'TIMEOUT', message: error.message };
   return { code: 'COLLECTOR_FAILED', message: error instanceof Error ? error.name : 'non-error thrown' };
+}
+
+/** A plugin's collectors, fixed or derived from the instance's config (ADR 0003). */
+function collectorsOf(plugin: ServerPlugin, config: unknown): AnyCollector[] {
+  const collectors = typeof plugin.collectors === 'function' ? plugin.collectors(config as never) : plugin.collectors;
+  return (collectors ?? []) as AnyCollector[];
 }
 
 /**
@@ -110,22 +125,21 @@ export class Scheduler {
   async start(row: InstanceRow): Promise<void> {
     if (!this.#deps.enabled || this.#runtimes.has(row.id)) return;
     const plugin = await this.#deps.host.load(row.pluginId);
-    const collectors = (plugin.collectors ?? []) as AnyCollector[];
-    if (collectors.length === 0) return;
     const { config: rawConfig, secretValues } = this.#deps.instances.runtimeConfig(row);
     const config = plugin.config.schema.parse(rawConfig);
+    const collectors = collectorsOf(plugin, config);
+    this.#removeOrphans(row.id, collectors);
+    if (collectors.length === 0) return;
     const timeoutMs = Math.min(Math.max(...collectors.map((c) => c.timeoutMs)), HTTP_TIMEOUT_CAP_MS);
+    const targets = plugin.targets(config);
+    const allowBlockedAddresses = plugin.allowBlockedAddresses?.(config) ?? false;
     const runtime: Runtime = {
       row,
       plugin,
       config,
       secrets: secretValues,
-      http: createHttpClient({
-        targets: plugin.targets(config),
-        requests: plugin.requests.collect,
-        timeoutMs,
-        allowBlockedAddresses: plugin.allowBlockedAddresses?.(config) ?? false,
-      }),
+      http: createHttpClient({ targets, requests: plugin.requests.collect, timeoutMs, allowBlockedAddresses }),
+      net: createNetClient({ targets, timeoutMs, allowBlockedAddresses }),
       controller: new AbortController(),
       limiter: plugin.maxConcurrent ? new Semaphore(plugin.maxConcurrent) : null,
       collectors: collectors.map((def) => ({ def, timer: null, running: false })),
@@ -260,6 +274,7 @@ export class Scheduler {
         config: runtime.config,
         secrets: runtime.secrets,
         http: runtime.http,
+        net: runtime.net,
         log,
         now: this.#deps.now,
         signal,
@@ -267,8 +282,10 @@ export class Scheduler {
       aborted,
     ]);
     if (runtime.controller.signal.aborted) return;
-    const grace = 2 * def.interval.backgroundMs;
-    const outcome = this.#deps.entities.applySnapshot(runtime.row.id, def.id, result, this.#deps.now(), grace);
+    const outcome = this.#deps.entities.applySnapshot(runtime.row.id, def.id, result, this.#deps.now(), {
+      graceMs: 2 * def.interval.backgroundMs,
+      onMissing: def.onMissing ?? 'unknown',
+    });
     const version = this.#deps.now();
     if (outcome.kinds.length > 0) {
       this.#deps.bus.publish('entities', { instanceId: runtime.row.id, kinds: outcome.kinds, version });
@@ -302,6 +319,15 @@ export class Scheduler {
     }
     this.#setHealth(runtime, 'failing');
     return Math.min(jitter(interval * 2 ** runtime.failures, this.#random), BACKOFF_MAX_MS);
+  }
+
+  /** Entities of collectors that no longer exist (a removed check interval, a plugin update) go away. */
+  #removeOrphans(instanceId: string, collectors: readonly AnyCollector[]): void {
+    const kinds = this.#deps.entities.removeOrphans(
+      instanceId,
+      collectors.map((c) => c.id),
+    );
+    if (kinds.length > 0) this.#deps.bus.publish('entities', { instanceId, kinds, version: this.#deps.now() });
   }
 
   #setHealth(runtime: Runtime, health: InstanceHealth): void {

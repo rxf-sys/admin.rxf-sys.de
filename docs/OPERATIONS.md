@@ -135,6 +135,11 @@ die Einrichtung mit TOTP.
 Ein Image, dessen Healthchecks fehlschlagen, merkt sich `deploy.sh` in `.deploy-failed` und versucht es
 nicht erneut. Erst ein neuer Stand auf `staging` wird wieder ausgerollt.
 
+**Ping-Checks (Uptime):** Der Server pingt ohne Root-Rechte. Das erlaubt `net.ipv4.ping_group_range` in
+`compose.yaml`. Startet der Container im unprivilegierten LXC mit „invalid argument“ zu diesem Sysctl nicht,
+den Wert auf die GID des Servers eingrenzen: `"10001 10001"`. Ob Ping im Container funktioniert, zeigt der
+Verbindungstest im Onboarding: ICMP-Checks melden sonst `ICMP_UNAVAILABLE`.
+
 ## Sicherungen
 
 | Was | Wo | Aufbewahrung |
@@ -180,6 +185,6 @@ printf 'RXF_SERVER_IMAGE=rxf-server:local\nRXF_WEB_IMAGE=rxf-web:local\nRXF_CLOU
 cd /tmp/rxf-stack && docker compose up -d --wait
 ```
 
-Hinter einem Proxy ohne Zugriff auf die Debian-Mirrors baut der Server mit `--build-arg OS_UPGRADE=0`.
+Hinter einem Proxy ohne Zugriff auf die Debian-Mirrors baut der Server mit `--build-arg OS_UPGRADE=0`. Dem Image fehlt dann `ping`; Ping-Checks melden `ICMP_UNAVAILABLE` (Status „unbekannt“).
 Mit `--build-arg BUILD_IMAGE=<lokales Node-Image>` lässt sich außerdem ein Build-Image mit eigener
 CA einsetzen. Die CI baut immer mit Updates und scannt mit Trivy.

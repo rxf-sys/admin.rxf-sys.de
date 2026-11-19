@@ -21,12 +21,28 @@ export interface Target {
   tls: TlsSettings;
 }
 
-const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' };
+/**
+ * Schemes a target may use: `http`/`https` for the HTTP client, `tcp`/`tls` for connection checks,
+ * `dns` for a resolver (default port 53) and `icmp` for ping, which has no port.
+ */
+const DEFAULT_PORTS: Record<string, string | null> = {
+  'http:': '80',
+  'https:': '443',
+  'tcp:': '',
+  'tls:': '',
+  'dns:': '53',
+  'icmp:': null,
+};
 
-/** Normalises a URL to `scheme://host:port` so allowlist comparisons are exact. */
+/** Normalises a URL to `scheme://host:port` (`icmp://host`) so allowlist comparisons are exact. */
 export function originOf(url: string | URL): string {
   const parsed = typeof url === 'string' ? new URL(url) : url;
-  const port = parsed.port || DEFAULT_PORTS[parsed.protocol];
-  if (!port) throw new Error(`unsupported scheme ${parsed.protocol}`);
-  return `${parsed.protocol}//${parsed.hostname.toLowerCase()}:${port}`;
+  const fallback = DEFAULT_PORTS[parsed.protocol];
+  if (fallback === undefined) throw new Error(`unsupported scheme ${parsed.protocol}`);
+  const host = parsed.hostname.toLowerCase();
+  if (!host) throw new Error('target without host');
+  if (fallback === null) return `${parsed.protocol}//${host}`;
+  const port = parsed.port || fallback;
+  if (!port) throw new Error(`${parsed.protocol} target without port`);
+  return `${parsed.protocol}//${host}:${port}`;
 }

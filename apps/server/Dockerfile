@@ -16,11 +16,17 @@ RUN pnpm exec tsc -b
 RUN pnpm --filter @rxf/server deploy --prod --legacy /out
 
 FROM node:26.12.0-trixie-slim@sha256:e556a144463cc8dc53afe8de6d2fa0db5c132fd39ffa232c17641bd40df2bf11
-# Debian security fixes newer than the pinned base (the image job fails on fixable HIGH/CRITICAL findings).
-# OS_UPGRADE=0 only for local builds without access to the Debian mirrors.
+# Debian security fixes newer than the pinned base (the image job fails on fixable HIGH/CRITICAL findings),
+# plus iputils-ping for uptime ping checks (owner decision 19.11.2026). Ping runs unprivileged through ICMP
+# datagram sockets (net.ipv4.ping_group_range in compose.yaml), so the setuid bit is removed.
+# OS_UPGRADE=0 only for local builds without access to the Debian mirrors; ping checks then report
+# ICMP_UNAVAILABLE.
 ARG OS_UPGRADE=1
 RUN if [ "$OS_UPGRADE" = 1 ]; then \
-    apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*; \
+    apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends iputils-ping \
+    && chmod 0755 /usr/bin/ping \
+    && rm -rf /var/lib/apt/lists/*; \
   fi
 # The runtime needs node only; the bundled npm brings its own dependencies into the Trivy scan.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx

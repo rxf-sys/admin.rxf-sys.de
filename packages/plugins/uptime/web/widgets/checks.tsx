@@ -24,26 +24,53 @@ function useResponseTimes(data: DataAccess, entityId: number) {
   });
 }
 
+/** The status in words; a few reasons say more than "slow" or "failing". */
+function statusLabel(entity: EntityResponse, t: ReturnType<typeof translator>): string {
+  switch (entity.statusReason) {
+    case 'TLS_EXPIRING':
+      return t('status.expiring');
+    case 'TLS_EXPIRED':
+      return t('status.expired');
+    case 'ICMP_LOSS':
+      return t('status.loss');
+    case 'ICMP_UNAVAILABLE':
+      return t('status.noPing');
+    default:
+      return t(`status.${entity.status}`);
+  }
+}
+
+function valueText(entity: EntityResponse, t: ReturnType<typeof translator>): string {
+  const { daysLeft, responseMs } = entity.attrs;
+  if (entity.attrs.type === 'tls' && typeof daysLeft === 'number') {
+    return daysLeft < 0 ? t('widget.expired') : t('widget.daysLeft', { days: daysLeft });
+  }
+  return typeof responseMs === 'number' ? t('widget.responseTime', { ms: responseMs }) : t('widget.noResponse');
+}
+
 function CheckRow({ entity, data, locale }: { entity: EntityResponse; data: DataAccess; locale: Locale }) {
   const t = translator(locale);
   const points = useResponseTimes(data, entity.id);
-  const responseMs = typeof entity.attrs.responseMs === 'number' ? entity.attrs.responseMs : null;
   const endpoint = typeof entity.attrs.endpoint === 'string' ? entity.attrs.endpoint : '';
-  const host = URL.canParse(endpoint) ? new URL(endpoint).host : endpoint;
+  // `target` since Phase 5; older snapshots only carry the URL.
+  const host =
+    typeof entity.attrs.target === 'string'
+      ? entity.attrs.target
+      : URL.canParse(endpoint)
+        ? new URL(endpoint).host
+        : endpoint;
   return (
     <li className={styles.row}>
       <span className={styles.status} data-status={entity.status}>
         <span className={styles.dot} aria-hidden="true" />
-        {t(`status.${entity.status}`)}
+        {statusLabel(entity, t)}
       </span>
       <span className={styles.name}>
         <span className={styles.title}>{entity.name}</span>
         <span className={styles.host}>{host}</span>
       </span>
       <Sparkline points={points.data?.points ?? []} locale={locale} />
-      <span className={styles.value}>
-        {responseMs === null ? t('widget.noResponse') : t('widget.responseTime', { ms: responseMs })}
-      </span>
+      <span className={styles.value}>{valueText(entity, t)}</span>
     </li>
   );
 }

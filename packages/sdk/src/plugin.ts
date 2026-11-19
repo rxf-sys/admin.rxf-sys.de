@@ -1,6 +1,7 @@
 import type { EntityKind, EntityStatus } from '@rxf/contracts';
 import type { ConfigDefinition, ConfigOf, FieldSpec } from './config.ts';
 import type { HttpClient, RequestRule, TlsInfo } from './http.ts';
+import type { NetClient } from './net.ts';
 import type { Target } from './targets.ts';
 
 export interface PluginLogger {
@@ -15,6 +16,8 @@ export interface PluginContext<C> {
   /** Decrypted secret fields, alive only for this call. */
   secrets: Readonly<Record<string, string>>;
   http: HttpClient;
+  /** TCP, TLS, DNS and ping probes under the same target rules as `http`. */
+  net: NetClient;
   log: PluginLogger;
   now(): number;
   signal: AbortSignal;
@@ -76,8 +79,17 @@ export interface Collector<C> {
   /** `activeMs` while someone watches the instance, `backgroundMs` otherwise (ADR 0007). */
   interval: { activeMs: number; backgroundMs: number };
   timeoutMs: number;
+  /**
+   * What happens to an entity of this collector that a run no longer reports. `unknown` (default) after
+   * two background intervals; `delete` right away, with its series, for snapshots derived from the
+   * config alone (uptime checks), where a missing entity means it was removed.
+   */
+  onMissing?: 'unknown' | 'delete';
   run(ctx: PluginContext<C>): Promise<CollectResult>;
 }
+
+/** Method syntax keeps the parameter bivariant, like `targets()`, so typed plugins fit the registry. */
+type CollectorFactory<C> = { bivariant(config: C): Collector<C>[] }['bivariant'];
 
 export interface ServerPlugin<F extends Record<string, FieldSpec> = Record<string, FieldSpec>> {
   config: ConfigDefinition<F>;
@@ -88,7 +100,11 @@ export interface ServerPlugin<F extends Record<string, FieldSpec> = Record<strin
   /** Requests collectors may send (ADR 0008, T9). Action rules arrive with the action framework. */
   requests: { collect: RequestRule[] };
   test(ctx: PluginContext<ConfigOf<ConfigDefinition<F>>>): Promise<TestResult>;
-  collectors?: Collector<ConfigOf<ConfigDefinition<F>>>[];
+  /**
+   * Fixed, or derived from the config (e.g. one collector per check interval). Ids must be stable: when a
+   * collector disappears, the core removes the entities it owned.
+   */
+  collectors?: Collector<ConfigOf<ConfigDefinition<F>>>[] | CollectorFactory<ConfigOf<ConfigDefinition<F>>>;
   /** Runs of this instance's collectors at the same time; 1 for weak devices (FRITZ!Box). Default: unlimited. */
   maxConcurrent?: number;
 }
