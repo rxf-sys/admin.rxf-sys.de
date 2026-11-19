@@ -46,5 +46,30 @@ export const sessionListResponse = z.object({
   ),
 });
 
+/**
+ * Passkeys (ADR 0005). Options and responses are the WebAuthn JSON forms of @simplewebauthn; the server
+ * validates their content, so the contract only bounds their shape.
+ */
+const webauthnJson = z.record(z.string(), z.unknown());
+
+export const passkeyOptionsResponse = z.object({ options: webauthnJson });
+export const passkeyRegisterRequest = z.object({
+  response: webauthnJson,
+  name: z.string().check(z.minLength(1), z.maxLength(60)),
+});
+export const passkeyRegisterResponse = z.object({ backupCodes: z.optional(z.array(z.string())) });
+export const passkeyAssertionRequest = z.object({ response: webauthnJson });
+export const passkeyListResponse = z.object({
+  passkeys: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      createdAt: z.number(),
+      lastUsedAt: z.nullable(z.number()),
+      synced: z.boolean(),
+    }),
+  ),
+});
+
 export type Role = z.infer<typeof role>;
 export type SessionResponse = z.infer<typeof sessionResponse>;

@@ -43,7 +43,7 @@ test('first start: setup code from the log, admin account, second factor, backup
   await shootAllVariants(page, 'enrol');
   const totpSecret = (await secretBox.innerText()).replaceAll(' ', '');
   await page.getByLabel('Code aus der App').fill(totp(totpSecret));
-  await page.getByRole('button', { name: 'Einrichten' }).click();
+  await page.getByRole('button', { name: 'Einrichten', exact: true }).click();
 
   const list = page.getByRole('list', { name: 'Backup-Codes' });
   await expect(list.getByRole('listitem')).toHaveCount(10);
@@ -56,7 +56,7 @@ test('first start: setup code from the log, admin account, second factor, backup
   await expect(page.getByRole('heading', { level: 1, name: 'Übersicht' })).toBeVisible();
 
   // Setup is closed for good: signing out leads to the login, not back to setup.
-  await page.getByRole('button', { name: 'Abmelden' }).click();
+  await page.getByRole('button', { name: 'Abmelden', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
 });
 
@@ -87,7 +87,7 @@ test('onboarding: uptime check against the server itself; an empty board loads n
   const dialog = page.getByRole('dialog', { name: 'Identität bestätigen' });
   await dialog.getByLabel('Passwort', { exact: true }).fill(credentials().password);
   await dialog.getByLabel('Code aus der App oder Backup-Code').fill(takeBackupCode());
-  await dialog.getByRole('button', { name: 'Bestätigen' }).click();
+  await dialog.getByRole('button', { name: 'Bestätigen', exact: true }).click();
 
   await expect(page.getByText('Die Verbindung passt.')).toBeVisible();
   await expectAccessible(page);

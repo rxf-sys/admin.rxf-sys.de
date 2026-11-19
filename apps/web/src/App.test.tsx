@@ -5,6 +5,25 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { App } from './App.tsx';
 import { createAppRouter } from './router.tsx';
 
+// The WebAuthn ceremony itself is the browser's; the server-side checks are tested in apps/server.
+const webauthn = vi.hoisted(() => ({
+  supported: false,
+  outcome: 'ok' as 'ok' | 'cancel' | 'known',
+}));
+vi.mock('@simplewebauthn/browser', () => {
+  const answer = async () => {
+    if (webauthn.outcome === 'cancel') throw Object.assign(new Error('closed'), { name: 'NotAllowedError' });
+    if (webauthn.outcome === 'known')
+      throw Object.assign(new Error('dup'), { code: 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED' });
+    return { id: 'credential-1', response: {} };
+  };
+  return {
+    browserSupportsWebAuthn: () => webauthn.supported,
+    startRegistration: answer,
+    startAuthentication: answer,
+  };
+});
+
 type Handler = (body: unknown, init: RequestInit) => Response | Promise<Response>;
 
 const routes = new Map<string, Handler>();
@@ -62,6 +81,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  webauthn.supported = false;
+  webauthn.outcome = 'ok';
   vi.stubGlobal(
     'IntersectionObserver',
     class {
@@ -556,5 +577,114 @@ describe('onboarding', () => {
     renderAt('/onboarding');
     expect(await screen.findByText('Schon eingerichtet')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Uptime auswählen' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('passkeys', () => {
+  beforeEach(() => {
+    webauthn.supported = true;
+  });
+
+  it('signs in with a passkey from the login screen and reports a cancelled dialog', async () => {
+    let session: unknown = anonymous(false);
+    on('GET', '/api/auth/session', () => json(session));
+    on('POST', '/api/auth/passkeys/login/options', { options: { challenge: 'abc' } });
+    on('POST', '/api/auth/passkeys/login', () => {
+      session = signedIn('done');
+      return json({ mfa: 'done' });
+    });
+    on('GET', '/api/instances', { instances: [] });
+    renderAt('/login');
+    await screen.findByRole('heading', { name: 'Anmelden' });
+
+    webauthn.outcome = 'cancel';
+    submit('Mit Passkey anmelden');
+    expect((await screen.findByRole('alert')).textContent).toBe('Der Passkey-Vorgang wurde abgebrochen.');
+
+    webauthn.outcome = 'ok';
+    submit('Mit Passkey anmelden');
+    await screen.findByRole('heading', { level: 1, name: 'Übersicht' });
+    expect(calls.find((c) => c.key === 'POST /api/auth/passkeys/login')?.body).toEqual({
+      response: { id: 'credential-1', response: {} },
+    });
+  });
+
+  it('completes a pending second factor with a passkey', async () => {
+    let session: unknown = signedIn('pending');
+    on('GET', '/api/auth/session', () => json(session));
+    on('POST', '/api/auth/passkeys/login/options', { options: {} });
+    on('POST', '/api/auth/passkeys/login', () => {
+      session = signedIn('done');
+      return json({ mfa: 'done' });
+    });
+    on('GET', '/api/instances', { instances: [] });
+    renderAt('/');
+    await screen.findByRole('heading', { name: 'Zweiter Faktor' });
+    submit('Mit Passkey bestätigen');
+    await screen.findByRole('heading', { level: 1, name: 'Übersicht' });
+  });
+
+  it('sets up a passkey instead of TOTP and shows the backup codes', async () => {
+    on('GET', '/api/auth/session', signedIn('setup_required'));
+    on('POST', '/api/auth/totp/enrol', { secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/x' });
+    on('POST', '/api/auth/passkeys/register/options', { options: {} });
+    on('POST', '/api/auth/passkeys/register', { backupCodes: ['AAAAA-BBBBB'] });
+    renderAt('/enrol');
+    fireEvent.click(await screen.findByRole('button', { name: 'Stattdessen einen Passkey einrichten' }));
+    const codes = await screen.findByRole('list', { name: 'Backup-Codes' });
+    expect(codes.textContent).toBe('AAAAA-BBBBB');
+    expect(calls.find((c) => c.key === 'POST /api/auth/passkeys/register')?.body).toMatchObject({
+      name: expect.any(String),
+    });
+  });
+
+  it('lists, adds behind a re-authentication by passkey, and refuses to remove the last factor', async () => {
+    on('GET', '/api/auth/session', signedIn('done'));
+    on('GET', '/api/auth/sessions', { sessions: [] });
+    let passkeys: { id: string; name: string; createdAt: number; lastUsedAt: number | null; synced: boolean }[] = [
+      { id: 'credential-1', name: 'Laptop', createdAt: 0, lastUsedAt: null, synced: true },
+    ];
+    on('GET', '/api/auth/passkeys', () => json({ passkeys }));
+    let elevated = false;
+    on('POST', '/api/auth/passkeys/register/options', () =>
+      elevated ? json({ options: {} }) : fail(403, 'REAUTH_REQUIRED'),
+    );
+    on('POST', '/api/auth/passkeys/register', () => {
+      passkeys = [...passkeys, { id: 'credential-2', name: 'Telefon', createdAt: 0, lastUsedAt: 5, synced: false }];
+      return json({});
+    });
+    on('POST', '/api/auth/reauth/passkey/options', { options: {} });
+    on('POST', '/api/auth/reauth/passkey', () => {
+      elevated = true;
+      return json({ elevatedUntil: 1 });
+    });
+    on('DELETE', '/api/auth/passkeys/credential-1', () => fail(409, 'LAST_FACTOR'));
+    renderAt('/settings/security');
+
+    expect(await screen.findByText('Laptop')).toBeTruthy();
+    expect(screen.getByText('synchronisiert')).toBeTruthy();
+    expect(screen.getByText('noch nicht benutzt')).toBeTruthy();
+
+    type('Name des neuen Passkeys', 'Telefon');
+    submit('Passkey hinzufügen');
+    const dialog = await screen.findByRole('dialog', { name: 'Identität bestätigen' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Mit Passkey bestätigen' }));
+    expect(await screen.findByText('Telefon')).toBeTruthy();
+    expect(calls.find((c) => c.key === 'POST /api/auth/passkeys/register')?.body).toMatchObject({ name: 'Telefon' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Laptop entfernen' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Das ist dein letzter zweiter Faktor. Richte zuerst einen weiteren ein.',
+    );
+  });
+
+  it('explains an authenticator that is already registered', async () => {
+    on('GET', '/api/auth/session', signedIn('setup_required'));
+    on('POST', '/api/auth/totp/enrol', { secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/x' });
+    on('POST', '/api/auth/passkeys/register/options', { options: {} });
+    webauthn.outcome = 'known';
+    renderAt('/enrol');
+    fireEvent.click(await screen.findByRole('button', { name: 'Stattdessen einen Passkey einrichten' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Dieser Passkey ist schon eingerichtet.');
   });
 });

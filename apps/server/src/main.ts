@@ -19,6 +19,7 @@ const app = buildApp({
   database,
   masterKey,
   trustedProxies: config.trustedProxies,
+  publicOrigin: config.publicOrigin,
   logger: loggerOptions(),
 });
 app.log.info({ keyId: masterKey.id, migrations: migration.applied, backup: migration.backupFile }, 'storage ready');

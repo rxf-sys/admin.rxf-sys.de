@@ -87,10 +87,10 @@ export async function signIn(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/login$/);
   await page.getByLabel('Benutzername').fill(username);
   await page.getByLabel('Passwort', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Anmelden' }).click();
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
   await expect(page).toHaveURL(/\/login\/verify$/);
   await page.getByRole('button', { name: 'Backup-Code verwenden' }).click();
   await page.getByLabel('Backup-Code').fill(takeBackupCode());
-  await page.getByRole('button', { name: 'Bestätigen' }).click();
+  await page.getByRole('button', { name: 'Bestätigen', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Übersicht' })).toBeVisible();
 }

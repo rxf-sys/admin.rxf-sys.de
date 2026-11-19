@@ -150,3 +150,16 @@ CT-ID, IP und der GHCR-Zugriff feststehen. Anleitung: `docs/OPERATIONS.md`.
   Attrappe ersetzt. Die echte Signaturprüfung zeigt erst der erste Lauf auf Staging.
 - **Tägliche Sicherung** im Server: `daily-JJJJ-MM-TT.db` per `VACUUM INTO`, 14 Tage, stündlich
   geprüft.
+
+## Nachtrag: Hosts und Hostname (19.11.2026)
+
+Owner-Entscheidung 19.11.2026:
+
+- **v2:** CT 113, 192.168.2.216.
+- **v1:** CT 101, 192.168.2.202. Die Angabe „CT 110“ im Altcode-Teil von `CLAUDE.md` ist veraltet.
+- **cloudflared:** CT 110, 192.168.2.213. Das ist `RXF_CLOUDFLARED_IP`.
+- **Hostname:** v2 übernimmt direkt `admin.rxf-sys.de`; eine eigene Staging-Domain `admin-next` gibt es
+  nicht. Der Umstieg geschieht durch Umstellen des Public Hostname im Tunnel (`docs/OPERATIONS.md`,
+  Schritt 5). Der Weg zurück auf v1 ist dieselbe Einstellung in umgekehrter Richtung.
+- **Folge für Passkeys (ADR 0005):** Die RP-ID ist von Anfang an `admin.rxf-sys.de`. Die geplante
+  Neuregistrierung nach einem Domainwechsel entfällt.

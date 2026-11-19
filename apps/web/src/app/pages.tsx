@@ -1,12 +1,13 @@
-import { backupCodesResponse, sessionListResponse } from '@rxf/contracts';
+import { backupCodesResponse, passkeyListResponse, sessionListResponse } from '@rxf/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import * as z from 'zod/mini';
 import { getJson, okResponse, sendJson } from '../api.ts';
 import { formatDateTime, t } from '../i18n.ts';
+import { passkeysSupported, registerPasskey } from '../passkeys.ts';
 import { BackupCodes } from '../ui/BackupCodes.tsx';
 import { errorText } from '../ui/errors.ts';
-import { FormError } from '../ui/Field.tsx';
+import { Field, FormError } from '../ui/Field.tsx';
 import { useElevated } from '../ui/reauth.tsx';
 import ui from '../ui/ui.module.css';
 import { describeAgent } from './agent.ts';
@@ -130,11 +131,97 @@ function BackupCodeRenewal() {
   );
 }
 
+function Passkeys() {
+  const queryClient = useQueryClient();
+  const elevated = useElevated();
+  const [name, setName] = useState(() => describeAgent(navigator.userAgent));
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const list = useQuery({ queryKey: ['passkeys'], queryFn: () => getJson('/api/auth/passkeys', passkeyListResponse) });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['passkeys'] });
+  const add = useMutation({
+    mutationFn: () => elevated(() => registerPasskey(name.trim())),
+    onSuccess: (result) => {
+      if (result?.backupCodes) setCodes(result.backupCodes);
+    },
+    onSettled: refresh,
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => elevated(() => sendJson('DELETE', `/api/auth/passkeys/${id}`, okResponse)),
+    onSettled: refresh,
+  });
+  const failure = add.error ?? remove.error;
+
+  return (
+    <section className={ui.card} aria-labelledby="passkeys-title">
+      <div className={ui.field}>
+        <h2 id="passkeys-title" className={ui.cardTitle}>
+          {t('security.passkeys')}
+        </h2>
+        <p className={ui.muted}>{t('security.passkeysIntro')}</p>
+      </div>
+      <FormError message={failure ? errorText(failure) : null} />
+      {codes ? <BackupCodes codes={codes} /> : null}
+      {list.data && list.data.passkeys.length === 0 ? <p className={ui.muted}>{t('security.passkeyNone')}</p> : null}
+      {list.data && list.data.passkeys.length > 0 ? (
+        <ul className={styles.list}>
+          {list.data.passkeys.map((passkey) => (
+            <li key={passkey.id} className={styles.row}>
+              <div className={styles.rowMain}>
+                <span className={styles.rowTitle}>
+                  {passkey.name}
+                  {passkey.synced ? <span className={styles.badge}>{t('security.passkeySynced')}</span> : null}
+                </span>
+                <span className={styles.rowMeta}>
+                  {passkey.lastUsedAt === null
+                    ? t('security.passkeyUnused')
+                    : t('security.passkeyUsed', { time: formatDateTime(passkey.lastUsedAt) })}
+                </span>
+              </div>
+              <button
+                type="button"
+                className={`${ui.btn} ${ui.outline} ${ui.small}`}
+                aria-label={t('security.passkeyRemove', { name: passkey.name })}
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(passkey.id)}
+              >
+                {t('security.passkeyRemoveShort')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {passkeysSupported() ? (
+        <form
+          className={ui.form}
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            add.mutate();
+          }}
+        >
+          <Field
+            label={t('security.passkeyName')}
+            value={name}
+            maxLength={60}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <div className={ui.actions}>
+            <button type="submit" className={`${ui.btn} ${ui.outline}`} disabled={add.isPending || name.trim() === ''}>
+              {t('security.passkeyAdd')}
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </section>
+  );
+}
+
 export function SecurityPage() {
   return (
     <>
       <h1>{t('security.title')}</h1>
       <SessionList />
+      <Passkeys />
       <BackupCodeRenewal />
     </>
   );

@@ -1,6 +1,6 @@
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import type { Db } from '../db/database.ts';
-import { sessions, users, userTotp } from '../db/schema.ts';
+import { sessions, users, userTotp, userWebauthnCredentials } from '../db/schema.ts';
 import { randomToken, sha256 } from './tokens.ts';
 
 export type Role = 'viewer' | 'operator' | 'admin';
@@ -42,6 +42,7 @@ export interface Session {
   role: Role;
   mfaDone: boolean;
   hasTotp: boolean;
+  hasPasskey: boolean;
   csrfToken: string;
   elevatedUntil: number | null;
 }
@@ -80,7 +81,12 @@ export function createSession(db: Db, input: NewSession, now: number): { token: 
 export function resolveSession(db: Db, token: string, now: number, options: { touch?: boolean } = {}): Session | null {
   const tokenHash = sha256(token);
   const row = db
-    .select({ session: sessions, user: users, totpConfirmedAt: userTotp.confirmedAt })
+    .select({
+      session: sessions,
+      user: users,
+      totpConfirmedAt: userTotp.confirmedAt,
+      hasPasskey: sql<number>`exists (select 1 from ${userWebauthnCredentials} where ${userWebauthnCredentials.userId} = ${users.id})`,
+    })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .leftJoin(userTotp, eq(userTotp.userId, users.id))
@@ -103,6 +109,7 @@ export function resolveSession(db: Db, token: string, now: number, options: { to
     role: user.role,
     mfaDone: session.mfaDone,
     hasTotp: row.totpConfirmedAt !== null,
+    hasPasskey: row.hasPasskey === 1,
     csrfToken: session.csrfToken,
     elevatedUntil: session.elevatedUntil,
   };
