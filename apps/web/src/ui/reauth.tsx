@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { ApiError, sendJson } from '../api.ts';
 import { t } from '../i18n.ts';
+import { passkeysSupported, reauthWithPasskey } from '../passkeys.ts';
 import { errorText } from './errors.ts';
 import { Field, FormError, formValues, PasswordField } from './Field.tsx';
 import styles from './ui.module.css';
@@ -22,15 +23,17 @@ export function ReauthProvider({ children }: { children: ReactNode }) {
   const confirm = useMutation({
     mutationFn: (values: Record<string, string>) => sendJson('POST', '/api/auth/reauth', reauthResponse, values),
   });
+  const passkey = useMutation({ mutationFn: reauthWithPasskey });
 
   const finish = useCallback(
     (ok: boolean) => {
       pending.current?.(ok);
       pending.current = null;
       confirm.reset();
+      passkey.reset();
       setOpen(false);
     },
-    [confirm],
+    [confirm, passkey],
   );
 
   useEffect(() => {
@@ -79,9 +82,23 @@ export function ReauthProvider({ children }: { children: ReactNode }) {
             </div>
             <FormError
               message={
-                confirm.isError ? errorText(confirm.error, { INVALID_CREDENTIALS: t('error.INVALID_REAUTH') }) : null
+                confirm.isError
+                  ? errorText(confirm.error, { INVALID_CREDENTIALS: t('error.INVALID_REAUTH') })
+                  : passkey.isError
+                    ? errorText(passkey.error)
+                    : null
               }
             />
+            {passkeysSupported() ? (
+              <button
+                type="button"
+                className={`${styles.btn} ${styles.outline} ${styles.block}`}
+                disabled={passkey.isPending}
+                onClick={() => passkey.mutate(undefined, { onSuccess: () => finish(true) })}
+              >
+                {t('reauth.passkey')}
+              </button>
+            ) : null}
             <PasswordField label={t('reauth.password')} name="password" autoComplete="current-password" required />
             <Field
               label={t('reauth.code')}

@@ -65,7 +65,7 @@ describe('migrateDatabase', () => {
     const handle = openDatabase(join(dir, 'rxf-admin-v2.db'));
     const result = migrateDatabase(handle, { backupDir: join(dir, 'backups') });
     expect(result).toEqual({
-      applied: ['0000_audit_events', '0001_auth', '0002_plugins', '0003_metrics'],
+      applied: ['0000_audit_events', '0001_auth', '0002_plugins', '0003_metrics', '0004_passkeys'],
       backupFile: null,
     });
     expect(tables(handle.sqlite)).toEqual([
@@ -84,6 +84,7 @@ describe('migrateDatabase', () => {
       'user_backup_codes',
       'user_passwords',
       'user_totp',
+      'user_webauthn_credentials',
       'users',
     ]);
     expect(existsSync(join(dir, 'backups'))).toBe(false);
@@ -129,7 +130,10 @@ describe('migrateDatabase', () => {
       )
       .run();
 
-    expect(migrateDatabase(handle, { backupDir: join(dir, 'backups') }).applied).toEqual(['0003_metrics']);
+    expect(migrateDatabase(handle, { backupDir: join(dir, 'backups') }).applied).toEqual([
+      '0003_metrics',
+      '0004_passkeys',
+    ]);
     const sql = (name: string) =>
       (handle.sqlite.prepare('SELECT sql FROM sqlite_master WHERE name = ?').get(name) as { sql: string }).sql;
     for (const table of ['metric_raw', 'metric_5m', 'metric_1h']) expect(sql(table)).toMatch(/WITHOUT ROWID$/);

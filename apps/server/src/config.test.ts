@@ -12,6 +12,7 @@ describe('readConfig', () => {
       masterKeyFile: '/run/secrets/rxf_master_key',
       masterKeyInline: undefined,
       trustedProxies: [],
+      publicOrigin: 'http://localhost:5173',
     });
   });
 
@@ -23,9 +24,27 @@ describe('readConfig', () => {
       NODE_ENV: 'production',
       RXF_DATA_DIR: '/srv/data',
       RXF_MASTER_KEY_FILE: '/srv/key',
+      RXF_PUBLIC_ORIGIN: 'https://admin.rxf-sys.de',
     });
     expect(config).toMatchObject({ host: '0.0.0.0', port: 8080, version: '2.0.0', production: true });
     expect(config).toMatchObject({ dataDir: '/srv/data', masterKeyFile: '/srv/key' });
+    expect(config.publicOrigin).toBe('https://admin.rxf-sys.de');
+  });
+
+  it('requires an https public origin in production and accepts http only for localhost', () => {
+    expect(() => readConfig({ NODE_ENV: 'production' })).toThrow(/RXF_PUBLIC_ORIGIN is required/);
+    expect(readConfig({ RXF_PUBLIC_ORIGIN: 'https://admin.rxf-sys.de/' }).publicOrigin).toBe(
+      'https://admin.rxf-sys.de',
+    );
+    expect(readConfig({ RXF_PUBLIC_ORIGIN: 'http://localhost:4173' }).publicOrigin).toBe('http://localhost:4173');
+    for (const bad of [
+      'http://admin.rxf-sys.de',
+      'https://admin.rxf-sys.de/app',
+      'admin.rxf-sys.de',
+      'http://127.0.0.1',
+    ]) {
+      expect(() => readConfig({ RXF_PUBLIC_ORIGIN: bad })).toThrow(ConfigError);
+    }
   });
 
   it.each(['', ' ', 'abc', '0', '65536', '80.5'])('rejects PORT=%j', (port) => {

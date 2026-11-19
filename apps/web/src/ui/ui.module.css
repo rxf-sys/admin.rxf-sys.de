@@ -245,3 +245,19 @@
 .standalone {
   margin: var(--sp-8) var(--gutter);
 }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  color: var(--faint);
+  font-size: var(--fs-2);
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}

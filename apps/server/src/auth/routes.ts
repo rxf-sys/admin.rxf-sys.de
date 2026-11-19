@@ -17,8 +17,9 @@ import * as z from 'zod/mini';
 import { recordAudit } from '../audit.ts';
 import type { MasterKey } from '../crypto/master-key.ts';
 import type { Db } from '../db/database.ts';
-import { userPasswords, users, userTotp } from '../db/schema.ts';
+import { userPasswords, users, userTotp, userWebauthnCredentials } from '../db/schema.ts';
 import { AppError } from '../http/errors.ts';
+import { registerPasskeyRoutes } from './passkeys.ts';
 import { checkPassword, hashPassword, verifyPassword } from './passwords.ts';
 import {
   beginTotpEnrolment,
@@ -46,6 +47,8 @@ export interface AuthDeps {
   masterKey: MasterKey;
   commonPasswords: ReadonlySet<string>;
   now: () => number;
+  /** Origin the browser sees; passkeys are bound to its hostname. */
+  publicOrigin: string;
 }
 
 const ok = z.object({ ok: z.literal(true) });
@@ -84,7 +87,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
 
   /** Replacing an existing factor needs a fresh re-authentication (ADR 0005). */
   function assertMayChangeFactor(session: Session): void {
-    if (session.hasTotp && !(session.elevatedUntil !== null && session.elevatedUntil > now())) {
+    if ((session.hasTotp || session.hasPasskey) && !(session.elevatedUntil !== null && session.elevatedUntil > now())) {
       throw new AppError(403, 'REAUTH_REQUIRED', 'Confirm your identity again to do this');
     }
   }
@@ -117,7 +120,11 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
       return {
         authenticated: true as const,
         user: { id: session.userId, username: session.username, role: session.role },
-        mfa: session.mfaDone ? ('done' as const) : session.hasTotp ? ('pending' as const) : ('setup_required' as const),
+        mfa: session.mfaDone
+          ? ('done' as const)
+          : session.hasTotp || session.hasPasskey
+            ? ('pending' as const)
+            : ('setup_required' as const),
         csrfToken: session.csrfToken,
         elevatedUntil: session.elevatedUntil,
       };
@@ -198,9 +205,18 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
       throttle.clear(key);
       startSession(request, reply, active.user.id, false);
       audit(request, { event: 'auth.login', result: 'success', actorUserId: active.user.id });
-      return { mfa: totpEnrolled(active.user.id) ? ('pending' as const) : ('setup_required' as const) };
+      return { mfa: hasSecondFactor(active.user.id) ? ('pending' as const) : ('setup_required' as const) };
     },
   );
+
+  function hasSecondFactor(userId: number): boolean {
+    const passkey = db
+      .select({ id: userWebauthnCredentials.id })
+      .from(userWebauthnCredentials)
+      .where(eq(userWebauthnCredentials.userId, userId))
+      .get();
+    return passkey !== undefined || totpEnrolled(userId);
+  }
 
   function totpEnrolled(userId: number): boolean {
     const row = db
@@ -217,7 +233,9 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
     async (request, reply) => {
       const session = requireSession(request);
       if (session.mfaDone) throw new AppError(409, 'MFA_ALREADY_DONE', 'The second factor is already done');
-      if (!session.hasTotp) throw new AppError(409, 'MFA_SETUP_REQUIRED', 'Enrol a second factor first');
+      if (!session.hasTotp && !session.hasPasskey) {
+        throw new AppError(409, 'MFA_SETUP_REQUIRED', 'Enrol a second factor first');
+      }
       if (!checkSecondFactor(session, request.body.code)) {
         audit(request, { event: 'auth.mfa', result: 'failure' });
         throw new AppError(401, 'INVALID_CODE', 'The code is wrong or was already used');
@@ -369,4 +387,20 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
       return { revoked };
     },
   );
+
+  registerPasskeyRoutes(app, {
+    db,
+    now,
+    publicOrigin: deps.publicOrigin,
+    requireSession,
+    startSession,
+    assertMayChangeFactor,
+    loginGate(request, failed = false) {
+      const ipKey = `ip:${request.ip}`;
+      if (failed) throttle.recordWindowFailure(ipKey, LOGIN_IP_RULE);
+      const wait = throttle.windowWait(ipKey, LOGIN_IP_RULE);
+      if (wait > 0 && !failed) throw tooManyAttempts(wait);
+    },
+    audit,
+  });
 }

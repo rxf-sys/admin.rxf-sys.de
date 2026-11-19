@@ -58,6 +58,29 @@ export const userTotp = sqliteTable('user_totp', {
   pendingKeyId: text('pending_key_id'),
 });
 
+/**
+ * Passkeys (ADR 0005): second factor or passwordless login. `id` is the credential ID (base64url) the
+ * authenticator returns; the public key verifies its signatures, `counter` detects cloned authenticators.
+ */
+export const userWebauthnCredentials = sqliteTable(
+  'user_webauthn_credentials',
+  {
+    id: text('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    publicKey: blob('public_key', { mode: 'buffer' }).notNull(),
+    counter: integer('counter').notNull(),
+    transportsJson: text('transports_json').notNull().default('[]'),
+    deviceType: text('device_type', { enum: ['singleDevice', 'multiDevice'] }).notNull(),
+    backedUp: integer('backed_up', { mode: 'boolean' }).notNull(),
+    name: text('name').notNull(),
+    createdAt: integer('created_at').notNull(),
+    lastUsedAt: integer('last_used_at'),
+  },
+  (table) => [index('user_webauthn_credentials_user').on(table.userId)],
+);
+
 export const userBackupCodes = sqliteTable(
   'user_backup_codes',
   {

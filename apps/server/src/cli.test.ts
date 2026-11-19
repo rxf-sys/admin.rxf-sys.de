@@ -29,7 +29,9 @@ describe('rxf cli', () => {
 describe('rxf admin reset-2fa', () => {
   async function storageWithUser() {
     const { testDatabase, testMasterKey } = await import('./test-support.ts');
-    const { users, userBackupCodes, userTotp, sessions, auditEvents } = await import('./db/schema.ts');
+    const { users, userBackupCodes, userTotp, userWebauthnCredentials, sessions, auditEvents } = await import(
+      './db/schema.ts'
+    );
     const { beginTotpEnrolment, issueBackupCodes } = await import('./auth/second-factor.ts');
     const { createSession } = await import('./auth/sessions.ts');
     const handle = testDatabase();
@@ -40,6 +42,19 @@ describe('rxf admin reset-2fa', () => {
       .get();
     beginTotpEnrolment(handle.db, testMasterKey(), id, 'robin');
     issueBackupCodes(handle.db, id);
+    handle.db
+      .insert(userWebauthnCredentials)
+      .values({
+        id: 'credential-id-0000000000',
+        userId: id,
+        publicKey: Buffer.alloc(1),
+        counter: 0,
+        deviceType: 'multiDevice',
+        backedUp: true,
+        name: 'Laptop',
+        createdAt: 1,
+      })
+      .run();
     createSession(handle.db, { userId: id, mfaDone: true, ip: null, userAgent: null }, 1);
     const close = handle.sqlite.close.bind(handle.sqlite);
     let closed = false;
@@ -50,6 +65,7 @@ describe('rxf admin reset-2fa', () => {
     const counts = () => ({
       totp: handle.db.select().from(userTotp).all().length,
       backup: handle.db.select().from(userBackupCodes).all().length,
+      passkeys: handle.db.select().from(userWebauthnCredentials).all().length,
       sessions: handle.db.select().from(sessions).all().length,
       audit: handle.db.select().from(auditEvents).all(),
     });
@@ -67,7 +83,7 @@ describe('rxf admin reset-2fa', () => {
     expect(code).toBe(0);
     expect(lines[0]).toMatch(/second factor of "robin" removed/);
     const after = counts();
-    expect(after).toMatchObject({ totp: 0, backup: 0, sessions: 0 });
+    expect(after).toMatchObject({ totp: 0, backup: 0, passkeys: 0, sessions: 0 });
     expect(after.audit[0]).toMatchObject({ event: 'auth.mfa_reset', result: 'success' });
     expect(isClosed()).toBe(true);
     close();

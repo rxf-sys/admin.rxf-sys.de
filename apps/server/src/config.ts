@@ -19,6 +19,8 @@ export interface ServerConfig {
   masterKeyInline: string | undefined;
   /** Addresses or CIDRs of the reverse proxy (Caddy) whose X-Forwarded-For is trusted. */
   trustedProxies: string[];
+  /** Origin the browser sees (`https://admin.rxf-sys.de`); passkeys are bound to its hostname (ADR 0005). */
+  publicOrigin: string;
 }
 
 const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
@@ -37,6 +39,20 @@ function parseTrustedProxies(raw: string | undefined): string[] {
     }
     return value;
   });
+}
+
+/** https everywhere; plain http only for localhost, which browsers treat as a secure context. */
+function parsePublicOrigin(raw: string | undefined, production: boolean): string {
+  if (!raw) {
+    if (production) throw new ConfigError('RXF_PUBLIC_ORIGIN is required in production, e.g. https://admin.rxf-sys.de');
+    return 'http://localhost:5173';
+  }
+  const url = URL.canParse(raw) ? new URL(raw) : null;
+  const localHttp = url?.protocol === 'http:' && url.hostname === 'localhost';
+  if (!url || (url.protocol !== 'https:' && !localHttp) || url.origin !== raw.replace(/\/$/, '')) {
+    throw new ConfigError(`RXF_PUBLIC_ORIGIN must be an https origin without path (or http://localhost), got "${raw}"`);
+  }
+  return url.origin;
 }
 
 /** Reads the server configuration from the environment. Defaults keep the server off the network. */
@@ -60,5 +76,6 @@ export function readConfig(env: NodeJS.ProcessEnv): ServerConfig {
     masterKeyFile: env.RXF_MASTER_KEY_FILE ?? '/run/secrets/rxf_master_key',
     masterKeyInline,
     trustedProxies: parseTrustedProxies(env.RXF_TRUSTED_PROXIES),
+    publicOrigin: parsePublicOrigin(env.RXF_PUBLIC_ORIGIN || undefined, production),
   };
 }

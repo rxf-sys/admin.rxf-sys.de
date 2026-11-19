@@ -10,7 +10,7 @@ test('the login screen is accessible and reports wrong credentials', async ({ pa
 
   await page.getByLabel('Benutzername').fill(credentials().username);
   await page.getByLabel('Passwort', { exact: true }).fill('not the password at all');
-  await page.getByRole('button', { name: 'Anmelden' }).click();
+  await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
   await expect(page.getByRole('alert')).toHaveText('Benutzername oder Passwort stimmt nicht.');
   await expect(page.getByLabel('Benutzername')).toHaveAttribute('aria-invalid', 'true');
 });
@@ -50,12 +50,12 @@ test('security: session list and new backup codes behind a re-authentication', a
   // A wrong password keeps the dialog open with a message.
   await dialog.getByLabel('Passwort', { exact: true }).fill('wrong password, sorry');
   await dialog.getByLabel('Code aus der App oder Backup-Code').fill('000000');
-  await dialog.getByRole('button', { name: 'Bestätigen' }).click();
+  await dialog.getByRole('button', { name: 'Bestätigen', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText('Passwort oder Code stimmt nicht.');
 
   await dialog.getByLabel('Passwort', { exact: true }).fill(credentials().password);
   await dialog.getByLabel('Code aus der App oder Backup-Code').fill(takeBackupCode());
-  await dialog.getByRole('button', { name: 'Bestätigen' }).click();
+  await dialog.getByRole('button', { name: 'Bestätigen', exact: true }).click();
   await expect(dialog).toBeHidden();
 
   const list = page.getByRole('list', { name: 'Backup-Codes' });
@@ -66,8 +66,42 @@ test('security: session list and new backup codes behind a re-authentication', a
 
 test('signing out returns to the login and ends the session', async ({ page }) => {
   await signIn(page);
-  await page.getByRole('button', { name: 'Abmelden' }).click();
+  await page.getByRole('button', { name: 'Abmelden', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto('/settings/security');
   await expect(page).toHaveURL(/\/login$/);
+});
+
+test('passkeys: add one behind a re-authentication, then sign in with it alone', async ({ page }, testInfo) => {
+  // Chromium's virtual authenticator: discoverable credentials with user verification.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', {
+    options: {
+      protocol: 'ctap2',
+      transport: 'internal',
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  });
+
+  await signIn(page);
+  await page.getByRole('link', { name: 'Sicherheit' }).click();
+  const name = `E2E ${testInfo.project.name}`;
+  await page.getByLabel('Name des neuen Passkeys').fill(name);
+  await page.getByRole('button', { name: 'Passkey hinzufügen' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Identität bestätigen' });
+  await dialog.getByLabel('Passwort', { exact: true }).fill(credentials().password);
+  await dialog.getByLabel('Code aus der App oder Backup-Code').fill(takeBackupCode());
+  await dialog.getByRole('button', { name: 'Bestätigen', exact: true }).click();
+  await expect(page.getByText(name)).toBeVisible();
+  await expectAccessible(page);
+  await shoot(page, 'security-passkeys', testInfo);
+
+  await page.getByRole('button', { name: 'Abmelden', exact: true }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByRole('button', { name: 'Mit Passkey anmelden' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Übersicht' })).toBeVisible();
 });
