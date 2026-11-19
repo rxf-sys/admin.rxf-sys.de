@@ -45,8 +45,11 @@ export interface HttpClient {
       signal?: AbortSignal;
     },
   ): Promise<HttpResponse>;
-  /** Reads the certificate of an https target without trusting it, for the TOFU dialog (ADR 0008). */
-  inspectTls(origin: string): Promise<TlsInfo>;
+  /**
+   * Reads the certificate of an https or tls target without trusting it, for the TOFU dialog (ADR 0008).
+   * `servername` sets SNI when the check uses one, so the dialog shows the certificate the probe sees.
+   */
+  inspectTls(origin: string, init?: { servername?: string }): Promise<TlsInfo>;
   close(): Promise<void>;
 }
 
@@ -216,7 +219,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       }
     },
 
-    async inspectTls(originInput) {
+    async inspectTls(originInput, init = {}) {
       const origin = originOf(originInput);
       const target = targets.get(origin);
       if (!target || !(origin.startsWith('https:') || origin.startsWith('tls:'))) {
@@ -230,7 +233,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
         const socket = tlsConnect({
           host,
           port,
-          servername: isIP(host) ? undefined : host,
+          servername: init.servername ?? (isIP(host) ? undefined : host),
           lookup: guard.lookup,
           rejectUnauthorized: false,
           timeout: options.timeoutMs,

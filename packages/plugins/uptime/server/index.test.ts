@@ -467,3 +467,36 @@ describe('check types', () => {
     });
   });
 });
+
+describe('review follow-ups', () => {
+  it('reads the certificate for pinning with the SNI name the check uses', async () => {
+    const seen: [string, unknown][] = [];
+    const context = ctx(
+      [{ type: 'tls', name: 'nas', host: '192.168.2.5', servername: 'nas.lan' }],
+      async () => ({
+        status: 200,
+        durationMs: 1,
+      }),
+      {
+        tls: async () => {
+          throw new PluginHttpError('TLS_SELF_SIGNED', 'untrusted');
+        },
+      },
+    );
+    const inspect = context.http.inspectTls;
+    context.http.inspectTls = async (origin, init) => {
+      seen.push([origin, init]);
+      return inspect(origin);
+    };
+    await plugin.test(context);
+    expect(seen).toEqual([['tls://192.168.2.5:443', { servername: 'nas.lan' }]]);
+  });
+
+  it('rejects IPv6 zone ids, which targets() could not list', () => {
+    const parse = (c: unknown) =>
+      plugin.config.schema.safeParse({ checks: [c], slowThresholdMs: 800, allowBlockedTargets: false }).success;
+    expect(parse({ type: 'icmp', name: 'll', host: 'fe80::1%eth0' })).toBe(false);
+    expect(parse({ type: 'dns', name: 'd', query: 'a.lan', server: 'fe80::1%eth0' })).toBe(false);
+    expect(parse({ type: 'icmp', name: 'v6', host: 'fd00::1' })).toBe(true);
+  });
+});

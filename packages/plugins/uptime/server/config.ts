@@ -6,10 +6,12 @@ import { EXPECTED_STATUS_PATTERN } from '../shared/status.ts';
 
 const httpUrl = z.string().check(z.refine((value) => /^https?:\/\//.test(value) && URL.canParse(value), 'http(s) URL'));
 
+/** IPv6 zone ids (`fe80::1%eth0`) pass `isIP` but not URL parsing, so `targets()` could not list them. */
+const isIpLiteral = (value: string) => isIP(value) !== 0 && !value.includes('%');
 const host = z
   .string()
-  .check(z.refine((value) => HOSTNAME_PATTERN.test(value) || isIP(value) !== 0, 'host name or IP'));
-const ipLiteral = z.string().check(z.refine((value) => isIP(value) !== 0, 'IP address'));
+  .check(z.refine((value) => HOSTNAME_PATTERN.test(value) || isIpLiteral(value), 'host name or IP'));
+const ipLiteral = z.string().check(z.refine(isIpLiteral, 'IP address'));
 const port = z.number().check(z.int(), z.minimum(1), z.maximum(65_535));
 const pinSha256 = z.string().check(z.regex(/^[0-9a-f]{64}$/));
 

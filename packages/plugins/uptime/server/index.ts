@@ -132,7 +132,8 @@ export default defineServerPlugin({
         const origin = targetOf(c)?.origin;
         if (outcome.reason && TOFU_CODES.has(outcome.reason) && origin) {
           try {
-            tls.push(await ctx.http.inspectTls(origin));
+            const servername = c.type === 'tls' && c.servername ? { servername: c.servername } : {};
+            tls.push(await ctx.http.inspectTls(origin, servername));
           } catch (error) {
             if (!(error instanceof PluginHttpError)) throw error;
           }
