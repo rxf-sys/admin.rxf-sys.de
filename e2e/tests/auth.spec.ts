@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { credentials, expectAccessible, saveCredentials, shoot, signIn, takeBackupCode } from './support.ts';
+import { expect } from '@playwright/test';
+import { credentials, expectAccessible, saveCredentials, shoot, signIn, takeBackupCode, test } from './support.ts';
 
 test('the login screen is accessible and reports wrong credentials', async ({ page }, testInfo) => {
   await page.goto('/');

@@ -105,3 +105,48 @@ Keine Secrets in PR-Workflows.
   `picomatch` ≤ 4.0.7, gültig bis 17.12.2026.
   - Betroffen sind nur Dev- und Build-Werkzeuge (vite, vitest, knip).
   - Die Glob-Muster stammen aus der eigenen Konfiguration.
+
+## Nachtrag: Umsetzung in Phase 4.6, Vorbereitung (19.11.2026)
+
+Owner-Entscheidung 19.11.2026: 4.6 wird ohne Staging-Daten vorbereitet. Das Ausrollen folgt, sobald
+CT-ID, IP und der GHCR-Zugriff feststehen. Anleitung: `docs/OPERATIONS.md`.
+
+- **Images:** `apps/server/Dockerfile` und `apps/web/Dockerfile`, beide mit dem Repo-Root als Kontext.
+  - Basis-Images per Digest fixiert: Node 26.12.0 (trixie-slim) und Caddy 2.11.9 (alpine).
+  - Der Server bekommt im Image die aktuellen Debian-Sicherheitsupdates (`apt-get upgrade`), weil
+    der Trivy-Gate behebbare `HIGH`/`CRITICAL` sonst rot meldet.
+  - better-sqlite3 bringt N-API-Binaries mit, ein Compiler ist nicht nötig.
+  - Caddy lauscht als UID 10001 auf `:8080`; Compose bildet `80:8080` ab.
+- **Client-IP:**
+  - Caddy glaubt `CF-Connecting-IP` nur von `RXF_CLOUDFLARED_IP` (`trusted_proxies`,
+    `client_ip_headers`).
+  - An den Server gibt Caddy genau eine Adresse weiter: `X-Forwarded-For {client_ip}`.
+  - Der Server glaubt nur Caddys fester Adresse im Compose-Netz (`RXF_TRUSTED_PROXIES=172.30.10.10`).
+  - Lokal geprüft: Eine gefälschte `CF-Connecting-IP` von einem anderen Host wird ignoriert.
+- **CSP im Test:**
+  - `vite preview` liefert dieselben Header wie Caddy (`apps/web/security-headers.ts`). Ein Test
+    vergleicht sie mit dem Caddyfile.
+  - Die e2e-Tests schlagen bei jedem CSP- oder Trusted-Types-Verstoß fehl.
+  - Ein Lauf durch den echten Caddy-Container blieb ohne Verstoß, mit SSE und Plugin-Chunks.
+- **CI:**
+  - Job `image` (Matrix server/web): Build mit Buildx, danach Trivy (`HIGH`/`CRITICAL`, nur behebbare).
+  - Job `publish`: nur bei Push auf `v2`, nach allen anderen Jobs. Er pusht `staging` und
+    `sha-<commit>` nach GHCR und signiert den Digest mit cosign, ohne Schlüssel.
+  - `packages: write` und `id-token: write` gelten nur in diesem Job.
+- **Akzeptierte Trivy-Befunde:** Sie stehen in `.trivyignore.yaml`, nach derselben Regel wie bei osv:
+  eine ID, eine Begründung, ein Ablaufdatum. Erster Eintrag (Owner-Entscheidung 19.11.2026):
+  `CVE-2026-78661` in `golang.org/x/net/html` im Caddy-Binary, gültig bis 19.12.2026.
+  - Caddy 2.11.9 ist die aktuelle Version und enthält den Fix noch nicht.
+  - Unsere Konfiguration verarbeitet kein HTML.
+- **Deploy-Skript:** `infrastructure-v2/deploy.sh` mit systemd-Service und -Timer sowie `install.sh`.
+  Zusätzlich zur Entscheidung oben:
+  - Sperre gegen parallele Läufe
+  - Erzeugung des Master-Schlüssels beim ersten Lauf
+  - Sicherung vor dem Deploy per `VACUUM INTO` im laufenden Container
+  - Ein fehlgeschlagener Digest wird nicht erneut versucht.
+
+  Lokal gegen eine Registry durchgespielt: Erstinstallation, Lauf ohne Änderung, Update, Rollback
+  bei einem Image, das nicht startet, und Erholung mit einem neuen Image. cosign war dabei durch eine
+  Attrappe ersetzt. Die echte Signaturprüfung zeigt erst der erste Lauf auf Staging.
+- **Tägliche Sicherung** im Server: `daily-JJJJ-MM-TT.db` per `VACUUM INTO`, 14 Tage, stündlich
+  geprüft.

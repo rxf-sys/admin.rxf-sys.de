@@ -37,6 +37,8 @@ packages/contracts @rxf/contracts API-Schemas (zod/mini), von Server und Web get
 packages/i18n      @rxf/i18n     typisierte Kataloge, Deutsch ist Quellsprache
 packages/ui        @rxf/ui       Design-Tokens und Schriften (docs/design/README.md)
 e2e                @rxf/e2e      Playwright + axe, Screenshots 1440/390 hell/dunkel
+packages/web-sdk   @rxf/web-sdk  Web-Vertrag der Plugins (Widgets, Onboarding)
+infrastructure-v2/               Compose, Caddyfile, Pull-Deploy (docs/OPERATIONS.md)
 ```
 
 ```bash

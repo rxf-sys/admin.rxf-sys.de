@@ -1,0 +1,19 @@
+# Build context of the v2 images (ADR 0009). The legacy images build from backend/ and frontend/.
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+.git
+.github
+.claude
+backend
+frontend
+infrastructure
+design
+docs
+e2e/test-results
+e2e/screenshots
+e2e/playwright-report
+.data
+**/.env*
+infrastructure-v2/secrets

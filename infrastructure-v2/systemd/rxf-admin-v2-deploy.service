@@ -1,0 +1,9 @@
+[Unit]
+Description=rxf-admin v2: deploy signed images from GHCR (ADR 0009)
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rxf-admin-v2/infrastructure-v2/deploy.sh
+TimeoutStartSec=10min
