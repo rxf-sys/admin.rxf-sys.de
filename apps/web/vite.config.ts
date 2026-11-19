@@ -10,5 +10,21 @@ export default defineConfig({
   plugins: [react()],
   resolve: { conditions: ['@rxf/source', ...defaultClientConditions] },
   server: { proxy: api },
+  build: {
+    // The manifest lets tooling/check-web-bundle.ts prove that no plugin module sits in the entry chunk.
+    manifest: true,
+    rollupOptions: {
+      output: {
+        // One recognisable chunk family per plugin (ADR 0003): plugin-<id>-<module>-<hash>.js.
+        chunkFileNames: (chunk) => {
+          const modules = chunk.facadeModuleId ? [chunk.facadeModuleId] : chunk.moduleIds;
+          const plugin = modules
+            .map((id) => id.match(/\/packages\/plugins\/([a-z0-9-]+)\//)?.[1])
+            .find((id) => id !== undefined);
+          return plugin ? `assets/plugin-${plugin}-[name]-[hash].js` : 'assets/[name]-[hash].js';
+        },
+      },
+    },
+  },
   preview: { proxy: api },
 });

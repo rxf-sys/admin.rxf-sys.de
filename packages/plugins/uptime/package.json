@@ -9,10 +9,24 @@
       "@rxf/source": "./server/index.ts",
       "types": "./dist/server/index.d.ts",
       "default": "./dist/server/index.js"
+    },
+    "./web": {
+      "@rxf/source": "./web/index.ts",
+      "default": "./web/index.ts"
     }
   },
   "dependencies": {
+    "@rxf/contracts": "workspace:*",
+    "@rxf/i18n": "workspace:*",
     "@rxf/sdk": "workspace:*",
+    "@rxf/web-sdk": "workspace:*",
+    "@tanstack/react-query": "5.104.3",
+    "react": "19.3.1",
     "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@testing-library/react": "16.3.3",
+    "@types/react": "19.3.0",
+    "react-dom": "19.3.1"
   }
 }

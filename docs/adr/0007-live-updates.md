@@ -89,3 +89,15 @@ So gibt es nur einen Pfad für Berechtigungen und Caching.
   - je Verbindung 256 KB Rückstau, dann schließt der Server sie
 - Beim Herunterfahren schließt der Server offene Streams zuerst, damit `close()` nicht hängt.
 - **Query-Keys** in `@rxf/contracts` folgen mit dem Web-Teil (4.5), der sie nutzt.
+
+## Nachtrag: Umsetzung in Phase 4.5b (19.11.2026)
+
+- **Query-Keys** stehen in `@rxf/contracts` (`queryKeys`):
+  - `['entities', instanceId, kind]`
+  - `['metrics', 'series' | 'points', …]`
+  - `['instances']`
+
+  Stream-Ereignisse invalidieren über das Präfix.
+- **Wer schaut zu:** Widgets melden sich an, solange ihr Rahmen sichtbar ist. Der Tab schickt die
+  Instanzen gebündelt (250 ms) an `/api/stream/watch`. Ist der Tab 30 s lang unsichtbar, meldet er eine
+  leere Liste. Nach einer neuen Verbindung (`hello`) meldet er die Liste erneut.

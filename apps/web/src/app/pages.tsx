@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import * as z from 'zod/mini';
 import { getJson, okResponse, sendJson } from '../api.ts';
-import { HealthStatus } from '../HealthStatus.tsx';
 import { formatDateTime, t } from '../i18n.ts';
 import { BackupCodes } from '../ui/BackupCodes.tsx';
 import { errorText } from '../ui/errors.ts';
@@ -12,16 +11,6 @@ import { useElevated } from '../ui/reauth.tsx';
 import ui from '../ui/ui.module.css';
 import { describeAgent } from './agent.ts';
 import styles from './app.module.css';
-
-export function DashboardPage() {
-  return (
-    <>
-      <h1>{t('dashboard.title')}</h1>
-      <p className={ui.muted}>{t('dashboard.empty')}</p>
-      <HealthStatus />
-    </>
-  );
-}
 
 const revokedResponse = z.object({ revoked: z.number() });
 
