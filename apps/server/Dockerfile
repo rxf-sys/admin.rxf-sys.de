@@ -22,6 +22,8 @@ ARG OS_UPGRADE=1
 RUN if [ "$OS_UPGRADE" = 1 ]; then \
     apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*; \
   fi
+# The runtime needs node only; the bundled npm brings its own dependencies into the Trivy scan.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
   PORT=3000 \
