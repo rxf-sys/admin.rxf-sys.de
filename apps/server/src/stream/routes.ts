@@ -29,6 +29,8 @@ const MAX_CONNECTIONS = 200;
 interface Connection {
   sessionHash: string;
   res: ServerResponse;
+  /** Stops the heartbeat and unsubscribes; safe to call more than once. */
+  stop: () => void;
 }
 
 function frame(event: { id?: string; type: string; data: unknown }): string {
@@ -43,7 +45,11 @@ export function registerStreamRoutes(app: FastifyInstance, deps: StreamRouteDeps
 
   // Before the server stops accepting: open streams would otherwise keep close() waiting forever.
   app.addHook('preClose', async () => {
-    for (const connection of connections.values()) connection.res.destroy();
+    // Stop timers synchronously: the socket's 'close' event may come after the database is closed.
+    for (const connection of connections.values()) {
+      connection.stop();
+      connection.res.destroy();
+    }
   });
 
   api.get('/api/stream', { config: { auth: { role: 'viewer' } } }, async (request, reply) => {
@@ -66,7 +72,6 @@ export function registerStreamRoutes(app: FastifyInstance, deps: StreamRouteDeps
       connection: 'keep-alive',
     });
     const connectionId = randomBytes(16).toString('base64url');
-    connections.set(connectionId, { sessionHash: session.tokenHash, res });
 
     const send = (chunk: string) => {
       if (res.destroyed) return;
@@ -98,12 +103,14 @@ export function registerStreamRoutes(app: FastifyInstance, deps: StreamRouteDeps
     }, deps.heartbeatMs ?? HEARTBEAT_MS);
     heartbeat.unref();
 
-    res.on('close', () => {
+    const stop = () => {
       clearInterval(heartbeat);
       unsubscribe();
       connections.delete(connectionId);
       scheduler.unwatch(connectionId);
-    });
+    };
+    connections.set(connectionId, { sessionHash: session.tokenHash, res, stop });
+    res.on('close', stop);
   });
 
   api.post(

@@ -1,11 +1,27 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, type Page, type TestInfo } from '@playwright/test';
+import { test as base, expect, type Page, type TestInfo } from '@playwright/test';
 import * as OTPAuth from 'otpauth';
 
 const DATA_DIR = process.env.RXF_E2E_DATA_DIR as string;
 const CREDENTIALS = join(DATA_DIR, 'credentials.json');
+
+/**
+ * `test` with a page that fails the test on any CSP or Trusted Types violation: preview serves the
+ * production headers (apps/web/security-headers.ts), so this is the CSP check of ADR 0008.
+ */
+export const test = base.extend({
+  page: async ({ page }, use) => {
+    const violations: string[] = [];
+    page.on('console', (message) => {
+      if (/Content Security Policy|Trusted Type/i.test(message.text())) violations.push(message.text());
+    });
+    page.on('pageerror', (error) => violations.push(`uncaught: ${error.message}`));
+    await use(page);
+    expect(violations).toEqual([]);
+  },
+});
 
 export interface Credentials {
   username: string;

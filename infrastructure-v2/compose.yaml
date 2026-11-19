@@ -1,0 +1,64 @@
+# v2 stack on its own LXC (ADR 0009). deploy.sh sets the image references to verified digests in .env.
+name: rxf-admin-v2
+
+x-hardening: &hardening
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=16m,mode=1777"]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  server:
+    <<: *hardening
+    image: ${RXF_SERVER_IMAGE:?set by deploy.sh}
+    environment:
+      RXF_VERSION: ${RXF_VERSION:-staging}
+      # Only Caddy (fixed address below) may set X-Forwarded-For (ADR 0005, client IP).
+      RXF_TRUSTED_PROXIES: 172.30.10.10
+    secrets:
+      - source: rxf_master_key
+        target: rxf_master_key
+    volumes:
+      - data:/data
+    # ICMP checks without CAP_NET_RAW (docs/integrations/uptime.md, owner decision 17.10.2026).
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"
+    mem_limit: 384m
+    networks:
+      app:
+        ipv4_address: 172.30.10.20
+
+  web:
+    <<: *hardening
+    image: ${RXF_WEB_IMAGE:?set by deploy.sh}
+    environment:
+      RXF_CLOUDFLARED_IP: ${RXF_CLOUDFLARED_IP:?address of the cloudflared host (CT 104)}
+    ports:
+      - "80:8080"
+    mem_limit: 64m
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      app:
+        ipv4_address: 172.30.10.10
+
+networks:
+  app:
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
+
+volumes:
+  data:
+    name: rxf-admin-v2-data
+
+secrets:
+  rxf_master_key:
+    # 32 random bytes, base64; owner 10001, mode 0400 (docs/OPERATIONS.md).
+    file: ./secrets/rxf_master_key

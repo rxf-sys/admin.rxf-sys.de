@@ -1,0 +1,11 @@
+# Accepted Trivy findings in the v2 images (ADR 0009). Each entry names one finding, why it does not apply,
+# and an expiry after which the image job turns red again.
+vulnerabilities:
+  - id: CVE-2026-78661
+    paths:
+      - usr/bin/caddy
+    expired_at: 2026-12-19
+    statement: >-
+      DoS in golang.org/x/net/html, fixed in x/net 0.62; Caddy 2.11.9 (latest) still links 0.60. Our
+      Caddyfile parses no HTML (no templates or other HTML-processing modules); it serves static files and
+      proxies /api. Owner decision 19.11.2026.

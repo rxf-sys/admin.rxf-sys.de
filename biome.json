@@ -15,6 +15,7 @@
       "*.ts",
       "!design/preview",
       "!apps/server/src/plugins.generated.ts",
+      "!apps/web/src/plugins.generated.ts",
       "!**/dist",
       "!**/coverage"
     ]

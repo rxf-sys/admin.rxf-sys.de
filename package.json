@@ -13,7 +13,7 @@
     "build": "tsc -b && pnpm --filter @rxf/web build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "size": "size-limit",
+    "size": "size-limit && node tooling/check-web-bundle.ts",
     "knip": "knip",
     "e2e": "pnpm --filter @rxf/e2e test",
     "dev:server": "pnpm --filter @rxf/server dev",

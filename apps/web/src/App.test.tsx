@@ -62,6 +62,19 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      readonly callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) {
+        this.callback = callback;
+      }
+      observe(target: Element) {
+        this.callback([{ isIntersecting: true, target } as IntersectionObserverEntry], this as never);
+      }
+      disconnect() {}
+    },
+  );
   routes.clear();
   calls.length = 0;
   FakeEventSource.instances = [];
@@ -110,7 +123,7 @@ describe('session gate and first start', () => {
       session = signedIn('done');
       return json({ backupCodes: ['AAAAA-BBBBB', 'CCCCC-DDDDD'] });
     });
-    on('GET', '/api/healthz', { status: 'ok', version: '2.0.0' });
+    on('GET', '/api/instances', { instances: [] });
 
     const router = renderAt('/');
     expect(await screen.findByRole('heading', { level: 1, name: 'Ersteinrichtung' })).toBeTruthy();
@@ -179,7 +192,7 @@ describe('session gate and first start', () => {
       session = signedIn('done');
       return json({ ok: true });
     });
-    on('GET', '/api/healthz', { status: 'ok', version: '2.0.0' });
+    on('GET', '/api/instances', { instances: [] });
 
     const router = renderAt('/settings/security');
     await screen.findByRole('heading', { name: 'Anmelden' });
@@ -227,7 +240,7 @@ describe('session gate and first start', () => {
 describe('signed in', () => {
   beforeEach(() => {
     on('GET', '/api/auth/session', signedIn('done'));
-    on('GET', '/api/healthz', { status: 'ok', version: '2.0.0' });
+    on('GET', '/api/instances', { instances: [] });
   });
 
   it('lists sessions and signs out one device or all others', async () => {
@@ -324,5 +337,224 @@ describe('signed in', () => {
     await screen.findByRole('heading', { level: 1, name: 'Übersicht' });
     submit('Abmelden');
     await screen.findByRole('heading', { name: 'Anmelden' });
+  });
+});
+
+const INSTANCE_ID = '11111111-1111-1111-1111-111111111111';
+const instance = (status: 'draft' | 'active' | 'paused', health = 'ok', config: Record<string, unknown> = {}) => ({
+  id: INSTANCE_ID,
+  pluginId: 'uptime',
+  name: 'Dienste',
+  status,
+  health,
+  config,
+  secrets: {},
+  createdAt: 0,
+  updatedAt: 0,
+});
+
+describe('dashboard with plugin widgets', () => {
+  beforeEach(() => {
+    on('GET', '/api/auth/session', signedIn('done'));
+  });
+
+  it('offers the first integration to admins on an empty board', async () => {
+    on('GET', '/api/instances', { instances: [instance('draft')] });
+    renderAt('/');
+    expect(
+      await screen.findByText('Lege die erste Integration an, zum Beispiel Uptime-Prüfungen für deine Dienste.'),
+    ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Integration hinzufügen' }).getAttribute('href')).toBe('/onboarding');
+  });
+
+  it('loads the uptime widget, shows checks with status words and reports the instance as watched', async () => {
+    on('GET', '/api/instances', { instances: [instance('active', 'failing')] });
+    on('GET', `/api/entities?instanceId=${INSTANCE_ID}&kind=Service`, {
+      entities: [
+        {
+          id: 7,
+          instanceId: INSTANCE_ID,
+          pluginId: 'uptime',
+          kind: 'Service',
+          externalId: 'web',
+          name: 'Website',
+          status: 'ok',
+          statusReason: null,
+          lastSeen: 1,
+          attrs: { endpoint: 'https://rxf-sys.de/', responseMs: 42 },
+          updatedAt: 1,
+        },
+        {
+          id: 8,
+          instanceId: INSTANCE_ID,
+          pluginId: 'uptime',
+          kind: 'Service',
+          externalId: 'nas',
+          name: 'NAS',
+          status: 'crit',
+          statusReason: 'CONNECTION_REFUSED',
+          lastSeen: 1,
+          attrs: { endpoint: 'http://10.0.0.5/', responseMs: null },
+          updatedAt: 1,
+        },
+      ],
+    });
+    on('GET', '/api/metrics/series?entityId=7', {
+      series: [{ id: 3, entityId: 7, name: 'uptime.response_ms', unit: 'ms' }],
+    });
+    on('GET', '/api/metrics/series?entityId=8', { series: [] });
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const inner = fetchMock.getMockImplementation() as (input: string, init?: RequestInit) => Promise<Response>;
+    fetchMock.mockImplementation(async (input: string, init?: RequestInit) =>
+      input.startsWith('/api/metrics/series/3/points')
+        ? json({
+            seriesId: 3,
+            resolution: 'raw',
+            stepMs: 1000,
+            points: [
+              { ts: 1, avg: 40, min: 40, max: 40 },
+              { ts: 2, avg: 60, min: 60, max: 60 },
+            ],
+          })
+        : inner(input, init),
+    );
+    on('POST', '/api/stream/watch', { ok: true });
+
+    renderAt('/');
+    expect(await screen.findByText('Abfragen schlagen fehl')).toBeTruthy();
+    expect(await screen.findByText('1 von 2 erreichbar')).toBeTruthy();
+    expect(screen.getByText('Gestört')).toBeTruthy();
+    expect(screen.getByText('keine Antwort')).toBeTruthy();
+    expect(await screen.findByRole('img', { name: 'Antwortzeit der letzten 24 Stunden: 40 bis 60 ms' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Noch keine Antwortzeiten der letzten 24 Stunden' })).toBeTruthy();
+
+    (FakeEventSource.instances[0] as FakeEventSource).emit('hello', { connectionId: 'c'.repeat(22) });
+    await waitFor(() =>
+      expect(calls.find((c) => c.key === 'POST /api/stream/watch')?.body).toEqual({
+        connectionId: 'c'.repeat(22),
+        instanceIds: [INSTANCE_ID],
+      }),
+    );
+  });
+
+  it('marks paused instances and keeps viewers away from onboarding', async () => {
+    on('GET', '/api/auth/session', { ...signedIn('done'), user: { id: 2, username: 'eve', role: 'viewer' } });
+    on('GET', '/api/instances', { instances: [instance('paused')] });
+    on('GET', `/api/entities?instanceId=${INSTANCE_ID}&kind=Service`, { entities: [] });
+    const router = renderAt('/onboarding');
+    expect(await screen.findByText('Pausiert')).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/');
+    expect(screen.queryByRole('link', { name: 'Integration hinzufügen' })).toBeNull();
+    expect(await screen.findByText('Noch keine Messwerte. Die erste Prüfung läuft gleich.')).toBeTruthy();
+  });
+});
+
+describe('onboarding', () => {
+  const certificate = {
+    origin: 'https://10.0.0.2:8006',
+    leafSha256: 'ab'.repeat(32),
+    spkiSha256: 'cd'.repeat(32),
+    subject: 'CN=pve',
+    issuer: 'CN=pve',
+    subjectAltName: 'IP Address:10.0.0.2',
+    validTo: 'Jan  1 00:00:00 2030 GMT',
+    trusted: false,
+  };
+
+  beforeEach(() => {
+    on('GET', '/api/auth/session', signedIn('done'));
+    on('GET', '/api/plugins/catalog', {
+      plugins: [
+        {
+          id: 'uptime',
+          name: { de: 'Uptime', en: 'Uptime' },
+          description: { de: 'Eigene Prüfungen per HTTP(S).', en: 'x' },
+          category: 'monitoring',
+          icon: 'activity',
+          version: '0.1.0',
+          multiInstance: false,
+        },
+      ],
+    });
+  });
+
+  it('creates a draft, trusts a self-signed certificate, and activates after a passing test', async () => {
+    let active = false;
+    on('GET', '/api/instances', () => json({ instances: active ? [instance('active')] : [] }));
+    on('POST', '/api/instances', (body: unknown) =>
+      json(instance('draft', 'idle', (body as { config: Record<string, unknown> }).config), 201),
+    );
+    on(`PATCH`, `/api/instances/${INSTANCE_ID}`, (body: unknown) =>
+      json(instance('draft', 'idle', (body as { config: Record<string, unknown> }).config)),
+    );
+    let tests = 0;
+    on('POST', `/api/instances/${INSTANCE_ID}/test`, () => {
+      tests += 1;
+      return tests === 1
+        ? json({
+            ok: false,
+            capabilities: [{ id: 'check:PVE', status: 'failed', code: 'TLS_SELF_SIGNED', message: 'untrusted' }],
+            tls: [certificate],
+          })
+        : json({ ok: true, capabilities: [{ id: 'check:PVE', status: 'ok', message: 'HTTP 200, 12 ms' }] });
+    });
+    on('POST', `/api/instances/${INSTANCE_ID}/activate`, () => {
+      active = true;
+      return json(instance('active'));
+    });
+    on('GET', `/api/entities?instanceId=${INSTANCE_ID}&kind=Service`, { entities: [] });
+
+    const router = renderAt('/onboarding');
+    expect(await screen.findByText('Schritt 1 von 3')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Uptime auswählen' }));
+
+    const save = await screen.findByRole('button', { name: 'Speichern und prüfen' });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByLabelText('Name');
+    type('Name', 'PVE');
+    type('URL', 'ftp://wrong');
+    expect(await screen.findByText('Die URL muss mit http:// oder https:// beginnen.')).toBeTruthy();
+    type('URL', 'https://10.0.0.2:8006/');
+    await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(save);
+
+    expect(await screen.findByText('Die Konfiguration hat Fehler. Korrigiere sie und prüfe erneut.')).toBeTruthy();
+    expect(screen.getByText('Zertifikat von https://10.0.0.2:8006')).toBeTruthy();
+    expect(screen.getByText(/^ab:ab:ab/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Aktivieren' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(calls.find((c) => c.key === 'POST /api/instances')?.body).toEqual({
+      pluginId: 'uptime',
+      name: 'Uptime',
+      config: {
+        checks: [{ name: 'PVE', url: 'https://10.0.0.2:8006/', method: 'GET' }],
+        slowThresholdMs: 800,
+        allowBlockedTargets: false,
+      },
+    });
+
+    submit('Diesem Zertifikat vertrauen');
+    expect(
+      await screen.findByText('Die Verbindung passt. Nach dem Aktivieren laufen die Abfragen regelmäßig.'),
+    ).toBeTruthy();
+    const patch = calls.find((c) => c.key === `PATCH /api/instances/${INSTANCE_ID}`)?.body as {
+      config: { checks: unknown[] };
+    };
+    expect(patch.config.checks[0]).toEqual({
+      name: 'PVE',
+      url: 'https://10.0.0.2:8006/',
+      method: 'GET',
+      tlsMode: 'pin-leaf',
+      pinSha256: 'ab'.repeat(32),
+    });
+
+    submit('Aktivieren');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+  });
+
+  it('shows a single-instance plugin as already set up', async () => {
+    on('GET', '/api/instances', { instances: [instance('active')] });
+    renderAt('/onboarding');
+    expect(await screen.findByText('Schon eingerichtet')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Uptime auswählen' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

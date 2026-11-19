@@ -32,6 +32,7 @@ export { type ErrorResponse, errorResponse } from './error.ts';
 export { type HealthResponse, healthResponse } from './health.ts';
 export {
   type MetricPointsResponse,
+  type MetricSeriesListResponse,
   metricPointsQuery,
   metricPointsResponse,
   metricResolution,
@@ -51,6 +52,7 @@ export {
   testResultResponse,
   updateInstanceRequest,
 } from './plugins.ts';
+export { queryKeys } from './query-keys.ts';
 export {
   type InstanceHealth,
   instanceHealth,

@@ -3,6 +3,7 @@ import { buildApp } from './app.ts';
 import { issueSetupCode } from './auth/setup.ts';
 import { readConfig } from './config.ts';
 import { loadMasterKey } from './crypto/master-key.ts';
+import { backupDaily } from './db/backup.ts';
 import { openDatabase } from './db/database.ts';
 import { migrateDatabase } from './db/migrate.ts';
 import { loggerOptions } from './log/logger.ts';
@@ -26,8 +27,22 @@ app.log.info({ keyId: masterKey.id, migrations: migration.applied, backup: migra
 const setupCode = issueSetupCode(database.db, Date.now());
 if (setupCode) app.log.warn(`No admin yet. Setup code (valid 24 h, replaced on restart): ${setupCode}`);
 
+// Daily copy in /data/backups (ADR 0009); checked hourly, written once per day.
+const backups = () => {
+  try {
+    const result = backupDaily(database, join(config.dataDir, 'backups'), Date.now());
+    if (result.written || result.removed.length > 0) app.log.info(result, 'daily backup');
+  } catch (error) {
+    app.log.error({ err: error }, 'daily backup failed');
+  }
+};
+backups();
+const backupTimer = setInterval(backups, 60 * 60_000);
+backupTimer.unref();
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
+    clearInterval(backupTimer);
     void app.close().then(() => database.sqlite.close());
   });
 }

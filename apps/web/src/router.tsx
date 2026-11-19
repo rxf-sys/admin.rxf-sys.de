@@ -8,7 +8,9 @@ import {
   useRouterState,
 } from '@tanstack/react-router';
 import { AppLayout } from './app/AppLayout.tsx';
-import { DashboardPage, SecurityPage } from './app/pages.tsx';
+import { DashboardPage } from './app/dashboard.tsx';
+import { OnboardingPage } from './app/onboarding.tsx';
+import { SecurityPage } from './app/pages.tsx';
 import { EnrolPage, LoginPage, SetupPage, VerifyPage } from './auth/pages.tsx';
 import { t } from './i18n.ts';
 import { stageOf, stagePaths, useSession } from './session.ts';
@@ -40,6 +42,20 @@ function Root() {
   return <Outlet />;
 }
 
+function useIsAdmin(): boolean {
+  const session = useSession();
+  return session.data?.authenticated === true && session.data.user.role === 'admin';
+}
+
+function Dashboard() {
+  return <DashboardPage isAdmin={useIsAdmin()} />;
+}
+
+/** Only admins configure plugins (ADR 0005); the server enforces it, the UI just does not offer it. */
+function Onboarding() {
+  return useIsAdmin() ? <OnboardingPage /> : <Navigate to="/" replace />;
+}
+
 function SignedIn() {
   const session = useSession();
   const username = session.data?.authenticated ? session.data.user.username : '';
@@ -55,7 +71,8 @@ const routeTree = rootRoute.addChildren([
   createRoute({ getParentRoute: () => rootRoute, path: '/login/verify', component: VerifyPage }),
   createRoute({ getParentRoute: () => rootRoute, path: '/enrol', component: EnrolPage }),
   appRoute.addChildren([
-    createRoute({ getParentRoute: () => appRoute, path: '/', component: DashboardPage }),
+    createRoute({ getParentRoute: () => appRoute, path: '/', component: Dashboard }),
+    createRoute({ getParentRoute: () => appRoute, path: '/onboarding', component: Onboarding }),
     createRoute({ getParentRoute: () => appRoute, path: '/settings/security', component: SecurityPage }),
   ]),
 ]);
