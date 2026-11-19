@@ -12,7 +12,7 @@ import {
   tlsModes,
 } from '@rxf/sdk';
 import * as z from 'zod/mini';
-import { DEFAULT_EXPECTED_STATUS, EXPECTED_STATUS_PATTERN, statusMatches } from './status.ts';
+import { DEFAULT_EXPECTED_STATUS, EXPECTED_STATUS_PATTERN, statusMatches } from '../shared/status.ts';
 
 const httpUrl = z.string().check(z.refine((value) => /^https?:\/\//.test(value) && URL.canParse(value), 'http(s) URL'));
 

@@ -26,7 +26,9 @@ test('the skip link moves focus to the main content', async ({ page }) => {
 
 test('sign-in with the second factor opens the overview', async ({ page }, testInfo) => {
   await signIn(page);
-  await expect(page.getByRole('status').filter({ hasText: 'Erreichbar' })).toHaveText('Erreichbar, Version e2e');
+  // The uptime instance from the setup project shows up as a widget with its check.
+  await expect(page.getByText('Dashboard-API')).toBeVisible();
+  await expect(page.getByText('1 von 1 erreichbar')).toBeVisible();
   await expectAccessible(page);
   await shoot(page, 'dashboard', testInfo);
 });

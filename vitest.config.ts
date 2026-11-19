@@ -16,7 +16,13 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
-      include: ['apps/*/src/**', 'packages/*/src/**', 'packages/plugins/*/server/**'],
+      include: [
+        'apps/*/src/**',
+        'packages/*/src/**',
+        'packages/plugins/*/server/**',
+        'packages/plugins/*/shared/**',
+        'packages/plugins/*/web/**',
+      ],
       // Entry points only wire modules together; their behaviour is covered by the e2e suite.
       exclude: ['**/*.test.{ts,tsx}', 'apps/server/src/main.ts', 'apps/web/src/main.tsx'],
       // ADR 0009: core ≥ 80 %. Plugins get their own ≥ 70 % gate when the first one lands.

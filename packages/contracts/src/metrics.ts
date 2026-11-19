@@ -31,3 +31,4 @@ export const metricPointsResponse = z.object({
 });
 
 export type MetricPointsResponse = z.infer<typeof metricPointsResponse>;
+export type MetricSeriesListResponse = z.infer<typeof metricSeriesListResponse>;

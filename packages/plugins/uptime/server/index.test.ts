@@ -1,7 +1,7 @@
 import { type HttpClient, type PluginContext, PluginHttpError } from '@rxf/sdk';
 import { describe, expect, it } from 'vitest';
+import { statusMatches } from '../shared/status.ts';
 import plugin, { type UptimeCheck } from './index.ts';
-import { statusMatches } from './status.ts';
 
 type Config = Parameters<typeof plugin.test>[0]['config'];
 

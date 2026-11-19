@@ -272,3 +272,32 @@ pausieren“). Begründung in `docs/integrations/pihole-adguard.md`.
 - Ein **Pin-Fehler** stoppt die Collectors noch nicht (ADR 0008). Uptime meldet ihn als
   `crit` am betroffenen Check. Stoppen plus Alarm „Zertifikat geändert“ kommt mit der
   Alarm-Engine.
+
+## Nachtrag: Umsetzung in Phase 4.5b (19.11.2026)
+
+- **Web-Vertrag** liegt im eigenen Paket `@rxf/web-sdk` (Typen plus `defineWebPlugin`). `@rxf/sdk`
+  enthält Server-Code (undici) und bleibt aus dem Web-Build heraus. Der Web-Build bündelt Plugins und
+  das Web-SDK aus dem Quelltext, sie brauchen kein `dist/`.
+- **Umgesetzt:**
+  - `widgets` mit `title`, `sizes` und `component`. Die Widget-Props sind `instanceId`, `size`,
+    `locale` und `data`, ein Zugriff nur auf die Kern-API (Entitäten, Serien, Messpunkte).
+  - `onboarding.configForm`: ein Formular des Plugins für Felder, die ein generiertes Formular nicht gut
+    abbildet, etwa die Check-Liste von Uptime.
+  - `onboarding.trustCertificate(config, cert)` setzt nach `test()` den Pin, den der Admin bestätigt hat.
+
+  Seiten, Kommandos und Plugin-i18n-Lader folgen mit dem ersten Plugin, das sie braucht. Uptime hält
+  seine Texte im Web-Modul.
+- **Registry:** `tooling/generate-plugin-registry.ts` erzeugt auch `apps/web/src/plugins.generated.ts`,
+  darin nur dynamische Importe. Vite benennt die Chunks `plugin-<id>-<modul>-<hash>.js`.
+- **Nachweis der Isolation im CI** (Job `build-size`, `pnpm size`): `tooling/check-web-bundle.ts` liest das
+  Vite-Manifest.
+  - Jedes Plugin mit `./web` muss ein eigener dynamischer Einstieg sein.
+  - Kein Plugin-Modul darf statisch vom Einstieg aus erreichbar sein.
+  - Jeder `plugin-*`-Chunk darf höchstens 60 KB gzip groß sein.
+  - Gegenprobe: Ein statischer Import in `main.tsx` lässt die Prüfung scheitern.
+
+  Den Laufzeit-Nachweis liefert e2e: Eine leere Übersicht lädt keinen Plugin-Chunk, nach der Aktivierung
+  nur `plugin-uptime-*`.
+- **Übersicht:** eine feste Vorlage (Owner-Entscheidung 18.11.2026) mit den Widgets aller aktiven und
+  pausierten Instanzen. Plugin-Code lädt erst, wenn der Rahmen der Instanz sichtbar wird
+  (IntersectionObserver).

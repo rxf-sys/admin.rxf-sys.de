@@ -245,9 +245,15 @@ importers:
       '@rxf/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@rxf/plugin-uptime':
+        specifier: workspace:*
+        version: link:../../packages/plugins/uptime
       '@rxf/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@rxf/web-sdk':
+        specifier: workspace:*
+        version: link:../../packages/web-sdk
       '@tanstack/react-query':
         specifier: 5.104.3
         version: 5.104.3(react@19.3.1)
@@ -302,12 +308,37 @@ importers:
 
   packages/plugins/uptime:
     dependencies:
+      '@rxf/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@rxf/i18n':
+        specifier: workspace:*
+        version: link:../../i18n
       '@rxf/sdk':
         specifier: workspace:*
         version: link:../../sdk
+      '@rxf/web-sdk':
+        specifier: workspace:*
+        version: link:../../web-sdk
+      '@tanstack/react-query':
+        specifier: 5.104.3
+        version: 5.104.3(react@19.3.1)
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
       zod:
         specifier: 4.6.7
         version: 4.6.7
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
 
   packages/sdk:
     dependencies:
@@ -322,6 +353,19 @@ importers:
         version: 4.6.7
 
   packages/ui: {}
+
+  packages/web-sdk:
+    dependencies:
+      '@rxf/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+    devDependencies:
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
 
 packages:
 
