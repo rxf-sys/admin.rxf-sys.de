@@ -85,10 +85,18 @@ export class EntityStore {
   }
 
   /**
-   * Writes one collector run in a single transaction: upserts its entities, marks entities of the same
-   * collector that have been missing longer than `graceMs` as `unknown` and appends the metrics.
+   * Writes one collector run in a single transaction: upserts its entities, handles entities of the same
+   * collector that the run no longer reports and appends the metrics. Missing entities turn `unknown` once
+   * they have been missing longer than `graceMs`, or are deleted with their series (`onMissing: 'delete'`).
    */
-  applySnapshot(instanceId: string, collectorId: string, raw: unknown, now: number, graceMs: number): SnapshotOutcome {
+  applySnapshot(
+    instanceId: string,
+    collectorId: string,
+    raw: unknown,
+    now: number,
+    options: { graceMs: number; onMissing?: 'unknown' | 'delete' },
+  ): SnapshotOutcome {
+    const { graceMs } = options;
     const result = validate(raw);
     const db = this.#handle.db;
     return db.transaction(() => {
@@ -113,20 +121,25 @@ export class EntityStore {
       }
 
       const present = [...ids.values()];
-      const missing = db
-        .update(entities)
-        .set({ status: 'unknown', statusReason: 'MISSING', updatedAt: now })
-        .where(
-          and(
-            eq(entities.instanceId, instanceId),
-            eq(entities.collectorId, collectorId),
-            ne(entities.status, 'unknown'),
-            or(lt(entities.lastSeen, now - graceMs), sql`${entities.lastSeen} IS NULL`),
-            present.length > 0 ? notInArray(entities.id, present) : undefined,
-          ),
-        )
-        .returning({ kind: entities.kind })
-        .all();
+      const notPresent = present.length > 0 ? notInArray(entities.id, present) : undefined;
+      const sameCollector = and(eq(entities.instanceId, instanceId), eq(entities.collectorId, collectorId));
+      // Series and points follow through ON DELETE CASCADE.
+      const missing =
+        options.onMissing === 'delete'
+          ? db.delete(entities).where(and(sameCollector, notPresent)).returning({ kind: entities.kind }).all()
+          : db
+              .update(entities)
+              .set({ status: 'unknown', statusReason: 'MISSING', updatedAt: now })
+              .where(
+                and(
+                  sameCollector,
+                  ne(entities.status, 'unknown'),
+                  or(lt(entities.lastSeen, now - graceMs), sql`${entities.lastSeen} IS NULL`),
+                  notPresent,
+                ),
+              )
+              .returning({ kind: entities.kind })
+              .all();
 
       const seriesIds = writeMetrics(
         this.#handle.sqlite,
@@ -141,6 +154,21 @@ export class EntityStore {
       const kinds = new Set<EntityKind>([...result.entities.map((e) => e.kind), ...missing.map((m) => m.kind)]);
       return { kinds: [...kinds], seriesIds };
     });
+  }
+
+  /** Deletes the entities (and series) of collectors the instance no longer has. Returns the affected kinds. */
+  removeOrphans(instanceId: string, collectorIds: readonly string[]): EntityKind[] {
+    const rows = this.#handle.db
+      .delete(entities)
+      .where(
+        and(
+          eq(entities.instanceId, instanceId),
+          collectorIds.length > 0 ? notInArray(entities.collectorId, [...collectorIds]) : undefined,
+        ),
+      )
+      .returning({ kind: entities.kind })
+      .all();
+    return [...new Set(rows.map((row) => row.kind))];
   }
 
   /** Paused instances keep their entities, shown as `paused` (ADR 0003). Returns the affected kinds. */

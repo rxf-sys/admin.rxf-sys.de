@@ -19,5 +19,5 @@
       "project": []
     }
   },
-  "ignoreBinaries": ["openssl"]
+  "ignoreBinaries": ["openssl", "ping"]
 }

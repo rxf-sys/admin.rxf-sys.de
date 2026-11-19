@@ -331,3 +331,58 @@ CREATE TABLE IF NOT EXISTS custom_services (
 - **Folgt:** TCP-, ICMP-, DNS- und TLS-Checks, Intervalle je Check, Aufräumen entfernter
   Checks (sie bleiben bisher als `unknown` stehen).
 
+
+## Umsetzung in Phase 5.1a (19.11.2026)
+
+- **Check-Typen** (Feld `type`, ohne Angabe `http` wie bisher):
+
+  | Typ | Felder | Status |
+  |---|---|---|
+  | `http` | `url`, `method`, `expectedStatus`, `tlsMode`, `pinSha256` | wie in 4.4b |
+  | `tcp` | `host`, `port` | `warn` `TCP_SLOW`, `crit` mit Fehlercode |
+  | `icmp` | `host`, `count` (1–10, Standard 3) | `warn` `ICMP_LOSS` oder `ICMP_SLOW`, `crit` `ICMP_NO_REPLY`, `unknown` `ICMP_UNAVAILABLE` |
+  | `dns` | `query`, `recordType` (A, AAAA, CNAME, MX, NS, TXT), `server` (IP, sonst System-Resolver), `expected` | `crit` `DNS_MISMATCH`, `DNS_NOT_FOUND`, `DNS_TIMEOUT`; `warn` `DNS_SLOW` |
+  | `tls` | `host`, `port` (443), `servername`, `warnDays` (14), `critDays` (7), `tlsMode`, `pinSha256` | `warn`/`crit` `TLS_EXPIRING`, `crit` `TLS_EXPIRED` und TLS-Fehler |
+
+  Alle Typen haben `name`, `timeoutMs` und optional `intervalS` (10–3600 s).
+- **Netzwerk:** Die neuen Typen laufen über `ctx.net` aus dem SDK, mit Ziel-Allowlist und Sperrliste wie
+  HTTP. Ping ruft `ping` aus `iputils-ping` per `execFile` ohne Shell auf, mit `LC_ALL=C`, gegen die
+  geprüfte, aufgelöste IP und nach `--`. Hostnamen dürfen nicht mit `-` beginnen.
+- **Ping im Container:** Das Server-Image enthält `iputils-ping` ohne setuid-Bit (Owner-Entscheidung
+  19.11.2026). Gepingt wird über ICMP-Datagram-Sockets, die `net.ipv4.ping_group_range` in `compose.yaml`
+  erlaubt. Ohne diese Erlaubnis melden ICMP-Checks `unknown` mit `ICMP_UNAVAILABLE` und schreiben keinen
+  Statuswert; der Verbindungstest zeigt sie als `unsupported`.
+- **Intervall je Check:** Checks ohne `intervalS` laufen im Collector `checks` (30 s mit Zuschauer, sonst
+  60 s). Je anderem Intervall gibt es einen Collector `checks-<s>s`, der unabhängig davon immer in diesem
+  Intervall läuft.
+- **Entfernte Checks** (Owner-Entscheidung 19.11.2026): Die Entität und ihre Messreihen werden beim
+  nächsten Lauf gelöscht (`onMissing: 'delete'`). Verschwindet ein ganzes Intervall, räumt der Kern beim
+  Neustart der Instanz auf, der auf jede Konfigurationsänderung folgt.
+- **Serien:** zusätzlich `uptime.loss_pct` (Ping) und `uptime.tls_days_left` (Zertifikat).
+- **`attrs`:** `type`, `endpoint`, `target` (Anzeige im Widget), `responseMs` und je Typ `httpStatus`,
+  `records`, `lossPct`, `daysLeft`, `validTo`, `issuer`.
+- **TOFU:** Auch Zertifikats-Checks zeigen im Verbindungstest ein unbekanntes Zertifikat zum Bestätigen an.
+  Der Pin landet am Check mit demselben `tls://host:port`.
+- **Folgt in 5.1b:** Import der v1-Probe-Historie.
+
+## Umsetzung in Phase 5.1b (19.11.2026)
+
+- **Befehl:** `rxf import v1-uptime <v1.db> [--instance <id>] [--dry-run]`, Ablauf in `docs/OPERATIONS.md`.
+- **Zuordnung** (Owner-Entscheidung 19.11.2026): Ein v1-Dienst landet beim v2-HTTP-Check, dessen URL
+  seiner `internal_url` entspricht (normalisiert, `http://nas` = `http://nas/`). Ohne passenden Check
+  meldet der Import `NO_CHECK`, ohne ersten v2-Lauf `NOT_RUN_YET`. Die externe URL und die Verschmelzung
+  intern/extern aus v1 bleiben außen vor.
+- **Werte:** `uptime.status` = 1 für `ok` und `warn`, 0 für `err` (wie v2: langsam gilt als erreichbar).
+  `uptime.response_ms` nur für Proben ohne Fehler, weil v1 bei Fehlern die Zeit bis zum Abbruch speichert.
+  Zeitstempel × 1000.
+- **Stufen:** Der Import schreibt Rohwerte nur für die letzten 2 Tage und berechnet 5-Minuten- und
+  Stundenwerte selbst. Die normale Verdichtung arbeitet nur vorwärts und hätte ältere Rohwerte nie
+  erfasst.
+- **Vorrang von v2:** Übernommen wird nur, was älter ist als der erste v2-Wert des Checks (über alle
+  Stufen). Ein zweiter Lauf findet deshalb nichts mehr (`NO_OLDER_DATA`).
+- **Verworfen:** Zeilen von Diensten, die es in v1 nicht mehr gibt (gezählt), und `service_incidents`.
+  Alarm-Historie gibt es erst mit Phase 7.
+- **Kennzeichnung:** Der Audit-Eintrag `uptime.legacy_import` hält je Check Anzahl und Zeitraum der
+  übernommenen Werte fest.
+- **Sicherheit:** Die v1-Datei wird nur lesend geöffnet. Gelesen werden nur `custom_services` und
+  `probe_history`, nicht die Konten und Secrets in derselben Datei.

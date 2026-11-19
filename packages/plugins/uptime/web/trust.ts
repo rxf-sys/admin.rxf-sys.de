@@ -1,6 +1,6 @@
 import type { PluginConfig, TlsCertificate } from '@rxf/web-sdk';
 
-const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' };
+const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443', 'tls:': '443' };
 
 /** Same normalisation as the SDK's `originOf` (scheme://host:port), without importing server code. */
 function originOf(url: string): string | null {
@@ -8,6 +8,17 @@ function originOf(url: string): string | null {
   const parsed = new URL(url);
   const port = parsed.port || DEFAULT_PORTS[parsed.protocol];
   return port ? `${parsed.protocol}//${parsed.hostname.toLowerCase()}:${port}` : null;
+}
+
+/** The TLS origin a check talks to: its URL's for HTTP, `tls://host:port` for certificate checks. */
+function checkOrigin(check: Record<string, unknown>): string | null {
+  if (check.type === 'tls' && typeof check.host === 'string') {
+    const host = check.host.includes(':') ? `[${check.host}]` : check.host;
+    return originOf(`tls://${host}:${typeof check.port === 'number' ? check.port : 443}`);
+  }
+  return (check.type === undefined || check.type === 'http') && typeof check.url === 'string'
+    ? originOf(check.url)
+    : null;
 }
 
 /**
@@ -20,7 +31,7 @@ export function trustCertificate(config: PluginConfig, certificate: TlsCertifica
   return {
     ...config,
     checks: checks.map((check) =>
-      typeof check.url === 'string' && originOf(check.url) === target
+      target !== null && checkOrigin(check) === target
         ? { ...check, tlsMode: 'pin-leaf', pinSha256: certificate.leafSha256 }
         : check,
     ),

@@ -52,7 +52,7 @@ describe('EntityStore.applySnapshot', () => {
       'http',
       { entities: [service('a'), service('b', 'crit')], metrics: [metric('a', 12), metric('b', 30)] },
       T0,
-      MIN,
+      { graceMs: MIN },
     );
     expect(first.kinds).toEqual(['Service']);
     expect(first.seriesIds).toHaveLength(2);
@@ -65,7 +65,7 @@ describe('EntityStore.applySnapshot', () => {
         metrics: [metric('a', 900)],
       },
       T0 + 1_000,
-      MIN,
+      { graceMs: MIN },
     );
     expect(second.seriesIds).toEqual([first.seriesIds[0]]);
     const [a, b] = store.list({ instanceId: 'i1' });
@@ -83,9 +83,11 @@ describe('EntityStore.applySnapshot', () => {
   });
 
   it('marks entities of the same collector unknown once they are missing longer than the grace period', () => {
-    store.applySnapshot('i1', 'http', { entities: [service('a'), service('b')], metrics: [] }, T0, MIN);
-    store.applySnapshot('i1', 'tcp', { entities: [service('c')], metrics: [] }, T0, MIN);
-    const later = store.applySnapshot('i1', 'http', { entities: [service('a')], metrics: [] }, T0 + 2 * MIN, MIN);
+    store.applySnapshot('i1', 'http', { entities: [service('a'), service('b')], metrics: [] }, T0, { graceMs: MIN });
+    store.applySnapshot('i1', 'tcp', { entities: [service('c')], metrics: [] }, T0, { graceMs: MIN });
+    const later = store.applySnapshot('i1', 'http', { entities: [service('a')], metrics: [] }, T0 + 2 * MIN, {
+      graceMs: MIN,
+    });
     expect(later.kinds).toEqual(['Service']);
     const byId = Object.fromEntries(store.list({ instanceId: 'i1' }).map((e) => [e.externalId, e]));
     expect(byId.b).toMatchObject({ status: 'unknown', statusReason: 'MISSING' });
@@ -93,7 +95,7 @@ describe('EntityStore.applySnapshot', () => {
     expect(byId.c?.status).toBe('ok');
 
     // An empty snapshot ages out everything of that collector.
-    store.applySnapshot('i1', 'http', { entities: [], metrics: [] }, T0 + 4 * MIN, MIN);
+    store.applySnapshot('i1', 'http', { entities: [], metrics: [] }, T0 + 4 * MIN, { graceMs: MIN });
     expect(store.list({ instanceId: 'i1' }).filter((e) => e.status === 'unknown')).toHaveLength(2);
   });
 
@@ -106,19 +108,59 @@ describe('EntityStore.applySnapshot', () => {
     ['a bad reason code', { entities: [{ ...service('a'), statusReason: 'see http://evil' }], metrics: [] }],
     ['no arrays at all', { nope: true }],
   ])('rejects %s without writing anything', (_label, snapshot) => {
-    expect(() => store.applySnapshot('i1', 'http', snapshot, T0, MIN)).toThrow(InvalidSnapshotError);
+    expect(() => store.applySnapshot('i1', 'http', snapshot, T0, { graceMs: MIN })).toThrow(InvalidSnapshotError);
     expect(store.list({})).toEqual([]);
   });
 
   it('pauses all entities of an instance and filters lists', () => {
-    store.applySnapshot('i1', 'http', { entities: [service('a')], metrics: [] }, T0, MIN);
-    store.applySnapshot('i2', 'http', { entities: [service('a')], metrics: [] }, T0, MIN);
+    store.applySnapshot('i1', 'http', { entities: [service('a')], metrics: [] }, T0, { graceMs: MIN });
+    store.applySnapshot('i2', 'http', { entities: [service('a')], metrics: [] }, T0, { graceMs: MIN });
     expect(store.markPaused('i1', T0 + 1)).toEqual(['Service']);
     expect(store.list({ instanceId: 'i1' })[0]?.status).toBe('paused');
     expect(store.list({ instanceId: 'i2' })[0]?.status).toBe('ok');
     expect(store.list({ kind: 'Host' })).toEqual([]);
     expect(store.list({ kind: 'Service' })).toHaveLength(2);
     expect(store.markPaused('missing', T0)).toEqual([]);
+  });
+});
+
+describe('removing entities', () => {
+  const seriesCount = () =>
+    (database.sqlite.prepare('SELECT count(*) AS n FROM metric_series').get() as { n: number }).n;
+
+  it('deletes entities a delete-on-missing collector no longer reports, with their series', () => {
+    const snapshot = (...names: string[]) => ({
+      entities: names.map((name) => service(name)),
+      metrics: names.map((name) => metric(name, 1, T0)),
+    });
+    store.applySnapshot('i1', 'checks', snapshot('a', 'b'), T0, { graceMs: MIN, onMissing: 'delete' });
+    store.applySnapshot('i1', 'other', snapshot('c'), T0, { graceMs: MIN });
+    expect(seriesCount()).toBe(3);
+    const outcome = store.applySnapshot('i1', 'checks', snapshot('a'), T0 + 1000, {
+      graceMs: MIN,
+      onMissing: 'delete',
+    });
+    expect(outcome.kinds).toEqual(['Service']);
+    expect(store.list({ instanceId: 'i1' }).map((e) => e.externalId)).toEqual(['a', 'c']);
+    expect(seriesCount()).toBe(2);
+    store.applySnapshot('i1', 'checks', { entities: [], metrics: [] }, T0 + 2000, {
+      graceMs: MIN,
+      onMissing: 'delete',
+    });
+    expect(store.list({ instanceId: 'i1' }).map((e) => e.externalId)).toEqual(['c']);
+  });
+
+  it('removes the entities of collectors that no longer exist', () => {
+    store.applySnapshot('i1', 'checks', { entities: [service('a')], metrics: [metric('a', 1, T0)] }, T0, {
+      graceMs: MIN,
+    });
+    store.applySnapshot('i1', 'checks-300s', { entities: [service('b')], metrics: [] }, T0, { graceMs: MIN });
+    store.applySnapshot('i2', 'checks-300s', { entities: [service('b')], metrics: [] }, T0, { graceMs: MIN });
+    expect(store.removeOrphans('i1', ['checks'])).toEqual(['Service']);
+    expect(store.list({}).map((e) => `${e.instanceId}/${e.externalId}`)).toEqual(['i1/a', 'i2/b']);
+    expect(store.removeOrphans('i1', ['checks'])).toEqual([]);
+    expect(store.removeOrphans('i1', [])).toEqual(['Service']);
+    expect(seriesCount()).toBe(0);
   });
 });
 
@@ -129,7 +171,7 @@ describe('metric tiers', () => {
       'http',
       { entities: [service('a')], metrics: values.map(([ts, value]) => metric('a', value, ts)) },
       T0,
-      DAY,
+      { graceMs: DAY },
     );
     return (database.sqlite.prepare('SELECT id FROM metric_series').get() as { id: number }).id;
   }

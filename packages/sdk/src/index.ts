@@ -19,6 +19,18 @@ export {
 } from './http.ts';
 export { type LocalizedText, type PluginManifest, pluginCategories, pluginManifest } from './manifest.ts';
 export {
+  createNetClient,
+  type DnsRecordType,
+  dnsRecordTypes,
+  type NetClient,
+  type NetClientOptions,
+  type PingResult,
+  type PingRunner,
+  type ProbeInit,
+  parsePing,
+  type TlsProbe,
+} from './net.ts';
+export {
   type Capability,
   type CapabilityStatus,
   type Collector,

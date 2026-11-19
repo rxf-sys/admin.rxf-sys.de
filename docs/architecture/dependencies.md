@@ -118,6 +118,7 @@ CSS-Übergänge; `motion` lädt mit dem ersten Chunk, der es braucht
 | cosign | Image-Signatur und -Prüfung (ADR 0009, Option B) | Apache-2.0 |
 | Caddy 2 (Image) | Frontend ausliefern, `/api` proxyen, Sicherheits-Header | Apache-2.0 |
 | Node 26 (Image) | Laufzeit `server` | MIT |
+| iputils-ping (Debian-Paket im Server-Image) | Ping-Checks des Uptime-Plugins, ohne setuid über ICMP-Datagram-Sockets (Owner-Entscheidung 19.11.2026) | GPL-2.0-or-later / BSD-3-Clause |
 
 Alle GitHub Actions werden auf Commit-SHA gepinnt und über Dependabot
 aktualisiert.

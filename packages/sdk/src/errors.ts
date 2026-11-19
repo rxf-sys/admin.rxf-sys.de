@@ -8,6 +8,14 @@ export const httpErrorCodes = [
   'TLS_SELF_SIGNED',
   'TLS_INVALID',
   'TLS_PIN_MISMATCH',
+  'TLS_EXPIRED',
+  'TLS_NOT_YET_VALID',
+  'TLS_HOSTNAME',
+  'CONNECT_TIMEOUT',
+  'NET_UNREACHABLE',
+  'DNS_TIMEOUT',
+  'ICMP_UNAVAILABLE',
+  'ICMP_NO_REPLY',
   'NETWORK_ERROR',
 ] as const;
 

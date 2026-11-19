@@ -113,6 +113,17 @@ export default defineServerPlugin({
   `allowBlockedAddresses(config)`, gesteuert durch ein `adminOnly`-Feld.
 - Redirects folgt der Client nicht, Antworten begrenzt er auf eine Größe.
 - Jede Anfrage bekommt `{ signal: ctx.signal, timeoutMs }`, damit Pausieren und Zeitlimits greifen.
+- Für Prüfungen ohne HTTP gibt es `ctx.net`, unter denselben Regeln:
+
+  | Methode | Ziel in `targets()` | Fehlercodes (Auswahl) |
+  |---|---|---|
+  | `tcp(origin)` | `tcp://host:port` | `CONNECTION_REFUSED`, `CONNECT_TIMEOUT`, `NET_UNREACHABLE` |
+  | `tls(origin, { servername })` | `tls://host:port`, TLS-Modus wie bei HTTP | `TLS_EXPIRED`, `TLS_SELF_SIGNED`, `TLS_HOSTNAME`, `TLS_PIN_MISMATCH` |
+  | `dns({ name, type, server })` | `dns://ip:port`; ohne `server` der System-Resolver | `DNS_NOT_FOUND`, `DNS_TIMEOUT` |
+  | `ping(origin, { count })` | `icmp://host` | `ICMP_NO_REPLY`, `ICMP_UNAVAILABLE` |
+
+  `ping` pingt die geprüfte, aufgelöste Adresse, nie den Namen (DNS-Rebinding). `ctx.http.inspectTls`
+  liest auch Zertifikate von `tls://`-Zielen.
 
 ### `test()`
 
@@ -131,7 +142,12 @@ export default defineServerPlugin({
     setzt der Kern), `statusReason` als Code (`[A-Z0-9_]`) und `attrs` (höchstens 16 KB)
   - `metrics` mit Entität, Name (`plugin.wert`), Einheit und Wert
 
-  Entitäten, die fehlen, werden nach zwei Hintergrundintervallen `unknown`.
+  Entitäten, die fehlen, werden nach zwei Hintergrundintervallen `unknown`. Mit `onMissing: 'delete'`
+  löscht der Kern sie sofort samt Messreihen. Das passt nur, wenn der Schnappschuss allein aus der
+  Konfiguration folgt (Uptime-Checks): Dort heißt „fehlt“, dass der Admin den Eintrag entfernt hat.
+- **`collectors`** ist eine feste Liste oder eine Funktion der Konfiguration, zum Beispiel ein Collector je
+  Intervall. Die IDs müssen stabil sein: Verschwindet ein Collector, löscht der Kern beim nächsten Start
+  der Instanz alle Entitäten, die ihm gehörten.
 - **Was der Kern übernimmt** (ADR 0003):
   - Jitter, Zeitlimit und Backoff
   - Circuit Breaker je Instanz

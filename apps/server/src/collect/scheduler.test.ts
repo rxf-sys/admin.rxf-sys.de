@@ -288,3 +288,48 @@ describe('Scheduler timeouts', () => {
     await scheduler.stopAll();
   });
 });
+
+describe('Scheduler with collectors from the config', () => {
+  it('builds collectors per config, hands them the net client and removes entities of vanished ones', async () => {
+    const seenNet: boolean[] = [];
+    const derived = defineServerPlugin({
+      config: defineConfig({ label: field(z.string(), { label: { de: 'L', en: 'L' } }) }),
+      targets: () => [],
+      requests: { collect: [] },
+      test: async () => ({ ok: true, capabilities: [] }),
+      collectors: (cfg) =>
+        cfg.label.split(',').map((id) => ({
+          id,
+          interval: { activeMs: 10_000, backgroundMs: 60_000 },
+          timeoutMs: 5_000,
+          async run(ctx: PluginContext<{ label: string }>) {
+            seenNet.push(typeof ctx.net.tcp === 'function');
+            return {
+              entities: [{ kind: 'Service' as const, externalId: id, name: id, status: 'ok' as const }],
+              metrics: [],
+            };
+          },
+        })),
+    });
+    const host = new PluginHost([{ manifest, load: async () => ({ default: derived as never }) }]);
+    const bus = new EventBus(Date.now);
+    bus.subscribe((event) => events.push(event));
+    const entities = new EntityStore(database);
+    const scheduler = new Scheduler({ host, instances, entities, bus, log: silent, now: Date.now, enabled: true });
+    const row = instances.setStatus(
+      instances.create(derived as never, { pluginId: 'fake', name: 'F', config: { label: 'a,b' } }, 1),
+      'active',
+    );
+    await scheduler.start(row);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(entities.list({}).map((e) => e.externalId)).toEqual(['a', 'b']);
+    expect(seenNet).toEqual([true, true]);
+
+    const updated = instances.update(derived as never, row, { config: { label: 'a' } });
+    events = [];
+    await scheduler.restart(updated);
+    expect(entities.list({}).map((e) => e.externalId)).toEqual(['a']);
+    expect(events.find((e) => e.type === 'entities')?.data).toMatchObject({ instanceId: row.id, kinds: ['Service'] });
+    await scheduler.stopAll();
+  });
+});

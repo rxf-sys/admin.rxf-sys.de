@@ -6,7 +6,7 @@ import {
   testResultResponse,
   updateInstanceRequest,
 } from '@rxf/contracts';
-import { createHttpClient, type ServerPlugin, type TestResult } from '@rxf/sdk';
+import { createHttpClient, createNetClient, type ServerPlugin, type TestResult } from '@rxf/sdk';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import * as z from 'zod/mini';
@@ -70,17 +70,21 @@ export function registerPluginRoutes(app: FastifyInstance, deps: PluginRouteDeps
     const plugin = await withPlugin(row);
     const { config, secretValues } = store.runtimeConfig(row);
     const typed = plugin.config.schema.parse(config);
+    const targets = plugin.targets(typed);
+    const allowBlockedAddresses = plugin.allowBlockedAddresses?.(typed) ?? false;
     const http = createHttpClient({
-      targets: plugin.targets(typed),
+      targets,
       requests: plugin.requests.collect,
       timeoutMs: TEST_TIMEOUT_MS,
-      allowBlockedAddresses: plugin.allowBlockedAddresses?.(typed) ?? false,
+      allowBlockedAddresses,
     });
+    const net = createNetClient({ targets, timeoutMs: TEST_TIMEOUT_MS, allowBlockedAddresses });
     try {
       return await plugin.test({
         config: typed,
         secrets: secretValues,
         http,
+        net,
         log: request.log.child({ instanceId: row.id, pluginId: row.pluginId }),
         now,
         signal: AbortSignal.timeout(TEST_TOTAL_MS),

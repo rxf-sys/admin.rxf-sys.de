@@ -1,58 +1,17 @@
 import {
   type Capability,
+  type Collector,
   type CollectResult,
-  defineConfig,
   defineServerPlugin,
-  field,
-  originOf,
   type PluginContext,
   PluginHttpError,
   type Target,
   type TlsInfo,
-  tlsModes,
 } from '@rxf/sdk';
-import * as z from 'zod/mini';
-import { DEFAULT_EXPECTED_STATUS, EXPECTED_STATUS_PATTERN, statusMatches } from '../shared/status.ts';
+import { config, type UptimeCheck, type UptimeConfig } from './config.ts';
+import { probe, targetOf } from './probes.ts';
 
-const httpUrl = z.string().check(z.refine((value) => /^https?:\/\//.test(value) && URL.canParse(value), 'http(s) URL'));
-
-const check = z.object({
-  name: z.string().check(z.minLength(1), z.maxLength(80)),
-  url: httpUrl,
-  method: z.optional(z.enum(['GET', 'HEAD'])),
-  expectedStatus: z.optional(z.string().check(z.regex(EXPECTED_STATUS_PATTERN))),
-  timeoutMs: z.optional(z.number().check(z.int(), z.minimum(500), z.maximum(30_000))),
-  tlsMode: z.optional(z.enum(tlsModes)),
-  pinSha256: z.optional(z.string().check(z.regex(/^[0-9a-f]{64}$/))),
-});
-
-export type UptimeCheck = z.infer<typeof check>;
-
-const config = defineConfig({
-  checks: field(
-    z.array(check).check(
-      z.maxLength(200),
-      z.refine((checks) => new Set(checks.map((c) => c.name)).size === checks.length, 'check names must be unique'),
-    ),
-    {
-      label: { de: 'Prüfungen', en: 'Checks' },
-      help: { de: 'Jede Prüfung ruft eine URL ab.', en: 'Each check fetches one URL.' },
-      // URLs are targets: only admins change them, with re-authentication (ADR 0008, T8).
-      adminOnly: true,
-    },
-  ),
-  slowThresholdMs: field(z.number().check(z.int(), z.minimum(50), z.maximum(60_000)), {
-    label: { de: 'Langsam ab (ms)', en: 'Slow from (ms)' },
-  }),
-  allowBlockedTargets: field(z.boolean(), {
-    label: { de: 'Gesperrte Adressen erlauben', en: 'Allow blocked addresses' },
-    help: {
-      de: 'Nur für Prüfungen gegen den eigenen Host (Loopback).',
-      en: 'Only for checks against this host (loopback).',
-    },
-    adminOnly: true,
-  }),
-});
+export type { UptimeCheck } from './config.ts';
 
 /** Failures that mean the configuration is wrong, as opposed to a service that is down right now. */
 const CONFIG_ERRORS = new Set([
@@ -61,37 +20,19 @@ const CONFIG_ERRORS = new Set([
   'REQUEST_NOT_ALLOWED',
   'TLS_SELF_SIGNED',
   'TLS_PIN_MISMATCH',
+  'TLS_HOSTNAME',
   'TLS_INVALID',
 ]);
 
-type UptimeConfig = z.infer<typeof config.schema>;
+/** Codes for which the connection test shows the certificate so the admin can pin it (TOFU). */
+const TOFU_CODES = new Set(['TLS_SELF_SIGNED', 'TLS_PIN_MISMATCH', 'TLS_HOSTNAME']);
 
-const DEFAULT_TIMEOUT_MS = 10_000;
 /** Checks probed at the same time within one run. */
 const PARALLEL_CHECKS = 8;
-
-type ProbeResult =
-  | { outcome: 'ok' | 'slow'; httpStatus: number; durationMs: number }
-  | { outcome: 'failed'; code: string; message: string; httpStatus: number | null; durationMs: number | null };
-
-/** One request for one check; device errors become a result, anything else is a bug and propagates. */
-async function probe(ctx: PluginContext<UptimeConfig>, c: UptimeCheck): Promise<ProbeResult> {
-  try {
-    const res = await ctx.http.request(c.method ?? 'GET', c.url, {
-      timeoutMs: c.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      signal: ctx.signal,
-    });
-    if (!statusMatches(c.expectedStatus ?? DEFAULT_EXPECTED_STATUS, res.status)) {
-      const message = `HTTP ${res.status}`;
-      return { outcome: 'failed', code: 'HTTP_STATUS', message, httpStatus: res.status, durationMs: res.durationMs };
-    }
-    const outcome = res.durationMs > ctx.config.slowThresholdMs ? 'slow' : 'ok';
-    return { outcome, httpStatus: res.status, durationMs: res.durationMs };
-  } catch (error) {
-    if (!(error instanceof PluginHttpError)) throw error;
-    return { outcome: 'failed', code: error.code, message: error.message, httpStatus: null, durationMs: null };
-  }
-}
+/** docs/integrations/uptime.md: 30 s while watched, 60 s otherwise, so outages alert within 2 min. */
+const DEFAULT_INTERVAL = { activeMs: 30_000, backgroundMs: 60_000 };
+const RUN_TIMEOUT_MS = 55_000;
+export const DEFAULT_COLLECTOR = 'checks';
 
 async function mapLimit<T, R>(items: readonly T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
@@ -106,34 +47,52 @@ async function mapLimit<T, R>(items: readonly T[], limit: number, task: (item: T
   return results;
 }
 
-/** Every check becomes a `Service` entity with `attrs.endpoint` and two series (docs/integrations/uptime.md). */
-async function collectChecks(ctx: PluginContext<UptimeConfig>): Promise<CollectResult> {
-  const results = await mapLimit(ctx.config.checks, PARALLEL_CHECKS, (c) => probe(ctx, c));
+/** Every check becomes a `Service` entity with a status series and, when measured, a response time. */
+async function collect(ctx: PluginContext<UptimeConfig>, checks: readonly UptimeCheck[]): Promise<CollectResult> {
+  const outcomes = await mapLimit(checks, PARALLEL_CHECKS, (c) => probe(ctx, c));
   const out: CollectResult = { entities: [], metrics: [] };
   const ts = ctx.now();
-  for (const [i, c] of ctx.config.checks.entries()) {
-    const result = results[i] as ProbeResult;
+  for (const [i, c] of checks.entries()) {
+    const outcome = outcomes[i] as Awaited<ReturnType<typeof probe>>;
     const entity = { kind: 'Service' as const, externalId: c.name };
-    const failed = result.outcome === 'failed';
     out.entities.push({
       ...entity,
       name: c.name,
-      status: failed ? 'crit' : result.outcome === 'slow' ? 'warn' : 'ok',
-      ...(failed ? { statusReason: result.code } : result.outcome === 'slow' ? { statusReason: 'HTTP_SLOW' } : {}),
-      attrs: {
-        endpoint: c.url,
-        method: c.method ?? 'GET',
-        expectedStatus: c.expectedStatus ?? DEFAULT_EXPECTED_STATUS,
-        httpStatus: result.httpStatus,
-        responseMs: result.durationMs,
-      },
+      status: outcome.status,
+      ...(outcome.reason ? { statusReason: outcome.reason } : {}),
+      attrs: { endpoint: outcome.endpoint, target: outcome.target, responseMs: outcome.responseMs, ...outcome.attrs },
     });
-    out.metrics.push({ entity, name: 'uptime.status', unit: '', value: failed ? 0 : 1, ts });
-    if (result.durationMs !== null) {
-      out.metrics.push({ entity, name: 'uptime.response_ms', unit: 'ms', value: result.durationMs, ts });
+    // `unknown` (ping not possible here) says nothing about the service, so it writes no status value.
+    if (outcome.status !== 'unknown') {
+      out.metrics.push({ entity, name: 'uptime.status', unit: '', value: outcome.status === 'crit' ? 0 : 1, ts });
     }
+    if (outcome.responseMs !== null) {
+      out.metrics.push({ entity, name: 'uptime.response_ms', unit: 'ms', value: outcome.responseMs, ts });
+    }
+    for (const metric of outcome.extraMetrics) out.metrics.push({ entity, ...metric, ts });
   }
   return out;
+}
+
+/**
+ * One collector per interval: checks without their own interval share `checks`, the others are grouped
+ * as `checks-<s>s`. A check that leaves the config is missing from the next snapshot and deleted at once
+ * (owner decision 19.11.2026).
+ */
+function collectorsFor(cfg: UptimeConfig): Collector<UptimeConfig>[] {
+  const intervals = [...new Set(cfg.checks.map((c) => c.intervalS ?? null))].sort((a, b) => (a ?? 0) - (b ?? 0));
+  return intervals.map((intervalS) => ({
+    id: intervalS === null ? DEFAULT_COLLECTOR : `${DEFAULT_COLLECTOR}-${intervalS}s`,
+    interval: intervalS === null ? DEFAULT_INTERVAL : { activeMs: intervalS * 1000, backgroundMs: intervalS * 1000 },
+    timeoutMs: RUN_TIMEOUT_MS,
+    onMissing: 'delete' as const,
+    // The run reads its checks from the config it is handed, matched by interval.
+    run: (ctx) =>
+      collect(
+        ctx,
+        ctx.config.checks.filter((c) => (c.intervalS ?? null) === intervalS),
+      ),
+  }));
 }
 
 export default defineServerPlugin({
@@ -142,11 +101,8 @@ export default defineServerPlugin({
   targets(cfg) {
     const byOrigin = new Map<string, Target>();
     for (const c of cfg.checks) {
-      const origin = originOf(c.url);
-      if (!byOrigin.has(origin)) {
-        const pin = c.pinSha256 ? { pinSha256: c.pinSha256 } : {};
-        byOrigin.set(origin, { origin, tls: { mode: c.tlsMode ?? 'system', ...pin } });
-      }
+      const target = targetOf(c);
+      if (target && !byOrigin.has(target.origin)) byOrigin.set(target.origin, target);
     }
     return [...byOrigin.values()];
   },
@@ -169,29 +125,28 @@ export default defineServerPlugin({
     const tls: TlsInfo[] = [];
     for (const c of ctx.config.checks) {
       const id = `check:${c.name}`;
-      const result = await probe(ctx, c);
-      if (result.outcome === 'failed') {
-        capabilities.push({ id, status: 'failed', code: result.code, message: result.message });
-        if (result.code === 'TLS_SELF_SIGNED' || result.code === 'TLS_PIN_MISMATCH') {
-          tls.push(await ctx.http.inspectTls(c.url));
+      const outcome = await probe(ctx, c);
+      const code = outcome.reason ? { code: outcome.reason } : {};
+      if (outcome.status === 'crit') {
+        capabilities.push({ id, status: 'failed', ...code, message: outcome.message });
+        const origin = targetOf(c)?.origin;
+        if (outcome.reason && TOFU_CODES.has(outcome.reason) && origin) {
+          try {
+            const servername = c.type === 'tls' && c.servername ? { servername: c.servername } : {};
+            tls.push(await ctx.http.inspectTls(origin, servername));
+          } catch (error) {
+            if (!(error instanceof PluginHttpError)) throw error;
+          }
         }
-      } else if (result.outcome === 'slow') {
-        capabilities.push({ id, status: 'ok', code: 'HTTP_SLOW', message: `${result.durationMs} ms` });
+      } else if (outcome.status === 'unknown') {
+        capabilities.push({ id, status: 'unsupported', ...code, message: outcome.message });
       } else {
-        capabilities.push({ id, status: 'ok', message: `HTTP ${result.httpStatus}, ${result.durationMs} ms` });
+        capabilities.push({ id, status: 'ok', ...code, message: outcome.message });
       }
     }
     const ok = !capabilities.some((cap) => cap.code !== undefined && CONFIG_ERRORS.has(cap.code));
     return tls.length > 0 ? { ok, capabilities, tls } : { ok, capabilities };
   },
 
-  collectors: [
-    {
-      id: 'http',
-      // docs/integrations/uptime.md: 30 s while watched, 60 s otherwise, so outages alert within 2 min.
-      interval: { activeMs: 30_000, backgroundMs: 60_000 },
-      timeoutMs: 55_000,
-      run: collectChecks,
-    },
-  ],
+  collectors: collectorsFor,
 });

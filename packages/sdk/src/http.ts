@@ -1,10 +1,9 @@
 import { createHash, X509Certificate } from 'node:crypto';
-import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
-import { BlockList, isIP, type LookupFunction } from 'node:net';
-import { networkInterfaces } from 'node:os';
+import { isIP, type LookupFunction } from 'node:net';
 import { type PeerCertificate, type TLSSocket, connect as tlsConnect } from 'node:tls';
 import { Agent, buildConnector, request } from 'undici';
 import { PluginHttpError } from './errors.ts';
+import { bareHost, createAddressGuard } from './guard.ts';
 import { originOf, type Target, type TlsSettings } from './targets.ts';
 
 /** Method plus path pattern; `*` matches one path segment, `**` the rest of the path. */
@@ -46,8 +45,11 @@ export interface HttpClient {
       signal?: AbortSignal;
     },
   ): Promise<HttpResponse>;
-  /** Reads the certificate of an https target without trusting it, for the TOFU dialog (ADR 0008). */
-  inspectTls(origin: string): Promise<TlsInfo>;
+  /**
+   * Reads the certificate of an https or tls target without trusting it, for the TOFU dialog (ADR 0008).
+   * `servername` sets SNI when the check uses one, so the dialog shows the certificate the probe sees.
+   */
+  inspectTls(origin: string, init?: { servername?: string }): Promise<TlsInfo>;
   close(): Promise<void>;
 }
 
@@ -63,32 +65,6 @@ export interface HttpClientOptions {
   lookup?: LookupFunction;
 }
 
-/**
- * Loopback, link-local (cloud metadata) and unspecified addresses, plus the container's own addresses
- * (ADR 0008, T8). Private LAN ranges stay reachable: that is where the devices live.
- */
-function defaultBlockList(): BlockList {
-  const list = new BlockList();
-  list.addSubnet('127.0.0.0', 8, 'ipv4');
-  list.addSubnet('0.0.0.0', 8, 'ipv4');
-  list.addSubnet('169.254.0.0', 16, 'ipv4');
-  list.addAddress('::1', 'ipv6');
-  list.addAddress('::', 'ipv6');
-  list.addSubnet('fe80::', 10, 'ipv6');
-  list.addSubnet('::ffff:127.0.0.0', 104, 'ipv6');
-  list.addSubnet('::ffff:169.254.0.0', 112, 'ipv6');
-  for (const addresses of Object.values(networkInterfaces())) {
-    for (const entry of addresses ?? []) {
-      if (!entry.internal) list.addAddress(entry.address, entry.family === 'IPv6' ? 'ipv6' : 'ipv4');
-    }
-  }
-  return list;
-}
-
-function isBlocked(list: BlockList, address: string): boolean {
-  return list.check(address, isIP(address) === 6 ? 'ipv6' : 'ipv4');
-}
-
 function matchesPattern(pattern: string, path: string): boolean {
   const want = pattern.split('/');
   const have = path.split('/');
@@ -102,7 +78,7 @@ function matchesPattern(pattern: string, path: string): boolean {
 
 const sha256Hex = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 
-function tlsInfo(origin: string, socket: TLSSocket): TlsInfo {
+export function tlsInfo(origin: string, socket: TLSSocket): TlsInfo {
   const cert = socket.getPeerCertificate() as PeerCertificate;
   const x509 = new X509Certificate(cert.raw);
   return {
@@ -117,7 +93,7 @@ function tlsInfo(origin: string, socket: TLSSocket): TlsInfo {
   };
 }
 
-function checkPin(settings: TlsSettings, info: TlsInfo): void {
+export function checkPin(settings: TlsSettings, info: TlsInfo): void {
   const actual = settings.mode === 'pin-leaf' ? info.leafSha256 : info.spkiSha256;
   if (!settings.pinSha256 || actual !== settings.pinSha256) {
     throw new PluginHttpError('TLS_PIN_MISMATCH', `certificate of ${info.origin} does not match the stored pin`);
@@ -155,32 +131,10 @@ function mapNetworkError(error: unknown, origin: string): PluginHttpError {
  * applies the target's TLS mode.
  */
 export function createHttpClient(options: HttpClientOptions): HttpClient {
-  const blockList = defaultBlockList();
-  const allowBlocked = options.allowBlockedAddresses ?? false;
+  const guard = createAddressGuard({ allowBlocked: options.allowBlockedAddresses ?? false, lookup: options.lookup });
   const maxBody = options.maxBodyBytes ?? 1024 * 1024;
-  const baseLookup: LookupFunction = options.lookup ?? (dnsLookup as LookupFunction);
   const targets = new Map(options.targets.map((target) => [originOf(target.origin), target]));
   const agents = new Map<string, Agent>();
-
-  const guardedLookup: LookupFunction = (hostname, lookupOptions, callback) => {
-    baseLookup(hostname, { ...lookupOptions, all: true }, (error, addresses) => {
-      if (error) return callback(error, '', 0);
-      const list = addresses as unknown as LookupAddress[];
-      const blocked = !allowBlocked && list.some((entry) => isBlocked(blockList, entry.address));
-      if (blocked || list.length === 0) {
-        return callback(new PluginHttpError('TARGET_BLOCKED', `${hostname} resolves to a blocked address`), '', 0);
-      }
-      if (lookupOptions.all) return callback(null, list as never);
-      const first = list[0] as LookupAddress;
-      return callback(null, first.address, first.family);
-    });
-  };
-
-  function assertAddressAllowed(host: string): void {
-    if (!allowBlocked && isIP(host) && isBlocked(blockList, host)) {
-      throw new PluginHttpError('TARGET_BLOCKED', `${host} is a blocked address`);
-    }
-  }
 
   function agentFor(target: Target): Agent {
     const origin = originOf(target.origin);
@@ -189,7 +143,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
     const { tls } = target;
     const verify = tls.mode === 'system' || tls.mode === 'ca';
     const connector = buildConnector({
-      lookup: guardedLookup,
+      lookup: guard.lookup,
       timeout: options.timeoutMs,
       rejectUnauthorized: verify,
       ...(tls.mode === 'ca' && tls.caPem ? { ca: tls.caPem } : {}),
@@ -233,7 +187,7 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       ) {
         throw new PluginHttpError('REQUEST_NOT_ALLOWED', `${method} ${parsed.pathname} is not an allowed request`);
       }
-      assertAddressAllowed(parsed.hostname.replace(/^\[|\]$/g, ''));
+      guard.assertAllowed(bareHost(parsed.hostname));
       const started = performance.now();
       try {
         const response = await request(parsed, {
@@ -265,23 +219,22 @@ export function createHttpClient(options: HttpClientOptions): HttpClient {
       }
     },
 
-    async inspectTls(originInput) {
+    async inspectTls(originInput, init = {}) {
       const origin = originOf(originInput);
       const target = targets.get(origin);
-      if (!target || !origin.startsWith('https:')) {
-        throw new PluginHttpError('TARGET_NOT_ALLOWED', `${origin} is not an https target of this instance`);
+      if (!target || !(origin.startsWith('https:') || origin.startsWith('tls:'))) {
+        throw new PluginHttpError('TARGET_NOT_ALLOWED', `${origin} is not a TLS target of this instance`);
       }
-      const url = new URL(origin);
-      const host = url.hostname.replace(/^\[|\]$/g, '');
-      assertAddressAllowed(host);
+      const host = bareHost(new URL(origin).hostname);
+      guard.assertAllowed(host);
       // `URL.port` is empty for default ports; the normalised origin always carries the port.
       const port = Number(origin.slice(origin.lastIndexOf(':') + 1));
       return new Promise<TlsInfo>((resolve, reject) => {
         const socket = tlsConnect({
           host,
           port,
-          servername: isIP(host) ? undefined : host,
-          lookup: guardedLookup,
+          servername: init.servername ?? (isIP(host) ? undefined : host),
+          lookup: guard.lookup,
           rejectUnauthorized: false,
           timeout: options.timeoutMs,
         });
