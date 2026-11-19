@@ -18,6 +18,8 @@ services:
     image: ${RXF_SERVER_IMAGE:?set by deploy.sh}
     environment:
       RXF_VERSION: ${RXF_VERSION:-staging}
+      # Origin the browser sees; passkeys are bound to its hostname (ADR 0005).
+      RXF_PUBLIC_ORIGIN: ${RXF_PUBLIC_ORIGIN:?public origin, e.g. https://admin.rxf-sys.de}
       # Only Caddy (fixed address below) may set X-Forwarded-For (ADR 0005, client IP).
       RXF_TRUSTED_PROXIES: 172.30.10.10
     secrets:

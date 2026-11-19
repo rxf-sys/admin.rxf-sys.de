@@ -161,3 +161,27 @@ Re-Auth.
 
 v2 läuft direkt unter `admin.rxf-sys.de` (ADR 0009, Nachtrag „Hosts und Hostname“). Passkeys werden
 deshalb gleich für diese RP-ID registriert, ein Neuanlegen nach dem Umstieg entfällt.
+
+## Nachtrag: Passkeys, Umsetzung in Phase 4.7 (19.11.2026)
+
+- **Bibliotheken:** `@simplewebauthn/server` 14.0.3 und `@simplewebauthn/browser` 14.0.0 (freigegeben).
+  Tabelle `user_webauthn_credentials` (Migration 0004) mit Credential-ID, öffentlichem Schlüssel,
+  Zähler, Transporten, Name und Zeitpunkten. Die Gerätedaten werden nur bei der Registrierung
+  geprüft, eine Attestierung wird nicht verlangt (`attestationType: none`).
+- **RP-ID und Origin** kommen aus `RXF_PUBLIC_ORIGIN`. In Produktion ist die Variable Pflicht (https).
+  Für Entwicklung und Tests gilt `http://localhost`, denn Browser akzeptieren keine IP-Adresse als
+  RP-ID.
+- **Registrierung:**
+  - Passkeys sind auffindbar (`residentKey: required`), und die Nutzerverifikation ist Pflicht.
+  - Als erster Faktor eines Kontos schließt ein Passkey die Anmeldung ab, wie ein bestätigtes TOTP:
+    Es gibt Backup-Codes, und alle anderen Sitzungen enden.
+  - Besteht schon ein Faktor, braucht ein weiterer Passkey Re-Auth.
+- **Anmeldung:**
+  - Ohne Passwort, ein verifizierter Passkey zählt als MFA.
+  - Nach dem Passwort ersetzt die Passkey-Anmeldung die halbe Sitzung durch eine neue.
+  - Fehlversuche zählen in die Drossel je IP wie beim Passwort-Login.
+- **Re-Auth:** geht mit Passkey statt mit Passwort und Code; nur Passkeys des eigenen Kontos zählen.
+- **Challenges:** einmalig, 5 min gültig, gebunden an Zweck und, außer beim Login, an die anfragende
+  Sitzung. Sie liegen im Speicher; nach einem Neustart fragt der Browser einfach neu.
+- **Löschen:** braucht Re-Auth. Der letzte zweite Faktor (letzter Passkey ohne TOTP) lässt sich nicht
+  löschen. `rxf admin reset-2fa` entfernt auch alle Passkeys.

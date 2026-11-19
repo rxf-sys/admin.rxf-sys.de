@@ -27,7 +27,8 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: `http://127.0.0.1:${WEB_PORT}`,
+    // localhost, not 127.0.0.1: WebAuthn does not accept IP addresses as RP ID (passkey tests).
+    baseURL: `http://localhost:${WEB_PORT}`,
     trace: 'retain-on-failure',
     ...(executablePath ? { launchOptions: { executablePath } } : {}),
   },
@@ -52,7 +53,13 @@ export default defineConfig({
     {
       // The log is kept so the setup test can read the setup code, the only place it appears (ADR 0005).
       command: `node --conditions=@rxf/source ../apps/server/src/main.ts 2>&1 | tee ${join(DATA_DIR, 'server.log')}`,
-      env: { PORT: String(API_PORT), RXF_VERSION: 'e2e', RXF_DATA_DIR: DATA_DIR, RXF_MASTER_KEY: MASTER_KEY },
+      env: {
+        PORT: String(API_PORT),
+        RXF_VERSION: 'e2e',
+        RXF_DATA_DIR: DATA_DIR,
+        RXF_MASTER_KEY: MASTER_KEY,
+        RXF_PUBLIC_ORIGIN: `http://localhost:${WEB_PORT}`,
+      },
       url: `http://127.0.0.1:${API_PORT}/api/healthz`,
       reuseExistingServer: !process.env.CI,
     },

@@ -117,7 +117,9 @@ man den Hostname wieder auf `http://192.168.2.202:80` setzt.
 Hinweis zum LAN-Zugriff: Über `http://192.168.2.216` setzt der Browser das Sitzungs-Cookie
 (`__Host-`, `Secure`) nicht, weil die Verbindung nicht HTTPS ist. Die Ersteinrichtung geht deshalb nur
 über `https://admin.rxf-sys.de` oder über `http://localhost` per SSH-Tunnel
-(`ssh -L 8080:127.0.0.1:80 root@192.168.2.216`, dann `http://localhost:8080`).
+(`ssh -L 8080:127.0.0.1:80 root@192.168.2.216`, dann `http://localhost:8080`). Passkeys lassen sich
+nur unter `https://admin.rxf-sys.de` einrichten und nutzen (`RXF_PUBLIC_ORIGIN`), über den Tunnel geht
+die Einrichtung mit TOTP.
 
 ## Laufender Betrieb
 
@@ -174,7 +176,7 @@ docker build -f apps/web/Dockerfile -t rxf-web:local .
 mkdir -p /tmp/rxf-stack/secrets && cp infrastructure-v2/compose.yaml /tmp/rxf-stack/
 docker run --rm --entrypoint node rxf-server:local dist/cli.js keygen > /tmp/rxf-stack/secrets/rxf_master_key
 sudo chown 10001:10001 /tmp/rxf-stack/secrets/rxf_master_key && sudo chmod 0400 /tmp/rxf-stack/secrets/rxf_master_key
-printf 'RXF_SERVER_IMAGE=rxf-server:local\nRXF_WEB_IMAGE=rxf-web:local\nRXF_CLOUDFLARED_IP=172.30.10.99\n' > /tmp/rxf-stack/.env
+printf 'RXF_SERVER_IMAGE=rxf-server:local\nRXF_WEB_IMAGE=rxf-web:local\nRXF_CLOUDFLARED_IP=172.30.10.99\nRXF_PUBLIC_ORIGIN=http://localhost\n' > /tmp/rxf-stack/.env
 cd /tmp/rxf-stack && docker compose up -d --wait
 ```
 

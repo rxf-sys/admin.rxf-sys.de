@@ -3,7 +3,7 @@ import * as OTPAuth from 'otpauth';
 import type { MasterKey } from '../crypto/master-key.ts';
 import { openSecret, type SecretLocation, sealSecret } from '../crypto/secret-box.ts';
 import type { Db } from '../db/database.ts';
-import { userBackupCodes, userTotp } from '../db/schema.ts';
+import { userBackupCodes, userTotp, userWebauthnCredentials } from '../db/schema.ts';
 import { groupCode, normalizeCode, randomBase32, sha256 } from './tokens.ts';
 
 const ISSUER = 'rxf-sys Control';
@@ -149,10 +149,11 @@ export function consumeBackupCode(db: Db, userId: number, input: string, now: nu
   return result.changes > 0;
 }
 
-/** Emergency reset (ADR 0005): removes TOTP and backup codes; the next sign-in must enrol again. */
+/** Emergency reset (ADR 0005): removes TOTP, passkeys and backup codes; the next sign-in must enrol again. */
 export function resetSecondFactor(db: Db, userId: number): void {
   db.transaction((tx) => {
     tx.delete(userTotp).where(eq(userTotp.userId, userId)).run();
+    tx.delete(userWebauthnCredentials).where(eq(userWebauthnCredentials.userId, userId)).run();
     tx.delete(userBackupCodes).where(eq(userBackupCodes.userId, userId)).run();
   });
 }

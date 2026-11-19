@@ -62,7 +62,7 @@ Läuft ein Eintrag ab, wird der jeweilige CI-Job wieder rot.
 | V3 Web Frontend Security | umgesetzt | CSP, Trusted Types, HSTS, `X-Content-Type-Options`, COOP/CORP, `frame-ancestors 'none'`, `__Host-`-Cookie |
 | V4 API and Web Service | umgesetzt | JSON-only, einheitliches Fehlerformat, `Cache-Control: no-store`, Antworten gegen Schemas serialisiert |
 | V5 File Handling | nicht anwendbar | keine Uploads; der Import/Export von Boards (Phase 6) wird hier nachgetragen |
-| V6 Authentication | umgesetzt | Argon2id, Längen- und Listenprüfung, Backoff, TOTP mit Replay-Schutz, Backup-Codes; Passkeys (4.7) |
+| V6 Authentication | umgesetzt | Argon2id, Längen- und Listenprüfung, Backoff, TOTP mit Replay-Schutz, Backup-Codes, Passkeys mit Nutzerverifikation (WebAuthn, RP-ID = Hostname) |
 | V7 Session Management | umgesetzt | 256-Bit-Token, Hash in DB, Rotation, Timeouts, Widerruf, Re-Auth-Fenster |
 | V8 Authorization | umgesetzt | Default deny je Route, Rollen nur serverseitig; Aktionsrechte je Instanz folgen |
 | V9 Self-contained Tokens | nicht anwendbar | keine JWTs |

@@ -35,6 +35,8 @@ export interface AppOptions {
   collectors?: boolean;
   /** Live-stream heartbeat; shorter in tests. */
   heartbeatMs?: number;
+  /** Origin the browser sees (RXF_PUBLIC_ORIGIN); passkeys are bound to its hostname. */
+  publicOrigin?: string;
 }
 
 export function buildApp(options: AppOptions): FastifyInstance {
@@ -74,6 +76,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     masterKey: options.masterKey,
     commonPasswords: options.commonPasswords ?? loadCommonPasswords(),
     now,
+    publicOrigin: options.publicOrigin ?? 'http://localhost:5173',
   });
   const collectors = options.collectors ?? true;
   const host = new PluginHost(options.plugins ?? pluginRegistry);

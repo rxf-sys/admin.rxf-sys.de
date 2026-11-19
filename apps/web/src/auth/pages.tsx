@@ -2,7 +2,9 @@ import { backupCodesResponse, loginResponse, totpEnrolmentResponse } from '@rxf/
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { okResponse, sendJson } from '../api.ts';
+import { describeAgent } from '../app/agent.ts';
 import { t } from '../i18n.ts';
+import { passkeysSupported, registerPasskey, signInWithPasskey } from '../passkeys.ts';
 import { sessionKey } from '../session.ts';
 import { BackupCodes } from '../ui/BackupCodes.tsx';
 import { errorText } from '../ui/errors.ts';
@@ -94,7 +96,29 @@ export function LoginPage() {
           {t('login.submit')}
         </button>
       </form>
+      <PasskeySignIn label={t('login.passkey')} />
     </AuthLayout>
+  );
+}
+
+/** Passwordless sign-in, or the second factor after the password; hidden where WebAuthn is missing. */
+function PasskeySignIn({ label }: { label: string }) {
+  const refresh = useRefreshSession();
+  const passkey = useMutation({ mutationFn: signInWithPasskey, onSuccess: refresh });
+  if (!passkeysSupported()) return null;
+  return (
+    <div className={styles.form}>
+      <p className={styles.divider}>{t('login.or')}</p>
+      <FormError message={passkey.isError ? errorText(passkey.error) : null} />
+      <button
+        type="button"
+        className={`${styles.btn} ${styles.outline} ${styles.block}`}
+        disabled={passkey.isPending}
+        onClick={() => passkey.mutate()}
+      >
+        {label}
+      </button>
+    </div>
   );
 }
 
@@ -152,6 +176,7 @@ export function VerifyPage() {
           {t('verify.submit')}
         </button>
       </form>
+      <PasskeySignIn label={t('verify.passkey')} />
       <p className={styles.muted}>
         {backup ? null : `${t('verify.noAccess')} `}
         <button type="button" className={styles.linkish} onClick={() => setBackup((v) => !v)}>
@@ -182,6 +207,10 @@ export function EnrolPage() {
       sendJson('POST', '/api/auth/totp/confirm', backupCodesResponse, values),
     // The session is now complete, but the codes are shown first; refreshing would leave this page.
     onSuccess: (result) => setCodes(result.backupCodes),
+  });
+  const passkey = useMutation({
+    mutationFn: () => registerPasskey(describeAgent(navigator.userAgent)),
+    onSuccess: (result) => setCodes(result.backupCodes ?? []),
   });
 
   if (codes) {
@@ -227,6 +256,20 @@ export function EnrolPage() {
               {t('enrol.submit')}
             </button>
           </form>
+          {passkeysSupported() ? (
+            <div className={styles.form}>
+              <p className={styles.divider}>{t('login.or')}</p>
+              <FormError message={passkey.isError ? errorText(passkey.error) : null} />
+              <button
+                type="button"
+                className={`${styles.btn} ${styles.outline} ${styles.block}`}
+                disabled={passkey.isPending}
+                onClick={() => passkey.mutate()}
+              >
+                {t('enrol.passkeyInstead')}
+              </button>
+            </div>
+          ) : null}
         </>
       ) : (
         <p className={styles.muted} role="status">
