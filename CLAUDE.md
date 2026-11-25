@@ -93,7 +93,7 @@ bash /opt/rxf-admin/infrastructure/deploy.sh
 Automatisierter CD via `.github/workflows/cd.yml` — GitHub Secrets benötigt:
 | Secret | Beschreibung |
 |---|---|
-| `DEPLOY_HOST` | IP des LXC (`192.168.2.210`) oder Cloudflare Tunnel SSH-Hostname |
+| `DEPLOY_HOST` | IP des LXC (`192.168.2.202`) oder Cloudflare Tunnel SSH-Hostname |
 | `DEPLOY_USER` | SSH-Nutzer (z.B. `root`) |
 | `DEPLOY_SSH_KEY` | Privater SSH-Schlüssel (ED25519 empfohlen) |
 
@@ -124,18 +124,12 @@ cd /opt/rxf-admin/backend && python -m tools.promote_admin <username>
 Das Script ist idempotent (zweimal aufgerufen meldet "already an active admin")
 und reaktiviert nebenbei einen ggf. deaktivierten Account.
 
-## Roadmap (ausstehend)
+## Roadmap
 
-Wird angegangen, wenn alles andere stabil läuft:
-
-- **i18n (DE/EN-Switch via `react-i18next`)** — ~6 h, boilerplate-intensiv
-  weil alle UI-Strings extrahiert werden müssen. Setup für die Toolchain
-  + Translation-Dateien + Sprach-Selector im SettingsPage.
-- **Onboarding-Wizard** — ~15 h, der dicke Brocken am Ende. First-Login
-  zeigt eine Schritt-für-Schritt-Maske: API-Keys eingeben (PVE, PBS,
-  Cloudflare, UniFi, optional ntfy/SMTP), Test-Probe pro Integration,
-  Tab-Auswahl (welche Tabs der User aktivieren möchte). Pro-User-Config
-  persistieren + dynamisches Tab-Rendering basierend darauf.
+Die frühere v1-Roadmap (i18n, Onboarding-Wizard) ist im v2-Neubau aufgegangen:
+v2 hat ein typisiertes i18n-Paket (`packages/i18n`) und einen Onboarding-Wizard.
+Offene v2-Phasen: 5 Integrationen (PVE, PBS, Cloudflare, UniFi, danach neue),
+6 Board-Import/-Export, 7 Alarme, 8 ASVS-Nachweis und Lasttest, 9 Umstieg.
 
 ## CI/CD
 

@@ -34,7 +34,8 @@ services:
         # 502s on /api/* right after `docker compose up`.
         condition: service_healthy
     ports:
-      # cloudflared on CT 104 forwards admin.rxf-sys.de -> http://192.168.2.210:80
+      # cloudflared on CT 110 forwarded admin.rxf-sys.de to v1 at http://192.168.2.202:80;
+      # since 19.11.2026 the public hostname points to v2 (docs/OPERATIONS.md)
       - "80:80"
     networks:
       - admin

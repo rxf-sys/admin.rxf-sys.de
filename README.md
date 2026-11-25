@@ -1,8 +1,27 @@
 # admin.rxf-sys.de
 
+> **Status:** v1 live in the LAN (CT 101) · v2 rebuild in progress, phases 1 to 4.7 of 9 done · **As of:** 2026-11-25 · Part of my [portfolio](https://portfolio.rxf-sys.de/#projects)
+
+## Two generations
+
+This repository holds two codebases side by side:
+
+- **v1** (`backend/`, `frontend/`, `infrastructure/`): FastAPI + React, the
+  dashboard described in the rest of this README. It runs in the LAN on CT 101.
+- **v2** (`apps/`, `packages/`, `e2e/`, `infrastructure-v2/`): a rebuild as a pnpm
+  monorepo with a Fastify core, a plugin SDK, mandatory second factor (passkey or
+  TOTP), default-deny route authorisation and signed images rolled out by pull.
+  The public hostname `admin.rxf-sys.de` belongs to v2 (owner decision of
+  19.11.2026). So far the uptime plugin is done; PVE, PBS, Cloudflare and UniFi follow.
+  Decisions: [docs/adr](docs/adr) (0001 to 0009) · operations:
+  [docs/OPERATIONS.md](docs/OPERATIONS.md) · threat model and ASVS status:
+  [docs/SECURITY.md](docs/SECURITY.md) · commands: [CLAUDE.md](CLAUDE.md).
+
+## v1
+
 Live admin dashboard for the **rxf-sys** homeserver infrastructure.
 Surfaces every piece of infra worth keeping an eye on, behind its own
-login at `https://admin.rxf-sys.de`:
+login:
 
 - **Server** — Proxmox VE host CPU / RAM / disk with rings + per-guest RAM
   breakdown + SMART per disk; LXC and VM inventory with live CPU / RAM
@@ -42,11 +61,11 @@ login at `https://admin.rxf-sys.de`:
                   └────────┬────────┘
                            │ outbound tunnel
         ┌──────────────────▼──────────────────┐
-        │  cloudflared (Proxmox host or LXC)  │
+        │  cloudflared (CT 110)               │
         └──────────────────┬──────────────────┘
-                           │ http://192.168.2.210:80
+                           │ http://192.168.2.202:80
                   ┌────────▼────────┐
-                  │  CT 110  admin  │
+                  │  CT 101  admin  │
                   │   ┌──────────┐  │   docker compose
                   │   │  Caddy   │──┼─► serves SPA (dist/)
                   │   │  :80     │──┼─► /api/* → backend:8080
@@ -155,7 +174,7 @@ tasks like 2FA + ntfy + Auto-Audit). The two-line version:
 # On the Proxmox host: one-shot bootstrap
 bash <(curl -fsSL https://raw.githubusercontent.com/rxf-sys/admin.rxf-sys.de/main/infrastructure/setup-lxc.sh)
 
-# Inside CT 110
+# Inside CT 101
 cd /opt/rxf-admin/infrastructure
 nano .env                    # paste tokens + BOOTSTRAP_ADMIN_PASSWORD
 docker compose up -d --build
@@ -270,11 +289,11 @@ regressions.
 
 ## Roadmap
 
-See [CLAUDE.md](CLAUDE.md#roadmap-ausstehend) for the still-open items
-(i18n via react-i18next, first-login onboarding wizard with per-user
-tab config).
+The former v1 roadmap (i18n, first-login onboarding wizard) moved into the
+v2 rebuild: v2 has a typed i18n package and an onboarding wizard. Open v2
+phases: 5 integrations (PVE, PBS, Cloudflare, UniFi, then new ones), 6 board
+import and export, 7 alerts, 8 ASVS proof and load test, 9 cutover.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) if present, otherwise: do what you want, no
-warranty.
+Apache License 2.0, see [LICENSE](LICENSE).
