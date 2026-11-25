@@ -52,6 +52,8 @@ pnpm e2e                     # lokal: PW_CHROMIUM_PATH auf vorhandenes Chromium 
 Konventionen:
 
 - **Fertig heißt:** alle Gates aus `.github/workflows/ci-v2.yml` grün (ADR 0009).
+  Die Gates laufen auf `v2` und `main` (der v2-Code liegt auch auf `main`);
+  Images veröffentlicht nur ein Push auf `v2`.
 - **Coverage:** Kern ≥ 80 %, je Plugin ≥ 70 %.
 - **Workspace-Pakete** exportieren ihre TS-Quellen unter der Bedingung
   `@rxf/source` (Vite, Vitest, Node im Dev-Modus) und `dist/` für
