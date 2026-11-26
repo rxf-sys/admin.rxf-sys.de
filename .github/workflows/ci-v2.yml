@@ -1,11 +1,12 @@
 # CI for the v2 rebuild (ADR 0009). The legacy ci.yml/cd.yml keep serving main until the switch-over.
+# The v2 code is merged into main as well, so its gates run there too; publishing stays v2-only.
 name: CI v2
 
 on:
   push:
-    branches: [v2]
+    branches: [v2, main]
   pull_request:
-    branches: [v2]
+    branches: [v2, main]
 
 permissions:
   contents: read

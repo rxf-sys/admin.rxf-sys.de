@@ -33,7 +33,7 @@ jobs:
 
 # Setup (einmalig):
 # GitHub → Settings → Secrets → Actions:
-#   DEPLOY_HOST  — IP des LXC (192.168.2.210) oder Cloudflare Tunnel SSH-Hostname
+#   DEPLOY_HOST  — IP des LXC (192.168.2.202, CT 101) oder Cloudflare Tunnel SSH-Hostname
 #   DEPLOY_USER  — SSH-Nutzer (z.B. root)
 #   DEPLOY_SSH_KEY — privater SSH-Schlüssel (RSA/ED25519)
 #
